@@ -2,43 +2,43 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What This Is
+## このリポジトリについて
 
-A single-file VectorWorks plugin script (`main.py`) that imports IFC (Industry Foundation Classes) structural grid data and draws it as grid axis objects inside VectorWorks. The target use case is Japanese architectural projects (通り芯 = structural reference grid lines).
+VectorWorks のプラグインスクリプト（`main.py` 単一ファイル）です。IFC（Industry Foundation Classes）形式の構造グリッドデータを読み込み、VectorWorks 上に通り芯オブジェクトとして描画します。日本の建築プロジェクト向けのユースケースを想定しています。
 
-## Running the Script
+## スクリプトの実行方法
 
-This script is not a standalone Python program. It must be executed **inside VectorWorks** as a plugin script. The `vs` module is VectorWorks' proprietary Python scripting API — it is not pip-installable and has no stub package.
+このスクリプトは単独の Python プログラムとして動作しません。**VectorWorks 内でプラグインスクリプトとして実行する必要があります**。`vs` モジュールは VectorWorks 独自の Python スクリプト API であり、pip でインストールすることはできません。
 
-There is no build step, no test suite, and no linter configuration in this repository.
+ビルド手順、テストスイート、リンター設定はいずれも存在しません。
 
-## How the Script Works
+## スクリプトの処理フロー
 
-The single function `import_ifc_grid_with_layers_and_classes()` executes in five phases:
+単一の関数 `import_ifc_grid_with_layers_and_classes()` が以下の 5 フェーズで実行されます。
 
-1. **File selection** — `vs.GetFileN()` opens a native file dialog; the user picks an `.ifc` file.
-2. **IFC parsing** — The file is read as plain text. All newlines are stripped and statements are split on `;`. Three regex patterns extract:
-   - `IFCCARTESIANPOINT` → `points` dict (id → (x, y))
-   - `IFCPOLYLINE` → `polylines` dict (id → list of point ids)
-   - `IFCGRIDAXIS` → `grid_axes` dict (id → {name, poly_id})
-3. **Line resolution** — Each `IFCGRIDAXIS` is resolved through its `IFCPOLYLINE` to its endpoint coordinates. Duplicate lines (same geometry regardless of direction) are deduplicated via a sorted-tuple key. The bounding box center is computed for coordinate centering.
-4. **Coordinate centering** — All coordinates are offset by `(center_x, center_y)` so the drawing lands near the VectorWorks origin.
-5. **Drawing** — For each line, a `GridAxis` custom object is created in VectorWorks using `vs.CreateCustomObjectPath()`. If creation fails, a plain line is drawn as a fallback.
+1. **ファイル選択** — `vs.GetFileN()` でネイティブのファイルダイアログを開き、ユーザーが `.ifc` ファイルを選択します。
+2. **IFC 解析** — ファイルをプレーンテキストとして読み込み、改行をすべて除去してから `;` でステートメントに分割します。3 種類の正規表現で以下を抽出します。
+   - `IFCCARTESIANPOINT` → `points` 辞書（id → (x, y)）
+   - `IFCPOLYLINE` → `polylines` 辞書（id → ポイント id のリスト）
+   - `IFCGRIDAXIS` → `grid_axes` 辞書（id → {name, poly_id}）
+3. **線の解決** — 各 `IFCGRIDAXIS` を `IFCPOLYLINE` 経由でエンドポイント座標に解決します。ソート済みタプルキーを使い、同一ジオメトリの重複線を除去します。座標センタリング用のバウンディングボックス中心も計算します。
+4. **座標センタリング** — 全座標を `(center_x, center_y)` だけオフセットし、描画が VectorWorks の原点付近に収まるようにします。
+5. **描画** — 各線を `vs.CreateCustomObjectPath()` で `GridAxis` カスタムオブジェクトとして生成します。生成に失敗した場合はフォールバックとして通常の線を描画します。
 
-## VectorWorks Layer and Class Conventions
+## VectorWorks のレイヤとクラスの規則
 
-- **Layer**: All objects are placed on the `共通` (Common) layer. If this layer doesn't exist, the script creates it.
-- **Classes** (X vs Y axis determination):
-  - Name starts with `X` (case-insensitive) → class `01作図-01線-01基準線-01通り芯-X通り`
-  - Name starts with `Y` (case-insensitive) → class `01作図-01線-01基準線-01通り芯-Y通り`
-  - Otherwise: a near-vertical line (`|Δx| < |Δy|`) is treated as X, near-horizontal as Y
-- **GridAxis record fields set**: `Label` (the axis name from IFC), `ShowBubbleAt` = `"Start Point"`
+- **レイヤ**: すべてのオブジェクトを `共通` レイヤに配置します。存在しない場合はスクリプトが自動作成します。
+- **クラス**（X 通り・Y 通りの判定）:
+  - 名前が `X` で始まる（大文字小文字不問）→ クラス `01作図-01線-01基準線-01通り芯-X通り`
+  - 名前が `Y` で始まる（大文字小文字不問）→ クラス `01作図-01線-01基準線-01通り芯-Y通り`
+  - それ以外: `|Δx| < |Δy|` の線（垂直に近い）を X 通り、それ以外を Y 通りとして扱います
+- **GridAxis レコードフィールド**: `Label`（IFC から取得した軸名）、`ShowBubbleAt` = `"Start Point"`
 
-## Key Constraint: Regex-based IFC Parsing
+## 重要な設計上の制約：正規表現による IFC 解析
 
-The script does **not** use a dedicated IFC parser (e.g., `ifcopenshell`). It relies on regex over the raw STEP-format text. This means:
+専用の IFC パーサー（`ifcopenshell` など）は**使用していません**。生の STEP 形式テキストに対して正規表現を適用しています。これにより以下の制限があります。
 
-- Multi-line IFC statements are handled by stripping all newlines first.
-- Only `IFCCARTESIANPOINT`, `IFCPOLYLINE`, and `IFCGRIDAXIS` entity types are extracted; all other IFC geometry is ignored.
-- The regex for `IFCCARTESIANPOINT` only captures the first two coordinates (x, y); Z is ignored.
-- If the IFC file uses non-UTF-8 encoding, the `open(..., encoding='utf-8')` call will raise an exception caught by the outer `try/except`.
+- 改行をすべて除去してから処理するため、複数行の IFC ステートメントにも対応しています。
+- 抽出対象は `IFCCARTESIANPOINT`、`IFCPOLYLINE`、`IFCGRIDAXIS` の 3 エンティティのみです。その他の IFC ジオメトリは無視されます。
+- `IFCCARTESIANPOINT` の正規表現は最初の 2 座標（x, y）のみを取得します。Z 値は無視されます。
+- IFC ファイルが UTF-8 以外のエンコーディングの場合、`open(..., encoding='utf-8')` が例外を送出し、外側の `try/except` に捕捉されます。
