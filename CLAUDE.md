@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## このリポジトリについて
 
-VectorWorks のプラグインスクリプト（`main.py` 単一ファイル）です。IFC（Industry Foundation Classes）形式の構造グリッドデータを読み込み、VectorWorks 上に通り芯オブジェクトとして描画します。日本の建築プロジェクト向けのユースケースを想定しています。
+VectorWorks のプラグインスクリプト（`main.py` 単一ファイル）です。**ホームズ君構造EX** から出力した木造軸組工法建築物の IFC ファイルをパースし、VectorWorks のオブジェクトに変換して配置することに特化しています。
+
+現在実装済みの機能はグリッド線（通り芯）のインポートのみですが、今後以下の要素のインポートも追加する予定です。
+
+- 柱・梁
+- 筋交い・面材
 
 ## スクリプトの実行方法
 
