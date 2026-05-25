@@ -21,11 +21,21 @@ jobs:
       - name: Install package and test dependencies
         run: pip install -e ".[test]"
 
+      - name: Verify dependencies
+        run: |
+          python -c "import ifcopenshell; print(f'ifcopenshell {ifcopenshell.__version__} installed')"
+          python -c "import pytest; print(f'pytest {pytest.__version__} installed')"
+
       - name: Download VectorWorks official vs.py stub
         run: |
           curl -fsSL \
             https://raw.githubusercontent.com/Vectorworks/developer-scripting/main/Python/pages/files/vs.py \
             -o tests/vs.py
+          if [ ! -f tests/vs.py ]; then
+            echo "Failed to download vs.py"
+            exit 1
+          fi
+          echo "vs.py downloaded successfully"
 
       - name: Run tests
         run: pytest tests/ -v
