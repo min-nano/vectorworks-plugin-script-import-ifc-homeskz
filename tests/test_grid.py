@@ -2,139 +2,93 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import ifcopenshell
 import pytest
 
 from vw_import_ifc_homeskz.grid import (
     CLASS_X,
     CLASS_Y,
     determine_class,
-    parse_ifc_content,
     resolve_lines,
 )
 
-# --- サンプル IFC コンテンツ ---
 
-SAMPLE_IFC = """\
-#1 = IFCCARTESIANPOINT((0.,1000.));
-#2 = IFCCARTESIANPOINT((5000.,1000.));
-#3 = IFCCARTESIANPOINT((0.,0.));
-#4 = IFCCARTESIANPOINT((5000.,0.));
-#5 = IFCPOLYLINE((#1,#2));
-#6 = IFCPOLYLINE((#3,#4));
-#7 = IFCGRIDAXIS('X1',#5,.T.);
-#8 = IFCGRIDAXIS('Y1',#6,.T.);
-"""
+def make_ifc_model(*axes):
+    """テスト用 ifcopenshell ファイルオブジェクトを生成する。
 
-
-class TestParseIfcContent:
-    def test_parses_cartesian_points(self):
-        points, _, _ = parse_ifc_content(SAMPLE_IFC)
-        assert points[1] == (0.0, 1000.0)
-        assert points[2] == (5000.0, 1000.0)
-        assert points[3] == (0.0, 0.0)
-        assert points[4] == (5000.0, 0.0)
-
-    def test_parses_polylines(self):
-        _, polylines, _ = parse_ifc_content(SAMPLE_IFC)
-        assert polylines[5] == [1, 2]
-        assert polylines[6] == [3, 4]
-
-    def test_parses_grid_axes(self):
-        _, _, grid_axes = parse_ifc_content(SAMPLE_IFC)
-        assert grid_axes[7] == {'name': 'X1', 'poly_id': 5}
-        assert grid_axes[8] == {'name': 'Y1', 'poly_id': 6}
-
-    def test_empty_content(self):
-        points, polylines, grid_axes = parse_ifc_content("")
-        assert points == {}
-        assert polylines == {}
-        assert grid_axes == {}
-
-    def test_ignores_z_coordinate(self):
-        content = "#10 = IFCCARTESIANPOINT((100.,200.,300.));"
-        points, _, _ = parse_ifc_content(content)
-        assert points[10] == (100.0, 200.0)
-
-    def test_handles_multiline_statements(self):
-        # 改行をまたぐステートメントでも正しく解析できること
-        content = "#1 = IFCCARTESIANPOINT\n((10.,20.));"
-        points, _, _ = parse_ifc_content(content)
-        assert points[1] == (10.0, 20.0)
-
-    def test_ignores_invalid_coordinates(self):
-        content = "#1 = IFCCARTESIANPOINT((abc,def));"
-        points, _, _ = parse_ifc_content(content)
-        assert 1 not in points
-
-    def test_parses_multiple_points_in_polyline(self):
-        content = "#1 = IFCPOLYLINE((#10,#20,#30));"
-        _, polylines, _ = parse_ifc_content(content)
-        assert polylines[1] == [10, 20, 30]
+    axes: ({'name': str, 'points': [(x, y), ...]}, ...)
+    """
+    ifc = ifcopenshell.file()
+    for axis_def in axes:
+        pts = [ifc.create_entity('IfcCartesianPoint', Coordinates=list(coords)) for coords in axis_def['points']]
+        polyline = ifc.create_entity('IfcPolyline', Points=pts)
+        ifc.create_entity('IfcGridAxis', AxisTag=axis_def['name'], AxisCurve=polyline, SameSense=True)
+    return ifc
 
 
 class TestResolveLines:
-    def _build_data(self):
-        points = {1: (0.0, 0.0), 2: (1000.0, 0.0), 3: (500.0, 0.0), 4: (500.0, 1000.0)}
-        polylines = {10: [1, 2], 20: [3, 4]}
-        grid_axes = {
-            100: {'name': 'Y1', 'poly_id': 10},
-            200: {'name': 'X1', 'poly_id': 20},
-        }
-        return points, polylines, grid_axes
-
     def test_resolves_line_coordinates(self):
-        points, polylines, grid_axes = self._build_data()
-        lines, _, _ = resolve_lines(points, polylines, grid_axes)
+        ifc = make_ifc_model(
+            {'name': 'Y1', 'points': [(0.0, 0.0), (1000.0, 0.0)]},
+            {'name': 'X1', 'points': [(500.0, 0.0), (500.0, 1000.0)]},
+        )
+        lines, _, _ = resolve_lines(ifc)
         coords = [(x1, y1, x2, y2) for x1, y1, x2, y2, _ in lines]
         assert (0.0, 0.0, 1000.0, 0.0) in coords
         assert (500.0, 0.0, 500.0, 1000.0) in coords
 
     def test_preserves_axis_name(self):
-        points, polylines, grid_axes = self._build_data()
-        lines, _, _ = resolve_lines(points, polylines, grid_axes)
+        ifc = make_ifc_model(
+            {'name': 'Y1', 'points': [(0.0, 0.0), (1000.0, 0.0)]},
+            {'name': 'X1', 'points': [(500.0, 0.0), (500.0, 1000.0)]},
+        )
+        lines, _, _ = resolve_lines(ifc)
         names = {name for *_, name in lines}
         assert 'X1' in names
         assert 'Y1' in names
 
     def test_deduplicates_identical_lines(self):
-        points = {1: (0.0, 0.0), 2: (1000.0, 0.0)}
-        polylines = {10: [1, 2], 20: [1, 2]}
-        grid_axes = {
-            100: {'name': 'A', 'poly_id': 10},
-            200: {'name': 'B', 'poly_id': 20},
-        }
-        lines, _, _ = resolve_lines(points, polylines, grid_axes)
+        ifc = make_ifc_model(
+            {'name': 'A', 'points': [(0.0, 0.0), (1000.0, 0.0)]},
+            {'name': 'B', 'points': [(0.0, 0.0), (1000.0, 0.0)]},
+        )
+        lines, _, _ = resolve_lines(ifc)
         assert len(lines) == 1
 
     def test_calculates_center(self):
-        points = {1: (0.0, 0.0), 2: (2000.0, 0.0), 3: (1000.0, -1000.0), 4: (1000.0, 1000.0)}
-        polylines = {10: [1, 2], 20: [3, 4]}
-        grid_axes = {
-            100: {'name': 'Y1', 'poly_id': 10},
-            200: {'name': 'X1', 'poly_id': 20},
-        }
-        _, center_x, center_y = resolve_lines(points, polylines, grid_axes)
+        ifc = make_ifc_model(
+            {'name': 'Y1', 'points': [(0.0, 0.0), (2000.0, 0.0)]},
+            {'name': 'X1', 'points': [(1000.0, -1000.0), (1000.0, 1000.0)]},
+        )
+        _, center_x, center_y = resolve_lines(ifc)
         assert center_x == pytest.approx(1000.0)
         assert center_y == pytest.approx(0.0)
 
-    def test_returns_zero_center_when_no_lines(self):
-        lines, center_x, center_y = resolve_lines({}, {}, {})
+    def test_returns_zero_center_when_no_axes(self):
+        ifc = ifcopenshell.file()
+        lines, center_x, center_y = resolve_lines(ifc)
         assert lines == []
         assert center_x == 0.0
         assert center_y == 0.0
 
-    def test_skips_missing_polyline_reference(self):
-        points = {1: (0.0, 0.0), 2: (1000.0, 0.0)}
-        polylines = {}
-        grid_axes = {100: {'name': 'X1', 'poly_id': 99}}
-        lines, _, _ = resolve_lines(points, polylines, grid_axes)
+    def test_skips_none_axis_curve(self):
+        axis = MagicMock()
+        axis.AxisTag = 'X1'
+        axis.AxisCurve = None
+        ifc = MagicMock()
+        ifc.by_type.return_value = [axis]
+        lines, _, _ = resolve_lines(ifc)
         assert lines == []
 
-    def test_skips_missing_point_reference(self):
-        points = {1: (0.0, 0.0)}
-        polylines = {10: [1, 99]}
-        grid_axes = {100: {'name': 'X1', 'poly_id': 10}}
-        lines, _, _ = resolve_lines(points, polylines, grid_axes)
+    def test_skips_non_polyline_curve(self):
+        axis = MagicMock()
+        axis.AxisTag = 'X1'
+        curve = MagicMock()
+        curve.is_a.return_value = False
+        axis.AxisCurve = curve
+        ifc = MagicMock()
+        ifc.by_type.return_value = [axis]
+        lines, _, _ = resolve_lines(ifc)
         assert lines == []
 
 
@@ -192,9 +146,13 @@ class TestRun:
     def test_run_imports_lines(self):
         vs_mock = self._make_vs_mock()
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ifc', delete=False, encoding='utf-8') as f:
-            f.write(SAMPLE_IFC)
-            ifc_path = f.name
+        ifc = make_ifc_model(
+            {'name': 'X1', 'points': [(0.0, 1000.0), (5000.0, 1000.0)]},
+            {'name': 'Y1', 'points': [(0.0, 0.0), (5000.0, 0.0)]},
+        )
+        fd, ifc_path = tempfile.mkstemp(suffix='.ifc')
+        os.close(fd)
+        ifc.write(ifc_path)
 
         try:
             vs_mock.GetFileN.return_value = (True, ifc_path)
