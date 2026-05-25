@@ -14,11 +14,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## パッケージ構造
 
 ```
-vw_import_ifc_homeskz/   # pip インストール可能なパッケージ本体
-    __init__.py           # run() を公開
-    grid.py               # グリッド線インポートのロジック
-main.py                  # VectorWorks から呼び出すラッパースクリプト
-pyproject.toml           # パッケージメタデータ
+src/
+    vw_import_ifc_homeskz/   # pip インストール可能なパッケージ本体
+        __init__.py           # run() を公開
+        grid.py               # グリッド線インポートのロジック
+main.py                      # VectorWorks から呼び出すラッパースクリプト
+pyproject.toml               # パッケージメタデータ
 ```
 
 ## スクリプトの実行方法
@@ -38,7 +39,7 @@ Python Externals フォルダのパスは OS・VectorWorks のバージョンに
 
 ## スクリプトの処理フロー（grid.py）
 
-`vw_import_ifc_homeskz/grid.py` の `run()` が以下の 5 フェーズで実行されます。
+`src/vw_import_ifc_homeskz/grid.py` の `run()` が以下の 5 フェーズで実行されます。
 
 1. **ファイル選択** — `vs.GetFileN()` でネイティブのファイルダイアログを開き、ユーザーが `.ifc` ファイルを選択します。
 2. **IFC 解析** — ファイルをプレーンテキストとして読み込み、改行をすべて除去してから `;` でステートメントに分割します。3 種類の正規表現で以下を抽出します。
