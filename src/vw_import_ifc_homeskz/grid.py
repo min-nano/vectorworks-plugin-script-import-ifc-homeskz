@@ -1,4 +1,4 @@
-import re
+import ifcopenshell
 
 import vs
 
@@ -6,58 +6,8 @@ CLASS_X = '01作図-01線-01基準線-01通り芯-X通り'
 CLASS_Y = '01作図-01線-01基準線-01通り芯-Y通り'
 
 
-def parse_ifc_content(content):
-    """IFC テキストを解析し (points, polylines, grid_axes) を返す。
-
-    points: {id: (x, y)}
-    polylines: {id: [point_id, ...]}
-    grid_axes: {id: {'name': str, 'poly_id': int}}
-    """
-    content = content.replace('\n', '').replace('\r', '')
-    statements = content.split(';')
-
-    points = {}
-    polylines = {}
-    grid_axes = {}
-
-    pt_pattern = re.compile(r'#(\d+)\s*=\s*IFCCARTESIANPOINT\(\((.*?)\)\)')
-    poly_pattern = re.compile(r'#(\d+)\s*=\s*IFCPOLYLINE\(\((.*?)\)\)')
-    axis_pattern = re.compile(r"#(\d+)\s*=\s*IFCGRIDAXIS\('(.*?)',#(\d+),.*\)")
-
-    for stmt in statements:
-        if 'IFCCARTESIANPOINT' in stmt:
-            match = pt_pattern.search(stmt)
-            if match:
-                id_val = int(match.group(1))
-                coords = match.group(2).split(',')
-                try:
-                    x = float(coords[0].strip())
-                    y = float(coords[1].strip())
-                    points[id_val] = (x, y)
-                except ValueError:
-                    pass
-
-        elif 'IFCPOLYLINE' in stmt:
-            match = poly_pattern.search(stmt)
-            if match:
-                id_val = int(match.group(1))
-                pt_ids_str = match.group(2).replace('#', '').split(',')
-                pt_ids = [int(p.strip()) for p in pt_ids_str if p.strip().isdigit()]
-                polylines[id_val] = pt_ids
-
-        elif 'IFCGRIDAXIS' in stmt:
-            match = axis_pattern.search(stmt)
-            if match:
-                id_val = int(match.group(1))
-                name = match.group(2)
-                poly_id = int(match.group(3))
-                grid_axes[id_val] = {'name': name, 'poly_id': poly_id}
-
-    return points, polylines, grid_axes
-
-
-def resolve_lines(points, polylines, grid_axes):
-    """グリッド軸を座標に解決し (lines_to_draw, center_x, center_y) を返す。
+def resolve_lines(ifc_file):
+    """IfcGridAxis エンティティを座標に解決し (lines_to_draw, center_x, center_y) を返す。
 
     lines_to_draw: [(x1, y1, x2, y2, name), ...]
     """
@@ -67,22 +17,17 @@ def resolve_lines(points, polylines, grid_axes):
     min_x, max_x = float('inf'), float('-inf')
     min_y, max_y = float('inf'), float('-inf')
 
-    for axis_data in grid_axes.values():
-        name = axis_data['name']
-        poly_id = axis_data['poly_id']
-
-        if poly_id not in polylines:
+    for axis in ifc_file.by_type('IfcGridAxis'):
+        name = axis.AxisTag or ''
+        curve = axis.AxisCurve
+        if curve is None or not curve.is_a('IfcPolyline'):
             continue
 
-        pt_ids = polylines[poly_id]
-        for i in range(len(pt_ids) - 1):
-            pt1_id, pt2_id = pt_ids[i], pt_ids[i + 1]
+        pts = [(float(pt.Coordinates[0]), float(pt.Coordinates[1])) for pt in curve.Points]
 
-            if pt1_id not in points or pt2_id not in points:
-                continue
-
-            x1, y1 = points[pt1_id]
-            x2, y2 = points[pt2_id]
+        for i in range(len(pts) - 1):
+            x1, y1 = pts[i]
+            x2, y2 = pts[i + 1]
 
             line_key = tuple(sorted(((x1, y1), (x2, y2))))
             if line_key in drawn_keys:
@@ -123,13 +68,10 @@ def run():
         return
 
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-
         vs.Message("IFCデータを解析中...")
 
-        points, polylines, grid_axes = parse_ifc_content(content)
-        lines_to_draw, center_x, center_y = resolve_lines(points, polylines, grid_axes)
+        ifc_file = ifcopenshell.open(filepath)
+        lines_to_draw, center_x, center_y = resolve_lines(ifc_file)
 
         target_layer = '共通'
         if vs.GetObject(target_layer) == vs.Handle(0):
