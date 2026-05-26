@@ -152,7 +152,7 @@ class TestImportStories:
             ('HANDLE_屋根', 5973.0),
         ]
 
-        level_type_creations = [call.args[0] for call in vs_mock.CreateLayerLevelType.call_args_list]
+        level_type_creations = [call.args[0] for call in vs_mock.CreateLevelType.call_args_list]
         assert 'FL' in level_type_creations
         assert '横架材天端' in level_type_creations
         assert '軒高' in level_type_creations
@@ -161,11 +161,11 @@ class TestImportStories:
         assert layer_names == ['1-FL', '1-横架材天端', '2-FL', '2-横架材天端', '屋根-軒高']
 
         add_level_calls = [call.args for call in vs_mock.AddStoryLevel.call_args_list]
-        assert ('HANDLE_1階', 'FL', 0.0, '1-FL') in add_level_calls
-        assert ('HANDLE_1階', '横架材天端', -48.0, '1-横架材天端') in add_level_calls
-        assert ('HANDLE_2階', 'FL', 0.0, '2-FL') in add_level_calls
-        assert ('HANDLE_2階', '横架材天端', -36.0, '2-横架材天端') in add_level_calls
-        assert ('HANDLE_屋根', '軒高', 0.0, '屋根-軒高') in add_level_calls
+        assert ('HANDLE_1階', 'FL', 0.0) in add_level_calls
+        assert ('HANDLE_1階', '横架材天端', -48.0) in add_level_calls
+        assert ('HANDLE_2階', 'FL', 0.0) in add_level_calls
+        assert ('HANDLE_2階', '横架材天端', -36.0) in add_level_calls
+        assert ('HANDLE_屋根', '軒高', 0.0) in add_level_calls
         # 屋根に FL/横架材天端は作らない
         assert not any(c[0] == 'HANDLE_屋根' and c[1] in ('FL', '横架材天端') for c in add_level_calls)
 
@@ -202,4 +202,4 @@ class TestImportStories:
         story_names = [call.args[0] for call in vs_mock.CreateStory.call_args_list]
         assert story_names == ['屋根']
         add_level_calls = [call.args for call in vs_mock.AddStoryLevel.call_args_list]
-        assert ('HANDLE_屋根', '軒高', 0.0, '屋根-軒高') in add_level_calls
+        assert ('HANDLE_屋根', '軒高', 0.0) in add_level_calls
