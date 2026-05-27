@@ -82,7 +82,7 @@ def create_story_layer(story_handle, level_type, elevation, layer_name):
 
     vs.SetLayerLevelType(layer_h, level_type)
     vs.AssociateLayerWithStory(layer_h, story_handle)
-    vs.AddStoryLevel(story_handle, level_type, elevation)
+    vs.AddStoryLevel(story_handle, level_type, elevation, layer_name)
     vs.SetLayerElevation(layer_h, elevation, 0.0)
     return layer_h
 
