@@ -44,11 +44,15 @@ def collect_stories(ifc_file):
 
     Returns: [(elevation, beam_offset_or_None), ...] を Elevation 昇順で返す。
         最上階は beam_offset=None (軒高のみ)、それ以外は beam_offset=負値 (横架材天端の FL からのオフセット)。
+
+    名前が "FL" で終わらないストーリ (例: 設計GL) は地盤レベル等の参照高であり VW のストーリには
+    しないため除外する。これを残すと既定高さ 0 のストーリが複数できて CreateStory が衝突する。
     """
-    storeys = sorted(
-        ifc_file.by_type('IfcBuildingStorey'),
-        key=lambda s: float(s.Elevation or 0.0),
-    )
+    storeys = [
+        s for s in ifc_file.by_type('IfcBuildingStorey')
+        if (s.Name or '').upper().endswith('FL')
+    ]
+    storeys.sort(key=lambda s: float(s.Elevation or 0.0))
     result = []
     for i, storey in enumerate(storeys):
         elev = float(storey.Elevation or 0.0)
@@ -118,6 +122,11 @@ def import_stories(ifc_file):
         if story_h == vs.Handle(0):
             continue
 
+        # ストーリ高さは CreateStory 直後・レイヤ追加前に設定する。
+        # 直後に設定しないと、次の CreateStory が「既定高さ 0 が既に占有されている」
+        # と判断して失敗するケースがある (複数ストーリが全て高さ 0 で衝突するため)。
+        vs.SetStoryElevationN(story_h, elevation)
+
         prefix = layer_prefix_for(i, is_top)
         layer_specs = []
         if is_top:
@@ -128,9 +137,6 @@ def import_stories(ifc_file):
             layer_specs.append((f'{prefix}-{LEVEL_FL}', 0.0, lh1))
             lh2 = create_story_layer(story_h, LEVEL_BEAM_TOP, beam_offset, f'{prefix}-{LEVEL_BEAM_TOP}')
             layer_specs.append((f'{prefix}-{LEVEL_BEAM_TOP}', beam_offset, lh2))
-
-        # ストーリ高さはレイヤ関連付けの「後」に設定する。
-        vs.SetStoryElevationN(story_h, elevation)
 
         # 診断: 実際に設定された値を取得
         actual_story_elev = vs.GetStoryElevationN(story_h)

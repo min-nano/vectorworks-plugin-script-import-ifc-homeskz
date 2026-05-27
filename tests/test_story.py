@@ -96,6 +96,24 @@ class TestCollectStories:
 
         assert collect_stories(ifcopenshell.file()) == []
 
+    def test_excludes_non_fl_storeys(self):
+        """設計GL 等 "FL" で終わらないストーリは参照高なので除外する。"""
+        from vectorworks_plugin_import_ifc_homeskz.story import collect_stories
+
+        ifc = ifcopenshell.file()
+        make_storey(ifc, '設計GL', 0.0)
+        make_storey(ifc, '1FL', 473.0, [('IfcColumn', -48.0)])
+        make_storey(ifc, '2FL', 3273.0, [('IfcSlab', -36.0)])
+        make_storey(ifc, 'RFL', 5973.0)
+
+        result = collect_stories(ifc)
+
+        assert result == [
+            (473.0, -48.0),
+            (3273.0, -36.0),
+            (5973.0, None),
+        ]
+
 
 def _make_stateful_vs_mock():
     """CreateStory/CreateLayer の作成有無を追跡するステートフルな vs モック。"""
@@ -178,8 +196,8 @@ class TestImportStories:
         assert ('HANDLE_1-横架材天端', -48.0, 0.0) in elev_overwrite_calls
         assert ('HANDLE_屋根-軒高', 0.0, 0.0) in elev_overwrite_calls
 
-        # SetStoryElevationN はそのストーリのレイヤ関連付け後に呼ばれること
-        # (バインディング過程でストーリ高さが 0 にリセットされるのを回避する)
+        # SetStoryElevationN は CreateStory 直後・AssociateLayerWithStory より前に呼ばれること
+        # (複数ストーリが既定高さ 0 で衝突して次の CreateStory が失敗するのを回避する)
         for story_handle, story_layer in [
             ('HANDLE_1階', 'HANDLE_1-FL'),
             ('HANDLE_2階', 'HANDLE_2-FL'),
@@ -193,8 +211,8 @@ class TestImportStories:
                 i for i, c in enumerate(vs_mock.mock_calls)
                 if c[0] == 'SetStoryElevationN' and c.args[0] == story_handle
             )
-            assert set_elev_idx > associate_idx, (
-                f'{story_handle} の SetStoryElevationN は AssociateLayerWithStory より後に呼ばれるべき'
+            assert set_elev_idx < associate_idx, (
+                f'{story_handle} の SetStoryElevationN は AssociateLayerWithStory より前に呼ばれるべき'
             )
 
     def test_empty_ifc_returns_zero(self):
