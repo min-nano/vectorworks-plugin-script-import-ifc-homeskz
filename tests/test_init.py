@@ -50,8 +50,10 @@ def _make_vs_mock():
 def _reload_package():
     import vectorworks_plugin_import_ifc_homeskz as pkg
     import vectorworks_plugin_import_ifc_homeskz.grid as grid_module
+    import vectorworks_plugin_import_ifc_homeskz.member as member_module
     import vectorworks_plugin_import_ifc_homeskz.story as story_module
     importlib.reload(grid_module)
+    importlib.reload(member_module)
     importlib.reload(story_module)
     importlib.reload(pkg)
     return pkg

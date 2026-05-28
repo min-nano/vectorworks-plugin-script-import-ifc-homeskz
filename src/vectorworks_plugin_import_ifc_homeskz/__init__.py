@@ -3,9 +3,10 @@ import ifcopenshell
 import vs
 
 from .grid import TARGET_LAYER, import_grids
+from .member import import_members
 from .story import import_stories
 
-__all__ = ['run', 'import_grids', 'import_stories']
+__all__ = ['run', 'import_grids', 'import_members', 'import_stories']
 
 
 def run():
@@ -21,11 +22,13 @@ def run():
 
         story_count = import_stories(ifc_file)
         grid_count = import_grids(ifc_file)
+        member_count = import_members(ifc_file)
 
         vs.ClrMessage()
         vs.AlrtDialog(
             f'読込完了: {story_count} 階のストーリ・ストーリレベル・デザインレイヤを設定し、'
             f'「{TARGET_LAYER}」レイヤに {grid_count} 本の通り芯を配置しました。'
+            f' 横架材天端レイヤに {member_count} 本の構造材を配置しました。'
         )
 
     except Exception as e:
