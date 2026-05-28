@@ -1,4 +1,5 @@
 import importlib
+import math
 from unittest.mock import MagicMock, call, patch
 
 import ifcopenshell
@@ -15,16 +16,22 @@ def make_storey(ifc, name, elevation):
 
 
 def make_beam(ifc, storey, ox, oy, dx=1.0, dy=0.0,
-              width=120.0, height=180.0, length=3000.0, material_name=''):
+              width=120.0, height=180.0, length=3000.0,
+              material_name='', name=None,
+              tree_type='', tree_class=''):
     """テスト用 IfcBeam を生成して storey に追加する。
 
     Parameters
     ----------
-    ox, oy   : ビーム始端の XY 座標 (mm)
-    dx, dy   : ビーム軸方向の成分 (ビーム局所 X 方向)
-    width    : IfcRectangleProfileDef.XDim (幅, mm)
-    height   : IfcRectangleProfileDef.YDim (背, mm)
-    length   : IfcExtrudedAreaSolid.Depth (長さ, mm)
+    ox, oy       : ビーム始端の XY 座標 (mm)
+    dx, dy       : ビーム軸方向の成分 (ビーム局所 Z 方向 = Axis)
+    width        : IfcRectangleProfileDef.XDim (幅, mm)
+    height       : IfcRectangleProfileDef.YDim (背, mm)
+    length       : IfcExtrudedAreaSolid.Depth (長さ, mm)
+    material_name: IfcRelAssociatesMaterial で結合する材料名 (フォールバック用)
+    name         : ビーム名 (例: '木口:梁:1')
+    tree_type    : JPPset_TimberElementGeneral.TimberSpecies
+    tree_class   : JPPset_TimberElementGeneral.StrengthClass
     """
     # 配置（梁の延伸方向 = ローカル Z = Axis 属性）
     pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[ox, oy, 0.0])
@@ -57,10 +64,30 @@ def make_beam(ifc, storey, ox, oy, dx=1.0, dy=0.0,
     prod_def = ifc.create_entity('IfcProductDefinitionShape', Representations=[shape_rep])
 
     beam = ifc.create_entity(
-        'IfcBeam', ObjectPlacement=local_placement, Representation=prod_def
+        'IfcBeam', ObjectPlacement=local_placement, Representation=prod_def,
+        Name=name,
     )
 
-    # 材料関連付け
+    # JPPset_TimberElementGeneral を持つ IfcBeamType を作成
+    if tree_type or tree_class:
+        pset_props = []
+        if tree_type:
+            pset_props.append(ifc.create_entity(
+                'IfcPropertySingleValue', Name='TimberSpecies',
+                NominalValue=ifc.create_entity('IfcLabel', wrappedValue=tree_type),
+            ))
+        if tree_class:
+            pset_props.append(ifc.create_entity(
+                'IfcPropertySingleValue', Name='StrengthClass',
+                NominalValue=ifc.create_entity('IfcLabel', wrappedValue=tree_class),
+            ))
+        pset = ifc.create_entity(
+            'IfcPropertySet', Name='JPPset_TimberElementGeneral', HasProperties=pset_props
+        )
+        beam_type = ifc.create_entity('IfcBeamType', HasPropertySets=[pset])
+        ifc.create_entity('IfcRelDefinesByType', RelatingType=beam_type, RelatedObjects=[beam])
+
+    # 材料関連付け（フォールバック確認用）
     if material_name:
         mat = ifc.create_entity('IfcMaterial', Name=material_name)
         ifc.create_entity('IfcRelAssociatesMaterial', RelatedObjects=[beam], RelatingMaterial=mat)
@@ -86,7 +113,7 @@ def _make_vs_mock(existing_layers=()):
     """import_members() 用 vs モック。
 
     existing_layers に含まれるレイヤ名は GetObject で非 null を返す。
-    CreateCustomObjectPath は非 null を返し (プラグイン利用可能) 、
+    CreateCustomObject は非 null を返し (プラグイン利用可能)、
     SetRField / ResetObject の呼び出しを追跡できる。
     """
     vs_mock = MagicMock()
@@ -94,7 +121,7 @@ def _make_vs_mock(existing_layers=()):
     non_null_handle = object()
     vs_mock.Handle.return_value = null_handle
     vs_mock.LNewObj.return_value = non_null_handle
-    vs_mock.CreateCustomObjectPath.return_value = non_null_handle
+    vs_mock.CreateCustomObject.return_value = non_null_handle
 
     def get_obj(name):
         return non_null_handle if name in existing_layers else null_handle
@@ -153,10 +180,8 @@ class TestGetPlacement2D:
     def test_normalizes_direction(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _get_placement_2d
 
-        import math
         ifc = ifcopenshell.file()
         pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, 0.0])
-        # 長さ 2 のベクトル
         axis = ifc.create_entity('IfcDirection', DirectionRatios=[2.0, 0.0, 0.0])
         ap = ifc.create_entity('IfcAxis2Placement3D', Location=pt, Axis=axis)
         lp = ifc.create_entity('IfcLocalPlacement', RelativePlacement=ap)
@@ -232,7 +257,7 @@ class TestGetProfileDims:
         from vectorworks_plugin_import_ifc_homeskz.member import _get_profile_dims
 
         profile = MagicMock()
-        profile.is_a = lambda t: False  # IfcRectangleProfileDef でない
+        profile.is_a = lambda t: False
 
         solid = MagicMock()
         solid.is_a = lambda t: t == 'IfcExtrudedAreaSolid'
@@ -250,86 +275,107 @@ class TestGetProfileDims:
 
 
 # ---------------------------------------------------------------------------
-# _get_material_name
+# _get_timber_properties
 # ---------------------------------------------------------------------------
 
-class TestGetMaterialName:
-    def test_extracts_ifc_material_name(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import _get_material_name
+class TestGetTimberProperties:
+    def _make_pset_mock(self, name, props):
+        """IfcPropertySet モックを生成する。"""
+        pset = MagicMock()
+        pset.is_a = lambda t: t == 'IfcPropertySet'
+        pset.Name = name
+        prop_mocks = []
+        for prop_name, value in props.items():
+            p = MagicMock()
+            p.is_a = lambda t, n=prop_name: t == 'IfcPropertySingleValue'
+            p.Name = prop_name
+            nv = MagicMock()
+            nv.wrappedValue = value
+            p.NominalValue = nv
+            prop_mocks.append(p)
+        pset.HasProperties = prop_mocks
+        return pset
+
+    def test_reads_from_beam_type_pset(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_timber_properties
+
+        pset = self._make_pset_mock('JPPset_TimberElementGeneral', {
+            'TimberSpecies': 'ひのき',
+            'StrengthClass': 'E50(機械等級)',
+        })
+        beam_type = MagicMock()
+        beam_type.HasPropertySets = [pset]
+
+        rel_type = MagicMock()
+        rel_type.is_a = lambda t: t == 'IfcRelDefinesByType'
+        rel_type.RelatingType = beam_type
+
+        elem = MagicMock()
+        elem.IsDefinedBy = [rel_type]
+        elem.HasAssociations = []
+
+        tree_type, tree_class = _get_timber_properties(elem)
+        assert tree_type == 'ひのき'
+        assert tree_class == 'E50(機械等級)'
+
+    def test_falls_back_to_material_association(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_timber_properties
 
         mat = MagicMock()
         mat.is_a = lambda t: t == 'IfcMaterial'
         mat.Name = '杉対称異等級集成材E105-F355'
 
-        rel = MagicMock()
-        rel.is_a = lambda t: t == 'IfcRelAssociatesMaterial'
-        rel.RelatingMaterial = mat
+        rel_mat = MagicMock()
+        rel_mat.is_a = lambda t: t == 'IfcRelAssociatesMaterial'
+        rel_mat.RelatingMaterial = mat
 
         elem = MagicMock()
-        elem.HasAssociations = [rel]
-        assert _get_material_name(elem) == '杉対称異等級集成材E105-F355'
+        elem.IsDefinedBy = []
+        elem.HasAssociations = [rel_mat]
 
-    def test_extracts_first_material_from_material_list(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import _get_material_name
-
-        mat0 = MagicMock()
-        mat0.Name = '1 番目の材種'
-        mat_list = MagicMock()
-        mat_list.is_a = lambda t: t == 'IfcMaterialList'
-        mat_list.Materials = [mat0]
-
-        rel = MagicMock()
-        rel.is_a = lambda t: t == 'IfcRelAssociatesMaterial'
-        rel.RelatingMaterial = mat_list
-
-        elem = MagicMock()
-        elem.HasAssociations = [rel]
-        assert _get_material_name(elem) == '1 番目の材種'
+        tree_type, tree_class = _get_timber_properties(elem)
+        assert tree_type == '杉対称異等級集成材E105-F355'
+        assert tree_class == ''
 
     def test_returns_empty_when_no_association(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import _get_material_name
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_timber_properties
 
         elem = MagicMock()
+        elem.IsDefinedBy = []
         elem.HasAssociations = []
-        assert _get_material_name(elem) == ''
 
-    def test_skips_non_material_relations(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import _get_material_name
-
-        rel = MagicMock()
-        rel.is_a = lambda t: False  # IfcRelAssociatesMaterial でない
-
-        elem = MagicMock()
-        elem.HasAssociations = [rel]
-        assert _get_material_name(elem) == ''
+        assert _get_timber_properties(elem) == ('', '')
 
 
 # ---------------------------------------------------------------------------
-# make_member_id
+# _get_kind_from_name
 # ---------------------------------------------------------------------------
 
-class TestMakeMemberId:
-    def test_with_material(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import make_member_id
+class TestGetKindFromName:
+    def test_parses_beam_kind(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_kind_from_name
 
-        assert make_member_id(120, 180, '杉対称異等級集成材E105-F355') == \
-            '120×180 - 杉対称異等級集成材E105-F355'
+        assert _get_kind_from_name('木口:梁:1') == '梁'
 
-    def test_without_material(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import make_member_id
+    def test_parses_girder_kind(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_kind_from_name
 
-        assert make_member_id(120, 180, '') == '120×180'
+        assert _get_kind_from_name('木口:桁:3') == '桁'
 
-    def test_rounds_float_dimensions(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import make_member_id
+    def test_parses_sill_kind(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_kind_from_name
 
-        assert make_member_id(120.4, 179.6, '') == '120×180'
+        assert _get_kind_from_name('木口:土台:2') == '土台'
 
-    def test_rounds_up_when_above_half(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import make_member_id
+    def test_defaults_to_beam_for_none(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_kind_from_name
 
-        assert make_member_id(120.5, 180.5, '') == '121×181' or \
-               make_member_id(120.5, 180.5, '') == '120×180'  # 丸め方向は実装依存
+        assert _get_kind_from_name(None) == '梁'
+
+    def test_defaults_to_beam_for_unexpected_format(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _get_kind_from_name
+
+        assert _get_kind_from_name('unexpected') == '梁'
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +401,6 @@ class TestImportMembers:
         storey = make_storey(ifc, '1FL', 473.0)
         make_beam(ifc, storey, 0.0, 0.0)
         make_beam(ifc, storey, 0.0, 1000.0)
-        # 最上階（屋根）: 横架材天端レイヤなし
         make_storey(ifc, 'RFL', 5973.0)
 
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
@@ -422,60 +467,77 @@ class TestImportMembers:
         assert '2-横架材天端' in layer_calls
 
     def test_applies_grid_center_offset(self):
-        """グリッド中心オフセットを引いた座標で描画することを確認する。"""
+        """グリッド中心オフセットを引いた中心座標で CreateCustomObject を呼ぶことを確認する。"""
         ifc = ifcopenshell.file()
         # グリッド軸: X=0〜2000, Y=0〜2000 → center=(1000, 1000)
         make_grid_axis(ifc, 'X1', 0.0, 0.0, 2000.0, 0.0)
         make_grid_axis(ifc, 'Y1', 0.0, 0.0, 0.0, 2000.0)
         storey = make_storey(ifc, '1FL', 473.0)
         make_storey(ifc, 'RFL', 5973.0)
-        # ビーム始端 (1500, 1500): センタリング後 → (500, 500)
-        # 長さ 600, X 方向 → 終端ベクトル (600, 0)
+        # ビーム始端 (1500, 1500), X 方向, 長さ 600
+        # センタリング後始端: (500, 500), 終端: (1100, 500)
+        # 梁の中点: (800, 500), 角度: atan2(0, 600) = 0
         make_beam(ifc, storey, 1500.0, 1500.0, dx=1.0, dy=0.0, length=600.0)
 
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
-        nurbs_calls = []
-        vertex_calls = []
-        move3d_calls = []
+        create_calls = []
+        rotate_calls = []
+        move_calls = []
 
-        def capture_nurbs(x, y, z, closed, order):
-            nurbs_calls.append((x, y))
-            return object()
+        def capture_create(name, x, y, angle):
+            create_calls.append((name, x, y, angle))
+            return vs_mock.Handle.return_value.__class__()  # non-null
 
-        def capture_vertex(h, x, y, z):
-            vertex_calls.append((x, y))
+        def capture_rotate(rx, ry, rz):
+            rotate_calls.append((rx, ry, rz))
 
-        def capture_move3d(x, y, z):
-            move3d_calls.append((x, y, z))
+        def capture_move(x, y, z):
+            move_calls.append((x, y, z))
 
-        vs_mock.CreateNurbsCurve.side_effect = capture_nurbs
-        vs_mock.AddVertex3D.side_effect = capture_vertex
-        vs_mock.Move3D.side_effect = capture_move3d
+        non_null = object()
+        vs_mock.CreateCustomObject.side_effect = lambda *a: non_null
+        vs_mock.Rotate3D.side_effect = capture_rotate
+        vs_mock.Move3D.side_effect = capture_move
+
+        # CreateCustomObject の呼び出しを追跡
+        original_create = vs_mock.CreateCustomObject.side_effect
+        vs_mock.CreateCustomObject.side_effect = None
+        vs_mock.CreateCustomObject.return_value = non_null
+
+        real_create_calls = []
+
+        def track_create(name, x, y, angle):
+            real_create_calls.append((name, x, y, angle))
+            return non_null
+
+        vs_mock.CreateCustomObject.side_effect = track_create
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
             import vectorworks_plugin_import_ifc_homeskz.member as member_module
             importlib.reload(member_module)
             member_module.import_members(ifc)
 
-        # パスはローカル原点 (0, 0) から方向ベクトル (length, 0) へ
-        assert (pytest.approx(0.0), pytest.approx(0.0)) in \
-               [(pytest.approx(x), pytest.approx(y)) for x, y in nurbs_calls]
-        assert (pytest.approx(600.0), pytest.approx(0.0)) in \
-               [(pytest.approx(x), pytest.approx(y)) for x, y in vertex_calls]
-        # Move3D でセンタリング後の始端 (1500-1000, 1500-1000) = (500, 500) へ移動
-        # layer_elevation = storey.Elevation + resolve_beam_top_offset = 473 + 0 = 473
+        # CreateCustomObject は原点 (0, 0) に角度 0 で呼ばれる
         assert any(
-            abs(x - 500.0) < 1e-6 and abs(y - 500.0) < 1e-6 and abs(z - 473.0) < 1e-6
-            for x, y, z in move3d_calls
+            name == '梁・桁' and abs(x) < 1e-6 and abs(y) < 1e-6 and abs(angle) < 1e-6
+            for name, x, y, angle in real_create_calls
         )
+        # Move3D は梁の中点 (800, 500) に z=0 で呼ばれる
+        assert any(
+            abs(x - 800.0) < 1e-6 and abs(y - 500.0) < 1e-6 and abs(z) < 1e-6
+            for x, y, z in move_calls
+        )
+        # Rotate3D は角度 0 で呼ばれる
+        assert any(abs(rz) < 1e-6 for _, _, rz in rotate_calls)
 
-    def test_sets_member_id_record_field(self):
-        """構造材 ID が SetRField で設定されることを確認する。"""
-        ifc = ifcopenshell.file()
+    def test_sets_beam_record_fields(self):
+        """梁・桁レコードに正しい値が SetRField で設定されることを確認する。"""
+        ifc = ifcopenshell.file(schema='IFC2X3')  # ホームズ君 IFC は IFC2X3
         storey = make_storey(ifc, '1FL', 473.0)
         make_storey(ifc, 'RFL', 5973.0)
         make_beam(ifc, storey, 0.0, 0.0, width=120.0, height=180.0, length=3000.0,
-                  material_name='杉対称異等級集成材E105-F355')
+                  name='木口:梁:1',
+                  tree_type='杉対称異等級集成材', tree_class='E105-F355')
 
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
 
@@ -484,9 +546,14 @@ class TestImportMembers:
             importlib.reload(member_module)
             member_module.import_members(ifc)
 
-        set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
-        member_id_values = [v for _, _, _, v in set_rfield_args]
-        assert '120×180 - 杉対称異等級集成材E105-F355' in member_id_values
+        set_rfield_calls = {(r, f): v for _, r, f, v in
+                            [c.args for c in vs_mock.SetRField.call_args_list]}
+        assert set_rfield_calls.get(('梁・桁', 'Width')) == '120'
+        assert set_rfield_calls.get(('梁・桁', 'BeamHeight')) == '180'
+        assert set_rfield_calls.get(('梁・桁', 'TreeType')) == '杉対称異等級集成材'
+        assert set_rfield_calls.get(('梁・桁', 'TreeClass')) == 'E105-F355'
+        assert set_rfield_calls.get(('梁・桁', 'Kind')) == '梁'
+        assert set_rfield_calls.get(('梁・桁', 'Reference')) == '中心'
 
     def test_skips_layer_not_yet_created(self):
         """横架材天端レイヤが未生成の場合はそのストーリをスキップする。"""
@@ -495,7 +562,6 @@ class TestImportMembers:
         make_storey(ifc, 'RFL', 5973.0)
         make_beam(ifc, storey, 0.0, 0.0)
 
-        # レイヤが存在しない状態
         vs_mock = _make_vs_mock(existing_layers=set())
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
@@ -507,7 +573,7 @@ class TestImportMembers:
         vs_mock.Layer.assert_not_called()
 
     def test_fallback_to_line_when_plugin_unavailable(self):
-        """構造材プラグインが利用できない場合に通常線にフォールバックする。"""
+        """梁・桁プラグインが利用できない場合に通常線にフォールバックする。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
         make_storey(ifc, 'RFL', 5973.0)
@@ -516,7 +582,7 @@ class TestImportMembers:
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
         # プラグインが存在しない → Handle(0) を返す
         null_handle = vs_mock.Handle.return_value
-        vs_mock.CreateCustomObjectPath.return_value = null_handle
+        vs_mock.CreateCustomObject.return_value = null_handle
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
             import vectorworks_plugin_import_ifc_homeskz.member as member_module
@@ -525,5 +591,5 @@ class TestImportMembers:
 
         # フォールバックでも 1 本描画される
         assert count == 1
-        # SetRField は呼ばれない (フォールバック時)
+        # フォールバック時は SetRField は呼ばれない
         vs_mock.SetRField.assert_not_called()

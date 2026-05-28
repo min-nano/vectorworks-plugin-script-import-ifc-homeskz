@@ -1,8 +1,7 @@
 """横架材天端レイヤに土台・梁・桁を描画するモジュール。
 
 IFC の IfcBeam / IfcMember を走査し、各階の横架材天端レイヤに
-VectorWorks 構造材ツール (CreateCustomObjectPath('StructuralMember', ...)) で配置する。
-構造材 ID は断面寸法と材種から "{幅}×{背} - {材種}" の形式で自動生成する。
+VectorWorks 梁・桁ツール (CreateCustomObject('梁・桁', ...)) で配置する。
 """
 import math
 
@@ -11,7 +10,7 @@ import vs
 from .grid import resolve_lines
 from .story import LEVEL_BEAM_TOP, LEVEL_EAVES, layer_prefix_for, resolve_beam_top_offset
 
-PLUGIN_NAME = 'StructuralMember'
+PLUGIN_NAME = '梁・桁'
 
 LAYER_SUFFIX = LEVEL_BEAM_TOP
 _IFC_MEMBER_TYPES = ('IfcBeam', 'IfcMember')
@@ -74,84 +73,134 @@ def _get_profile_dims(element):
     return None
 
 
-def _get_material_name(element):
-    """IfcProduct に関連付けられた材種名を返す。見つからない場合は空文字。"""
+def _get_timber_properties(element):
+    """IfcProduct とその型から材種 (tree_type) と強度等級 (tree_class) を返す。
+
+    IfcBeamType に関連付けられた JPPset_TimberElementGeneral プロパティセットを
+    優先して参照し、見つからない場合は IfcRelAssociatesMaterial の材料名を
+    tree_type として返す。いずれも見つからない場合は ('', '') を返す。
+    """
+
+    def _read_pset(pset):
+        if not pset.is_a('IfcPropertySet'):
+            return None
+        if pset.Name != 'JPPset_TimberElementGeneral':
+            return None
+        species, grade = '', ''
+        for prop in pset.HasProperties:
+            if not prop.is_a('IfcPropertySingleValue') or prop.NominalValue is None:
+                continue
+            if prop.Name == 'TimberSpecies':
+                species = str(prop.NominalValue.wrappedValue)
+            elif prop.Name == 'StrengthClass':
+                grade = str(prop.NominalValue.wrappedValue)
+        if species or grade:
+            return species, grade
+        return None
+
+    # IfcBeamType 経由で JPPset_TimberElementGeneral を探す
+    for rel in getattr(element, 'IsDefinedBy', ()):
+        if rel.is_a('IfcRelDefinesByType'):
+            element_type = rel.RelatingType
+            for pset in getattr(element_type, 'HasPropertySets', ()):
+                result = _read_pset(pset)
+                if result:
+                    return result
+
+    # element 直属の property sets を確認
+    for rel in getattr(element, 'IsDefinedBy', ()):
+        if rel.is_a('IfcRelDefinesByProperties'):
+            result = _read_pset(rel.RelatingPropertyDefinition)
+            if result:
+                return result
+
+    # フォールバック: IfcRelAssociatesMaterial の材料名を tree_type として使用
     for rel in getattr(element, 'HasAssociations', ()):
         if not rel.is_a('IfcRelAssociatesMaterial'):
             continue
         mat = rel.RelatingMaterial
-        if mat.is_a('IfcMaterial'):
-            return mat.Name or ''
+        if mat.is_a('IfcMaterial') and mat.Name:
+            return mat.Name, ''
         if mat.is_a('IfcMaterialList') and mat.Materials:
-            return mat.Materials[0].Name or ''
+            return mat.Materials[0].Name or '', ''
         if mat.is_a('IfcMaterialLayerSetUsage'):
             layers = mat.ForLayerSet.MaterialLayers
             if layers:
-                return layers[0].Material.Name or ''
-    return ''
+                return layers[0].Material.Name or '', ''
+
+    return '', ''
 
 
-def make_member_id(width, height, material):
-    """断面寸法と材種名から構造材 ID 文字列を生成する。
+def _get_kind_from_name(name):
+    """IFC 要素名 '木口:{kind}:{num}' から材種別 (梁・桁・土台 等) を返す。
 
-    例: make_member_id(120, 180, '杉対称異等級集成材E105-F355')
-        → '120×180 - 杉対称異等級集成材E105-F355'
+    ホームズ君 IFC の名前形式 '木口:土台:1'、'木口:梁:2' などを想定する。
+    形式に合わない場合は '梁' を返す。
     """
-    w = int(round(width))
-    h = int(round(height))
-    return f'{w}×{h} - {material}' if material else f'{w}×{h}'
+    if name:
+        parts = name.split(':')
+        if len(parts) >= 2:
+            return parts[1]
+    return '梁'
 
 
-def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
-    """構造材ツールで 1 本の部材を描画する。
+def _draw_member(x1, y1, x2, y2, width, height, tree_type, tree_class, kind):
+    """梁・桁ツールで 1 本の部材を描画する。
 
-    パスはローカル原点 (0,0,0) から方向ベクトルで定義し、
-    CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
-    これは VW 構造材ツールの期待する配置パターンと一致する。
+    VectorScript のエクスポートパターンと同様に、まず原点に配置してから
+    回転 (Rotate3D) と移動 (Move3D) で実際の位置へ変換する。
+    Reference='中心' を使うため挿入点は梁の中点になる。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
-    # パスをローカル座標で作成 (始点=原点、終点=方向×長さ)
-    path_h = vs.CreateNurbsCurve(0, 0, 0, False, 1)
-    vs.AddVertex3D(path_h, x2 - x1, y2 - y1, 0)
+    length = math.hypot(x2 - x1, y2 - y1)
+    if length < 1.0:
+        return
+
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+    angle = math.atan2(y2 - y1, x2 - x1)
 
     w = int(round(width))
     h = int(round(height))
-    vs.BeginGroup()
-    vs.ClosePoly()
-    vs.Poly(0, 0, 0, h, w, h, w, 0)
-    vs.EndGroup()
-    profile_h = vs.LNewObj()
 
-    obj = vs.CreateCustomObjectPath(PLUGIN_NAME, path_h, profile_h)
-    if obj != vs.Handle(0):
-        # ローカル原点から実際の配置位置へ移動
-        vs.ResetOrientation3D()
-        vs.Move3D(x1, y1, layer_elevation)
-        vs.SetRField(obj, PLUGIN_NAME, 'MemberID', member_id)
-        vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
-        vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, 'MajorDepth', str(h))
-        vs.SetRField(obj, PLUGIN_NAME, 'B', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, 'D', str(h))
-        vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
-        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
-        vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
-        vs.SetRField(obj, PLUGIN_NAME, 'ProfileSeries', 'AISC (Inch)')
-        vs.ResetObject(obj)
-    else:
-        # フォールバック: 通常の直線
+    obj = vs.CreateCustomObject(PLUGIN_NAME, 0, 0, 0)
+    if obj == vs.Handle(0):
         vs.MoveTo(x1, y1)
         vs.LineTo(x2, y2)
         vs.LNewObj()
+        return
+
+    vs.ResetOrientation3D()
+    vs.Rotate3D(0, 0, angle)
+    vs.Move3D(cx, cy, 0)
+
+    vs.SetRField(obj, PLUGIN_NAME, 'Width', str(w))
+    vs.SetRField(obj, PLUGIN_NAME, 'BeamHeight', str(h))
+    vs.SetRField(obj, PLUGIN_NAME, 'Height', str(h))
+    vs.SetRField(obj, PLUGIN_NAME, 'BeamType', '水平梁')
+    vs.SetRField(obj, PLUGIN_NAME, 'Reference', '中心')
+    vs.SetRField(obj, PLUGIN_NAME, 'LineLength', str(length))
+    vs.SetRField(obj, PLUGIN_NAME, 'TreeType', tree_type)
+    vs.SetRField(obj, PLUGIN_NAME, 'TreeClass', tree_class)
+    vs.SetRField(obj, PLUGIN_NAME, 'Kind', kind)
+    vs.SetRField(obj, PLUGIN_NAME, 'ShowJoint', 'False')
+    vs.SetRField(obj, PLUGIN_NAME, 'StartJointLength', '0')
+    vs.SetRField(obj, PLUGIN_NAME, 'EndJointLength', '0')
+    vs.SetRField(obj, PLUGIN_NAME, 'StartBevel', '0°')
+    vs.SetRField(obj, PLUGIN_NAME, 'EndBevel', '0°')
+    vs.SetRField(obj, PLUGIN_NAME, 'StartCutShape', '垂直')
+    vs.SetRField(obj, PLUGIN_NAME, 'EndCutShape', '垂直')
+    vs.SetRField(obj, PLUGIN_NAME, 'ControlPoint01X', str(length / 2.0))
+    vs.SetRField(obj, PLUGIN_NAME, 'ControlPoint01Y', '0')
+    vs.ResetObject(obj)
+    vs.SetZVals(0, 0)
 
 
 def import_members(ifc_file):
     """IFC の横架材 (IfcBeam / IfcMember) を各階の横架材天端レイヤに描画し、配置数を返す。
 
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
-    最上階（屋根）には横架材天端レイヤが存在しないため対象外とする。
+    最上階（屋根）には横架材天端レイヤが存在しないため軒高レイヤに描画する。
     """
     _, center_x, center_y = resolve_lines(ifc_file)
 
@@ -169,19 +218,12 @@ def import_members(ifc_file):
     for i, storey in enumerate(storeys):
         is_top = (i == top_idx)
         prefix = layer_prefix_for(i, is_top)
-        # 最上階は横架材天端レイヤがなく軒高レイヤに描画する
         layer_suffix = LEVEL_EAVES if is_top else LAYER_SUFFIX
         layer_name = f'{prefix}-{layer_suffix}'
 
         if vs.GetObject(layer_name) == vs.Handle(0):
             continue
         vs.Layer(layer_name)
-
-        storey_elevation = float(storey.Elevation or 0.0)
-        if is_top:
-            layer_elevation = storey_elevation
-        else:
-            layer_elevation = storey_elevation + resolve_beam_top_offset(storey)
 
         for rel in storey.ContainsElements:
             for element in rel.RelatedElements:
@@ -203,10 +245,10 @@ def import_members(ifc_file):
                 x2 = x1 + dx * length
                 y2 = y1 + dy * length
 
-                material = _get_material_name(element)
-                member_id = make_member_id(width, height, material)
+                tree_type, tree_class = _get_timber_properties(element)
+                kind = _get_kind_from_name(getattr(element, 'Name', None))
 
-                _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation)
+                _draw_member(x1, y1, x2, y2, width, height, tree_type, tree_class, kind)
                 count += 1
 
     return count
