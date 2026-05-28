@@ -550,10 +550,16 @@ class TestImportMembers:
                             [c.args for c in vs_mock.SetRField.call_args_list]}
         assert set_rfield_calls.get(('梁・桁', 'Width')) == '120'
         assert set_rfield_calls.get(('梁・桁', 'BeamHeight')) == '180'
+        assert set_rfield_calls.get(('梁・桁', 'Height')) == '0'
         assert set_rfield_calls.get(('梁・桁', 'TreeType')) == '杉対称異等級集成材'
         assert set_rfield_calls.get(('梁・桁', 'TreeClass')) == 'E105-F355'
         assert set_rfield_calls.get(('梁・桁', 'Kind')) == '梁'
         assert set_rfield_calls.get(('梁・桁', 'Reference')) == '中心'
+        assert set_rfield_calls.get(('梁・桁', 'Offset')) == '150'
+        assert set_rfield_calls.get(('梁・桁', 'StartJoint')) == ' '
+        assert set_rfield_calls.get(('梁・桁', 'EndJoint')) == ' '
+        # ControlPoint01Y = height/2 + 150 = 180/2 + 150 = 240.0
+        assert set_rfield_calls.get(('梁・桁', 'ControlPoint01Y')) == '240.0'
 
     def test_skips_layer_not_yet_created(self):
         """横架材天端レイヤが未生成の場合はそのストーリをスキップする。"""
