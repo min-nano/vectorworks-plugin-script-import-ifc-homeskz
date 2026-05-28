@@ -1,4 +1,4 @@
-# vectorworks_import_ifc_homeskz
+# vectorworks_plugin_import_ifc_homeskz
 
 **ホームズ君構造EX** から出力した木造軸組工法建築物の IFC ファイルを VectorWorks にインポートするプラグインスクリプトです。
 
