@@ -73,12 +73,27 @@ def layer_prefix_for(index, is_top):
     return STORY_ROOF if is_top else str(index + 1)
 
 
+def story_suffix_for(index, is_top):
+    """CreateStory の suffix (前/後 記号) を返す。
+
+    非空文字でないと 2 回目以降の CreateStory が失敗する。
+    建築慣例の階表記に合わせ、一般階は階番号 ("1", "2", ...)、最上階は "R" (Roof)。
+    """
+    return 'R' if is_top else str(index + 1)
+
+
 def create_story_layer(story_handle, level_type, elevation, layer_name):
     """ストーリレベル付きのデザインレイヤを作成し、(layer_handle, 診断文字列) を返す。
 
-    AddStoryLevelN は「レイヤ ↔ レベルタイプ」の関連付けを行うが、
-    「レイヤ ↔ ストーリ本体」の関連付けは別途 AssociateLayerWithStory が必要。
-    両方を呼ばないと、オーガナイザでデザインレイヤの「ストーリ」列が空になる。
+    呼び出し順序が重要:
+      1. CreateLayer / SetLayerLevelType でレイヤを準備
+      2. AddStoryLevelN で「指定 elevation」のストーリレベルを先に作る
+      3. AssociateLayerWithStory でレイヤ ↔ ストーリ本体を関連付け
+      4. SetLayerElevationN で念のため高さを上書き
+
+    順序を逆 (Associate 先, Add 後) にすると、Associate がレベルタイプを
+    elev=0 で暗黙的に作ってしまい、その後の AddStoryLevelN が
+    "matches levelType or elevation" 制約で失敗してレベルが elev=0 のまま残る。
     """
     layer_h = vs.GetObject(layer_name)
     if layer_h == vs.Handle(0):
@@ -87,14 +102,14 @@ def create_story_layer(story_handle, level_type, elevation, layer_name):
         return layer_h, f'CreateLayer({layer_name}) FAILED'
 
     slt = vs.SetLayerLevelType(layer_h, level_type)
-    alws = vs.AssociateLayerWithStory(layer_h, story_handle)
     asl = vs.AddStoryLevelN(story_handle, level_type, elevation, layer_name)
+    alws = vs.AssociateLayerWithStory(layer_h, story_handle)
     sle = vs.SetLayerElevationN(layer_h, elevation, 0.0)
     actual_z_result = vs.GetLayerElevationN(layer_h)
     actual_z = actual_z_result[0] if isinstance(actual_z_result, tuple) else actual_z_result
     return layer_h, (
-        f'{layer_name}: SetLayerLevelType={slt}, AssociateLayerWithStory={alws}, '
-        f'AddStoryLevelN={asl}, SetLayerElevationN={sle}, z={actual_z}'
+        f'{layer_name}: SetLayerLevelType={slt}, AddStoryLevelN={asl}, '
+        f'AssociateLayerWithStory={alws}, SetLayerElevationN={sle}, z={actual_z}'
     )
 
 
@@ -121,9 +136,7 @@ def import_stories(ifc_file):
 
         story_h = vs.GetObject(story_name)
         if story_h == vs.Handle(0):
-            # CreateStory の suffix は空文字だと 2 回目以降失敗する模様。
-            # 各ストーリでユニークな短い文字列を渡す (実害なし: layer 名は別途明示指定)。
-            suffix = f'_{i + 1}'
+            suffix = story_suffix_for(i, is_top)
             cs_result = vs.CreateStory(story_name, suffix)
             story_h = vs.GetObject(story_name)
             diag_lines.append(

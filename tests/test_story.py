@@ -168,8 +168,8 @@ class TestImportStories:
         assert level_type_names == ['FL', '横架材天端', '軒高']
 
         story_calls = [call.args for call in vs_mock.CreateStory.call_args_list]
-        # ストーリ名とユニークな非空 suffix を渡す (空文字 suffix だと 2 回目以降失敗するため)
-        assert story_calls == [('1階', '_1'), ('2階', '_2'), ('屋根', '_3')]
+        # 建築慣例: 一般階は階番号、最上階は "R"。空文字 suffix だと 2 回目以降失敗する
+        assert story_calls == [('1階', '1'), ('2階', '2'), ('屋根', 'R')]
 
         # 高さ系 API は document units を使う N 付き版を呼ぶ
         elev_calls = [(call.args[0], call.args[1]) for call in vs_mock.SetStoryElevationN.call_args_list]
@@ -204,7 +204,10 @@ class TestImportStories:
         assert ('HANDLE_1-横架材天端', 'HANDLE_1階') in associate_calls
         assert ('HANDLE_屋根-軒高', 'HANDLE_屋根') in associate_calls
 
-        # SetStoryElevationN は CreateStory 直後・各 AddStoryLevelN より前に呼ばれること
+        # 順序制約:
+        # 1. SetStoryElevationN は CreateStory 直後・AddStoryLevelN より前
+        # 2. AddStoryLevelN は AssociateLayerWithStory より前 (Associate が暗黙的に
+        #    elev=0 のレベルを作ってしまうのを避けるため、先に正しい elev でレベルを作る)
         for story_handle in ['HANDLE_1階', 'HANDLE_2階', 'HANDLE_屋根']:
             add_idx = next(
                 i for i, c in enumerate(vs_mock.mock_calls)
@@ -214,8 +217,15 @@ class TestImportStories:
                 i for i, c in enumerate(vs_mock.mock_calls)
                 if c[0] == 'SetStoryElevationN' and c.args[0] == story_handle
             )
+            associate_idx = next(
+                i for i, c in enumerate(vs_mock.mock_calls)
+                if c[0] == 'AssociateLayerWithStory' and c.args[1] == story_handle
+            )
             assert set_elev_idx < add_idx, (
                 f'{story_handle} の SetStoryElevationN は AddStoryLevelN より前に呼ばれるべき'
+            )
+            assert add_idx < associate_idx, (
+                f'{story_handle} の AddStoryLevelN は AssociateLayerWithStory より前に呼ばれるべき'
             )
 
     def test_empty_ifc_returns_zero(self):
