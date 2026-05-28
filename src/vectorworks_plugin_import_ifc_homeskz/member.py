@@ -1,7 +1,7 @@
 """横架材天端レイヤに土台・梁・桁を描画するモジュール。
 
 IFC の IfcBeam / IfcMember を走査し、各階の横架材天端レイヤに
-VectorWorks 構造材ツール (CreateCustomObjectPath('構造材', ...)) で配置する。
+VectorWorks 構造材ツール (CreateCustomObjectPath('StructuralMember', ...)) で配置する。
 構造材 ID は断面寸法と材種から "{幅}×{背} - {材種}" の形式で自動生成する。
 """
 import math
@@ -11,10 +11,7 @@ import vs
 from .grid import resolve_lines
 from .story import LEVEL_BEAM_TOP, layer_prefix_for
 
-# VectorWorks 構造材プラグインオブジェクト名
-PLUGIN_NAME = '構造材'
-# 構造材レコードの部材符号フィールド名（VW プラグイン仕様に合わせて変更可）
-_FIELD_SECTION_ID = '部材符号'
+PLUGIN_NAME = 'StructuralMember'
 
 LAYER_SUFFIX = LEVEL_BEAM_TOP
 _IFC_MEMBER_TYPES = ('IfcBeam', 'IfcMember')
@@ -24,8 +21,9 @@ def _get_placement_2d(element):
     """IfcProduct のローカル配置から 2D 座標 (ox, oy, dx, dy) を返す。
 
     取得できない場合は None を返す。
-    dx, dy は梁軸方向の単位ベクトル（RefDirection の XY 成分）。
-    RefDirection が未設定の場合は (1.0, 0.0) を使う。
+    dx, dy は梁軸方向の単位ベクトル（Axis の XY 成分）。
+    ホームズ君 IFC では押し出し方向が常にローカル Z (Axis) なので
+    梁の延伸方向 = Axis 属性を使う。Axis が未設定の場合は (1.0, 0.0) を使う。
     """
     placement = getattr(element, 'ObjectPlacement', None)
     if placement is None or not placement.is_a('IfcLocalPlacement'):
@@ -39,14 +37,15 @@ def _get_placement_2d(element):
     coords = loc.Coordinates
     ox, oy = float(coords[0]), float(coords[1])
 
-    ref = rel.RefDirection
-    if ref is not None and len(ref.DirectionRatios) >= 2:
-        dx = float(ref.DirectionRatios[0])
-        dy = float(ref.DirectionRatios[1])
-        # 単位ベクトルに正規化
+    axis = rel.Axis
+    if axis is not None and len(axis.DirectionRatios) >= 2:
+        dx = float(axis.DirectionRatios[0])
+        dy = float(axis.DirectionRatios[1])
         norm = math.hypot(dx, dy)
         if norm > 0.0:
             dx, dy = dx / norm, dy / norm
+        else:
+            dx, dy = 1.0, 0.0
     else:
         dx, dy = 1.0, 0.0
 
@@ -103,25 +102,37 @@ def make_member_id(width, height, material):
     return f'{w}×{h} - {material}' if material else f'{w}×{h}'
 
 
-def _draw_member(x1, y1, x2, y2, member_id):
+def _draw_member(x1, y1, x2, y2, width, height, member_id):
     """構造材ツールで 1 本の部材を描画する。
 
     プラグインが利用できない場合は通常の直線にフォールバックする。
     直交する部材との結合は VW プラグインが共有端点を検出して自動的に処理する。
     """
-    vs.BeginPoly()
-    vs.MoveTo(x1, y1)
-    vs.LineTo(x2, y2)
-    vs.EndPoly()
-    path_h = vs.LNewObj()
+    path_h = vs.CreateNurbsCurve(x1, y1, 0, False, 1)
+    vs.AddVertex3D(path_h, x2, y2, 0)
 
+    w = int(round(width))
+    h = int(round(height))
     vs.BeginGroup()
+    vs.ClosePoly()
+    vs.Poly(0, 0, 0, h, w, h, w, 0)
     vs.EndGroup()
     profile_h = vs.LNewObj()
 
     obj = vs.CreateCustomObjectPath(PLUGIN_NAME, path_h, profile_h)
     if obj != vs.Handle(0):
-        vs.SetRField(obj, PLUGIN_NAME, _FIELD_SECTION_ID, member_id)
+        vs.SetRField(obj, PLUGIN_NAME, 'MemberID', member_id)
+        vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
+        vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
+        vs.SetRField(obj, PLUGIN_NAME, 'MajorDepth', str(h))
+        vs.SetRField(obj, PLUGIN_NAME, 'B', str(w))
+        vs.SetRField(obj, PLUGIN_NAME, 'D', str(h))
+        vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
+        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '1')
+        vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '1')
+        vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
+        vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
+        vs.SetRField(obj, PLUGIN_NAME, 'ProfileSeries', 'AISC (Inch)')
         vs.ResetObject(obj)
     else:
         # フォールバック: 通常の直線
@@ -183,7 +194,7 @@ def import_members(ifc_file):
                 material = _get_material_name(element)
                 member_id = make_member_id(width, height, material)
 
-                _draw_member(x1, y1, x2, y2, member_id)
+                _draw_member(x1, y1, x2, y2, width, height, member_id)
                 count += 1
 
     return count

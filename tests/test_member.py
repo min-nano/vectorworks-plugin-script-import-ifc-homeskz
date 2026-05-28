@@ -26,13 +26,10 @@ def make_beam(ifc, storey, ox, oy, dx=1.0, dy=0.0,
     height   : IfcRectangleProfileDef.YDim (背, mm)
     length   : IfcExtrudedAreaSolid.Depth (長さ, mm)
     """
-    # 配置
+    # 配置（梁の延伸方向 = ローカル Z = Axis 属性）
     pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[ox, oy, 0.0])
-    if abs(dx - 1.0) < 1e-10 and abs(dy) < 1e-10:
-        placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt)
-    else:
-        ref = ifc.create_entity('IfcDirection', DirectionRatios=[dx, dy, 0.0])
-        placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt, RefDirection=ref)
+    axis = ifc.create_entity('IfcDirection', DirectionRatios=[dx, dy, 0.0])
+    placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt, Axis=axis)
     local_placement = ifc.create_entity('IfcLocalPlacement', RelativePlacement=placement_3d)
 
     # プロファイルと押し出しソリッド
@@ -126,7 +123,7 @@ class TestGetPlacement2D:
         assert ox == pytest.approx(1000.0)
         assert oy == pytest.approx(2000.0)
 
-    def test_defaults_direction_to_x_axis_when_no_ref_direction(self):
+    def test_defaults_direction_to_x_axis_when_no_axis(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _get_placement_2d
 
         ifc = ifcopenshell.file()
@@ -139,13 +136,13 @@ class TestGetPlacement2D:
         assert dx == pytest.approx(1.0)
         assert dy == pytest.approx(0.0)
 
-    def test_extracts_ref_direction(self):
+    def test_extracts_axis_direction(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _get_placement_2d
 
         ifc = ifcopenshell.file()
         pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, 0.0])
-        ref = ifc.create_entity('IfcDirection', DirectionRatios=[0.0, 1.0, 0.0])
-        ap = ifc.create_entity('IfcAxis2Placement3D', Location=pt, RefDirection=ref)
+        axis = ifc.create_entity('IfcDirection', DirectionRatios=[0.0, 1.0, 0.0])
+        ap = ifc.create_entity('IfcAxis2Placement3D', Location=pt, Axis=axis)
         lp = ifc.create_entity('IfcLocalPlacement', RelativePlacement=ap)
         beam = ifc.create_entity('IfcBeam', ObjectPlacement=lp)
 
@@ -160,8 +157,8 @@ class TestGetPlacement2D:
         ifc = ifcopenshell.file()
         pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, 0.0])
         # 長さ 2 のベクトル
-        ref = ifc.create_entity('IfcDirection', DirectionRatios=[2.0, 0.0, 0.0])
-        ap = ifc.create_entity('IfcAxis2Placement3D', Location=pt, RefDirection=ref)
+        axis = ifc.create_entity('IfcDirection', DirectionRatios=[2.0, 0.0, 0.0])
+        ap = ifc.create_entity('IfcAxis2Placement3D', Location=pt, Axis=axis)
         lp = ifc.create_entity('IfcLocalPlacement', RelativePlacement=ap)
         beam = ifc.create_entity('IfcBeam', ObjectPlacement=lp)
 
@@ -419,31 +416,30 @@ class TestImportMembers:
         make_beam(ifc, storey, 1000.0, 1000.0, dx=1.0, dy=0.0, length=1000.0)
 
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
-        recorded_coords = []
+        nurbs_calls = []
+        vertex_calls = []
 
-        def capture_move(x, y):
-            recorded_coords.append(('move', x, y))
+        def capture_nurbs(x, y, z, closed, order):
+            nurbs_calls.append((x, y))
+            return object()
 
-        def capture_line(x, y):
-            recorded_coords.append(('line', x, y))
+        def capture_vertex(h, x, y, z):
+            vertex_calls.append((x, y))
 
-        vs_mock.MoveTo.side_effect = capture_move
-        vs_mock.LineTo.side_effect = capture_line
+        vs_mock.CreateNurbsCurve.side_effect = capture_nurbs
+        vs_mock.AddVertex3D.side_effect = capture_vertex
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
             import vectorworks_plugin_import_ifc_homeskz.member as member_module
             importlib.reload(member_module)
             member_module.import_members(ifc)
 
-        move_calls = [(x, y) for op, x, y in recorded_coords if op == 'move']
-        line_calls = [(x, y) for op, x, y in recorded_coords if op == 'line']
-        # BeginPoly/MoveTo + LineTo のペアが含まれること
         # センタリング後: 始端 (1000-1000, 1000-1000) = (0, 0)
         #                  終端 (0 + 1.0*1000, 0 + 0.0*1000) = (1000, 0)
         assert (pytest.approx(0.0), pytest.approx(0.0)) in \
-               [(pytest.approx(x), pytest.approx(y)) for x, y in move_calls]
+               [(pytest.approx(x), pytest.approx(y)) for x, y in nurbs_calls]
         assert (pytest.approx(1000.0), pytest.approx(0.0)) in \
-               [(pytest.approx(x), pytest.approx(y)) for x, y in line_calls]
+               [(pytest.approx(x), pytest.approx(y)) for x, y in vertex_calls]
 
     def test_sets_member_id_record_field(self):
         """構造材 ID が SetRField で設定されることを確認する。"""
