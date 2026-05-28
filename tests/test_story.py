@@ -196,23 +196,22 @@ class TestImportStories:
         assert ('HANDLE_1-横架材天端', -48.0, 0.0) in elev_overwrite_calls
         assert ('HANDLE_屋根-軒高', 0.0, 0.0) in elev_overwrite_calls
 
-        # SetStoryElevationN は CreateStory 直後・AssociateLayerWithStory より前に呼ばれること
+        # AssociateLayerWithStory は呼ばない (AddStoryLevelN が auto-associate するため)
+        vs_mock.AssociateLayerWithStory.assert_not_called()
+
+        # SetStoryElevationN は CreateStory 直後・各 AddStoryLevelN より前に呼ばれること
         # (複数ストーリが既定高さ 0 で衝突して次の CreateStory が失敗するのを回避する)
-        for story_handle, story_layer in [
-            ('HANDLE_1階', 'HANDLE_1-FL'),
-            ('HANDLE_2階', 'HANDLE_2-FL'),
-            ('HANDLE_屋根', 'HANDLE_屋根-軒高'),
-        ]:
-            associate_idx = next(
+        for story_handle in ['HANDLE_1階', 'HANDLE_2階', 'HANDLE_屋根']:
+            add_idx = next(
                 i for i, c in enumerate(vs_mock.mock_calls)
-                if c[0] == 'AssociateLayerWithStory' and c.args == (story_layer, story_handle)
+                if c[0] == 'AddStoryLevelN' and c.args[0] == story_handle
             )
             set_elev_idx = next(
                 i for i, c in enumerate(vs_mock.mock_calls)
                 if c[0] == 'SetStoryElevationN' and c.args[0] == story_handle
             )
-            assert set_elev_idx < associate_idx, (
-                f'{story_handle} の SetStoryElevationN は AssociateLayerWithStory より前に呼ばれるべき'
+            assert set_elev_idx < add_idx, (
+                f'{story_handle} の SetStoryElevationN は AddStoryLevelN より前に呼ばれるべき'
             )
 
     def test_empty_ifc_returns_zero(self):
