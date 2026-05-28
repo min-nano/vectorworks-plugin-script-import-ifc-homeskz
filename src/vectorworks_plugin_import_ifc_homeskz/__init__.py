@@ -19,17 +19,14 @@ def run():
 
         ifc_file = ifcopenshell.open(filepath)
 
-        story_count, story_diag_lines = import_stories(ifc_file)
+        story_count = import_stories(ifc_file)
         grid_count = import_grids(ifc_file)
 
         vs.ClrMessage()
-
-        msg = (
+        vs.AlrtDialog(
             f'読込完了: {story_count} 階のストーリ・ストーリレベル・デザインレイヤを設定し、'
-            f'「{TARGET_LAYER}」レイヤに {grid_count} 本の通り芯を配置しました。\n\n'
-            f'--- 診断ログ ---\n' + '\n'.join(story_diag_lines)
+            f'「{TARGET_LAYER}」レイヤに {grid_count} 本の通り芯を配置しました。'
         )
-        vs.AlrtDialog(msg)
 
     except Exception as e:
         vs.ClrMessage()

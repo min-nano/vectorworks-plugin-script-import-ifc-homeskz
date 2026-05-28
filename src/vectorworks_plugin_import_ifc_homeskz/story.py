@@ -83,7 +83,7 @@ def layer_prefix_for(index, is_top):
 
 
 def create_story_level_via_template(story_handle, level_type, elevation, desired_layer_name):
-    """Story Level Template 経由でストーリレベルとそれに紐づくレイヤを作成し、診断文字列を返す。
+    """Story Level Template 経由でストーリレベルとそれに紐づくレイヤを作成する。
 
     VW 2026 では AddStoryLevelN + AssociateLayerWithStory ではレイヤ→レベルの紐付けが
     UI 上 <なし> になるため、ドキュメントで明示的にバインドが保証されている
@@ -99,62 +99,42 @@ def create_story_level_via_template(story_handle, level_type, elevation, desired
     else:
         ok, template_idx = bool(result), -1
 
-    add_result = False
-    renamed = False
-    if ok and template_idx is not None and template_idx >= 0:
-        add_result = vs.AddLevelFromTemplate(story_handle, template_idx)
-        if add_result:
-            layer_h = vs.GetLayerForStory(story_handle, level_type)
-            if layer_h != vs.Handle(0):
-                vs.SetName(layer_h, desired_layer_name)
-                renamed = True
-
-    return (
-        f'{desired_layer_name}: CreateLevelTemplateN={ok}(idx={template_idx}), '
-        f'AddLevelFromTemplate={add_result}, renamed={renamed}'
-    )
+    if not (ok and template_idx is not None and template_idx >= 0):
+        return
+    if not vs.AddLevelFromTemplate(story_handle, template_idx):
+        return
+    layer_h = vs.GetLayerForStory(story_handle, level_type)
+    if layer_h != vs.Handle(0):
+        vs.SetName(layer_h, desired_layer_name)
 
 
 def import_stories(ifc_file):
-    """IFC からストーリ・ストーリレベル・デザインレイヤを生成し、(階数, 診断行リスト) を返す。"""
+    """IFC からストーリ・ストーリレベル・デザインレイヤを生成し、作成階数を返す。"""
     stories = collect_stories(ifc_file)
     if not stories:
-        return 0, ['(IFC にストーリがありません)']
+        return 0
 
-    cllt_fl = vs.CreateLayerLevelType(LEVEL_FL)
-    cllt_bt = vs.CreateLayerLevelType(LEVEL_BEAM_TOP)
-    cllt_ev = vs.CreateLayerLevelType(LEVEL_EAVES)
+    vs.CreateLayerLevelType(LEVEL_FL)
+    vs.CreateLayerLevelType(LEVEL_BEAM_TOP)
+    vs.CreateLayerLevelType(LEVEL_EAVES)
 
     n = len(stories)
     count = 0
-    diag_lines = [
-        f'CreateLayerLevelType: FL={cllt_fl}, 横架材天端={cllt_bt}, 軒高={cllt_ev}',
-        f'IFC ストーリ数 = {n}',
-    ]
     for i, (elevation, beam_offset) in enumerate(stories):
         is_top = i == n - 1
         story_name = story_name_for(i, is_top)
-        diag_lines.append(f'--- [{i}] {story_name} (target elev={elevation}) ---')
 
         story_h = vs.GetObject(story_name)
         if story_h == vs.Handle(0):
-            suffix = story_suffix_for(i, is_top)
-            cs_result = vs.CreateStory(story_name, suffix)
+            vs.CreateStory(story_name, story_suffix_for(i, is_top))
             story_h = vs.GetObject(story_name)
-            diag_lines.append(
-                f'CreateStory(suffix={suffix!r}) -> {cs_result}, '
-                f'GetObject後={"handle" if story_h != vs.Handle(0) else "null"}'
-            )
-        else:
-            diag_lines.append('既存ストーリを再利用')
-
         if story_h == vs.Handle(0):
-            diag_lines.append('★ ストーリ取得失敗、以降スキップ')
             continue
 
-        se_result = vs.SetStoryElevationN(story_h, elevation)
-        actual_elev = vs.GetStoryElevationN(story_h)
-        diag_lines.append(f'SetStoryElevationN({elevation}) -> {se_result}, 実値={actual_elev}')
+        # ストーリ高さは CreateStory 直後・レベル追加前に設定する。
+        # 直後に設定しないと「既定高さ 0 のストーリが複数」となり次の
+        # CreateStory が衝突して失敗するケースがある。
+        vs.SetStoryElevationN(story_h, elevation)
 
         prefix = layer_prefix_for(i, is_top)
         if is_top:
@@ -165,9 +145,8 @@ def import_stories(ifc_file):
                 (LEVEL_BEAM_TOP, beam_offset, f'{prefix}-{LEVEL_BEAM_TOP}'),
             ]
         for level_type, level_offset, layer_name in level_specs:
-            diag_lines.append('  ' + create_story_level_via_template(
-                story_h, level_type, level_offset, layer_name))
+            create_story_level_via_template(story_h, level_type, level_offset, layer_name)
 
         count += 1
 
-    return count, diag_lines
+    return count
