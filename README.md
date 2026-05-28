@@ -8,12 +8,12 @@
 
 **macOS**
 ```bash
-pip install --target "$HOME/Library/Application Support/Vectorworks/2025/Python Externals" .
+pip install --target "$HOME/Library/Application Support/Vectorworks/2025/Python Externals" git+https://github.com/h-ikeda/vectorworks_plugin_import_ifc_homeskz.git
 ```
 
 **Windows（コマンドプロンプト）**
 ```bat
-pip install --target "%APPDATA%\Nemetschek\Vectorworks\2025\Python Externals" .
+pip install --target "%APPDATA%\Nemetschek\Vectorworks\2025\Python Externals" git+https://github.com/h-ikeda/vectorworks_plugin_import_ifc_homeskz.git
 ```
 
 > VectorWorks のバージョンが異なる場合は `2025` の部分を実際のバージョン番号に置き換えてください。
