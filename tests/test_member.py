@@ -534,47 +534,47 @@ class TestImportMembers:
 # ---------------------------------------------------------------------------
 
 class TestEndpointIntrusion:
-    def _make_seg(self, ox, oy, oz, ex, ey, w, element_id=None):
-        return dict(element_id=element_id, ox=ox, oy=oy, oz=oz, ex=ex, ey=ey, ez=oz, dx=0.0, dy=1.0, w=w)
+    def _make_seg(self, ox, oy, oz, ex, ey, w):
+        return dict(ox=ox, oy=oy, oz=oz, ex=ex, ey=ey, ez=oz, w=w)
 
     def test_no_intrusion_when_endpoint_at_face(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
         # 直交する幅 100mm の梁があり、端点がその面上にある（perp_dist == 50mm）
         cross = self._make_seg(-50, -500, 0.0, -50, 500, 100)
-        result = _endpoint_intrusion(-50 + 50, 0.0, 0.0, [cross], None)
+        result = _endpoint_intrusion(-50 + 50, 0.0, 0.0, [cross])
         assert result == pytest.approx(0.0, abs=1e-6)
 
     def test_detects_intrusion(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
         # 直交する幅 105mm の梁に対して端点が中心線上（perp=0）にある場合
         cross = self._make_seg(0, -500, 0.0, 0, 500, 105)
-        result = _endpoint_intrusion(0.0, 0.0, 0.0, [cross], None)
+        result = _endpoint_intrusion(0.0, 0.0, 0.0, [cross])
         assert result == pytest.approx(52.5, abs=1e-6)
 
     def test_partial_intrusion(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
         # 幅 105mm 梁に対して 45mm 離れた端点（7.5mm 食い込み）
         cross = self._make_seg(0, -500, 0.0, 0, 500, 105)
-        result = _endpoint_intrusion(45.0, 0.0, 0.0, [cross], None)
+        result = _endpoint_intrusion(45.0, 0.0, 0.0, [cross])
         assert result == pytest.approx(7.5, abs=1e-6)
 
     def test_skips_endpoint_region(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
-        # t < 0.01（端部付近）はスキップされる
+        # t < 0.01（端部付近）はスキップされる（自己セグメントの始終点に相当）
         cross = self._make_seg(0, 0, 0.0, 0, 1000, 105)
-        result = _endpoint_intrusion(0.0, 5.0, 0.0, [cross], None)  # t=0.005
+        result = _endpoint_intrusion(0.0, 5.0, 0.0, [cross])  # t=0.005
+        assert result == pytest.approx(0.0, abs=1e-6)
+
+    def test_skips_self_segment_via_t_filter(self):
+        from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
+        # 自己セグメントは t=0（始点）または t=1（終点）なので t フィルタで除外される
+        self_seg = self._make_seg(0, -500, 0.0, 0, 500, 105)
+        result = _endpoint_intrusion(0.0, -500.0, 0.0, [self_seg])  # 始点: t=0.0
         assert result == pytest.approx(0.0, abs=1e-6)
 
     def test_skips_different_z(self):
         from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
         # Z が 10mm 超離れた梁はスキップされる
         cross = self._make_seg(0, -500, 100.0, 0, 500, 105)
-        result = _endpoint_intrusion(0.0, 0.0, 0.0, [cross], None)
-        assert result == pytest.approx(0.0, abs=1e-6)
-
-    def test_skips_self_element(self):
-        from vectorworks_plugin_import_ifc_homeskz.member import _endpoint_intrusion
-        seg = self._make_seg(0, -500, 0.0, 0, 500, 105, element_id=42)
-        # skip_element_id に自分自身の id を渡すとスキップされる
-        result = _endpoint_intrusion(0.0, 0.0, 0.0, [seg], 42)
+        result = _endpoint_intrusion(0.0, 0.0, 0.0, [cross])
         assert result == pytest.approx(0.0, abs=1e-6)

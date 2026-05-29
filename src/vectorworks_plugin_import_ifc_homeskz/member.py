@@ -152,7 +152,7 @@ def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
 def _collect_all_beam_segments(ifc_file):
     """IFC 内の全 IfcBeam / IfcMember の位置・方向・断面幅を収集して返す。
 
-    戻り値: list of dict with keys element, ox, oy, oz, ex, ey, ez, dx, dy, w
+    戻り値: list of dict with keys ox, oy, oz, ex, ey, ez, w
     端点補正の参照データとして使用する。
     """
     segments = []
@@ -190,24 +190,21 @@ def _collect_all_beam_segments(ifc_file):
         if norm > 0:
             dx, dy, dz = dx / norm, dy / norm, dz / norm
         segments.append(dict(
-            element_id=element.id(),
             ox=ox, oy=oy, oz=oz,
             ex=ox + dx * length, ey=oy + dy * length, ez=oz + dz * length,
-            dx=dx, dy=dy, w=w,
+            w=w,
         ))
     return segments
 
 
-def _endpoint_intrusion(px, py, pz, segments, skip_element_id):
+def _endpoint_intrusion(px, py, pz, segments):
     """端点 (px, py, pz) が他の梁線分の断面内に食い込む最大量 (mm) を返す。
 
     直交（端点付近を除く）する梁の半幅より垂直距離が小さい場合に食い込みとみなす。
-    skip_element_id には自分自身の element.id() を渡す（None の場合はスキップしない）。
+    自己セグメントは t フィルタ（端点の t=0 または t=1）により自動的に除外される。
     """
     max_intrusion = 0.0
     for seg in segments:
-        if skip_element_id is not None and seg['element_id'] == skip_element_id:
-            continue
         if abs(pz - seg['oz']) > 10:
             continue
         ax, ay = seg['ox'], seg['oy']
@@ -217,7 +214,7 @@ def _endpoint_intrusion(px, py, pz, segments, skip_element_id):
         if seg_len < 1.0:
             continue
         t = ((px - ax) * sdx + (py - ay) * sdy) / (seg_len * seg_len)
-        # t が 0.01〜0.99 の範囲にある場合のみ内部に射影されているとみなす
+        # 端点 t=0 または t=1 は自己セグメント（および端部交点）のため除外
         if t < 0.01 or t > 0.99:
             continue
         perp = abs((px - ax) * sdy - (py - ay) * sdx) / seg_len
@@ -287,8 +284,8 @@ def import_members(ifc_file):
                 ifc_y2 = ifc_y1 + dy * length
 
                 # 端点補正: 直交する梁への食い込み量だけ後退
-                s_in = _endpoint_intrusion(ifc_x1, ifc_y1, oz, all_segments, element.id())
-                e_in = _endpoint_intrusion(ifc_x2, ifc_y2, oz, all_segments, element.id())
+                s_in = _endpoint_intrusion(ifc_x1, ifc_y1, oz, all_segments)
+                e_in = _endpoint_intrusion(ifc_x2, ifc_y2, oz, all_segments)
                 ifc_x1 += s_in * dx
                 ifc_y1 += s_in * dy
                 ifc_x2 -= e_in * dx
