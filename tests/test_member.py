@@ -485,7 +485,7 @@ class TestImportMembers:
             member_module.import_members(ifc)
 
         set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
-        member_id_values = [v for _, _, _, v in set_rfield_args]
+        member_id_values = [v for _, _, f, v in set_rfield_args if f == '部材名']
         assert '120×180 - 杉対称異等級集成材E105-F355' in member_id_values
 
     def test_skips_layer_not_yet_created(self):

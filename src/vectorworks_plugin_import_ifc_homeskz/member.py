@@ -1,8 +1,8 @@
 """横架材天端レイヤに土台・梁・桁を描画するモジュール。
 
 IFC の IfcBeam / IfcMember を走査し、各階の横架材天端レイヤに
-VectorWorks 構造材ツール (CreateCustomObjectPath('StructuralMember', ...)) で配置する。
-構造材 ID は断面寸法と材種から "{幅}×{背} - {材種}" の形式で自動生成する。
+VectorWorks 軸組ツール (CreateCustomObjectPath('軸組', ...)) で配置する。
+部材名は断面寸法と材種から "{幅}×{背} - {材種}" の形式で自動生成する。
 """
 import math
 
@@ -11,7 +11,7 @@ import vs
 from .grid import resolve_lines
 from .story import LEVEL_BEAM_TOP, LEVEL_EAVES, layer_prefix_for, resolve_beam_top_offset
 
-PLUGIN_NAME = 'StructuralMember'
+PLUGIN_NAME = '軸組'
 
 LAYER_SUFFIX = LEVEL_BEAM_TOP
 _IFC_MEMBER_TYPES = ('IfcBeam', 'IfcMember')
@@ -103,11 +103,10 @@ def make_member_id(width, height, material):
 
 
 def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
-    """構造材ツールで 1 本の部材を描画する。
+    """軸組ツールで 1 本の部材を描画する。
 
     パスはローカル原点 (0,0,0) から方向ベクトルで定義し、
     CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
-    これは VW 構造材ツールの期待する配置パターンと一致する。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
     # パスをローカル座標で作成 (始点=原点、終点=方向×長さ)
@@ -127,18 +126,9 @@ def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
         # ローカル原点から実際の配置位置へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x1, y1, layer_elevation)
-        vs.SetRField(obj, PLUGIN_NAME, 'MemberID', member_id)
-        vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
-        vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, 'MajorDepth', str(h))
-        vs.SetRField(obj, PLUGIN_NAME, 'B', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, 'D', str(h))
-        vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
-        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
-        vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
-        vs.SetRField(obj, PLUGIN_NAME, 'ProfileSeries', 'AISC (Inch)')
+        vs.SetRField(obj, PLUGIN_NAME, '部材名', member_id)
+        vs.SetRField(obj, PLUGIN_NAME, '幅', str(w))
+        vs.SetRField(obj, PLUGIN_NAME, '背', str(h))
         vs.ResetObject(obj)
     else:
         # フォールバック: 通常の直線
