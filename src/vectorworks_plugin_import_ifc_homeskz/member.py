@@ -103,32 +103,30 @@ def make_member_id(width, height, material):
 
 
 def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
-    """軸組ツールで 1 本の部材を描画する。
+    """FramingMember (軸組ツール) で 1 本の部材を描画する。
 
-    パスはローカル原点 (0,0,0) から方向ベクトルで定義し、
-    CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
+    CreateCustomObject でローカル原点に生成後、Rotate3D・Move3D で実位置へ移動する。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
-    # パスをローカル座標で作成 (始点=原点、終点=方向×長さ)
-    path_h = vs.CreateNurbsCurve(0, 0, 0, False, 1)
-    vs.AddVertex3D(path_h, x2 - x1, y2 - y1, 0)
-
     w = int(round(width))
     h = int(round(height))
-    vs.BeginGroup()
-    vs.ClosePoly()
-    vs.Poly(0, 0, 0, h, w, h, w, 0)
-    vs.EndGroup()
-    profile_h = vs.LNewObj()
+    length = math.hypot(x2 - x1, y2 - y1)
+    angle = math.degrees(math.atan2(y2 - y1, x2 - x1))
 
-    obj = vs.CreateCustomObjectPath(PLUGIN_NAME, path_h, profile_h)
+    obj = vs.CreateCustomObject(PLUGIN_NAME, 0, 0, 0)
     if obj != vs.Handle(0):
-        # ローカル原点から実際の配置位置へ移動
         vs.ResetOrientation3D()
+        vs.Rotate3D(0, 0, angle)
         vs.Move3D(x1, y1, layer_elevation)
-        vs.SetRField(obj, PLUGIN_NAME, '部材名', member_id)
-        vs.SetRField(obj, PLUGIN_NAME, '幅', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, '背', str(h))
+        vs.SetRField(obj, PLUGIN_NAME, 'width', str(w))
+        vs.SetRField(obj, PLUGIN_NAME, 'height', str(h))
+        vs.SetRField(obj, PLUGIN_NAME, 'type', 'beam')
+        vs.SetRField(obj, PLUGIN_NAME, 'config', 'SWB')
+        vs.SetRField(obj, PLUGIN_NAME, 'structuralUse', 'beam')
+        vs.SetRField(obj, PLUGIN_NAME, 'labelText', member_id)
+        vs.SetRField(obj, PLUGIN_NAME, 'LineLength', str(length))
+        vs.SetRField(obj, PLUGIN_NAME, 'verticalReference', 'top')
+        vs.SetRField(obj, PLUGIN_NAME, 'Material', 'Wood')
         vs.ResetObject(obj)
     else:
         # フォールバック: 通常の直線

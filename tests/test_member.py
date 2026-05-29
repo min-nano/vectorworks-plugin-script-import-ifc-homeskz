@@ -86,7 +86,7 @@ def _make_vs_mock(existing_layers=()):
     """import_members() 用 vs モック。
 
     existing_layers に含まれるレイヤ名は GetObject で非 null を返す。
-    CreateCustomObjectPath は非 null を返し (プラグイン利用可能) 、
+    CreateCustomObject は非 null を返し (プラグイン利用可能) 、
     SetRField / ResetObject の呼び出しを追跡できる。
     """
     vs_mock = MagicMock()
@@ -94,7 +94,7 @@ def _make_vs_mock(existing_layers=()):
     non_null_handle = object()
     vs_mock.Handle.return_value = null_handle
     vs_mock.LNewObj.return_value = non_null_handle
-    vs_mock.CreateCustomObjectPath.return_value = non_null_handle
+    vs_mock.CreateCustomObject.return_value = non_null_handle
 
     def get_obj(name):
         return non_null_handle if name in existing_layers else null_handle
@@ -434,22 +434,22 @@ class TestImportMembers:
         make_beam(ifc, storey, 1500.0, 1500.0, dx=1.0, dy=0.0, length=600.0)
 
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
-        nurbs_calls = []
-        vertex_calls = []
+        create_obj_calls = []
+        rotate3d_calls = []
         move3d_calls = []
 
-        def capture_nurbs(x, y, z, closed, order):
-            nurbs_calls.append((x, y))
-            return object()
+        def capture_create_obj(name, x, y, angle):
+            create_obj_calls.append((name, x, y, angle))
+            return vs_mock.CreateCustomObject.return_value
 
-        def capture_vertex(h, x, y, z):
-            vertex_calls.append((x, y))
+        def capture_rotate3d(rx, ry, rz):
+            rotate3d_calls.append((rx, ry, rz))
 
         def capture_move3d(x, y, z):
             move3d_calls.append((x, y, z))
 
-        vs_mock.CreateNurbsCurve.side_effect = capture_nurbs
-        vs_mock.AddVertex3D.side_effect = capture_vertex
+        vs_mock.CreateCustomObject.side_effect = capture_create_obj
+        vs_mock.Rotate3D.side_effect = capture_rotate3d
         vs_mock.Move3D.side_effect = capture_move3d
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
@@ -457,11 +457,11 @@ class TestImportMembers:
             importlib.reload(member_module)
             member_module.import_members(ifc)
 
-        # パスはローカル原点 (0, 0) から方向ベクトル (length, 0) へ
-        assert (pytest.approx(0.0), pytest.approx(0.0)) in \
-               [(pytest.approx(x), pytest.approx(y)) for x, y in nurbs_calls]
-        assert (pytest.approx(600.0), pytest.approx(0.0)) in \
-               [(pytest.approx(x), pytest.approx(y)) for x, y in vertex_calls]
+        # CreateCustomObject はローカル原点 (0, 0) で呼ばれる
+        assert any(name == 'FramingMember' and x == 0 and y == 0
+                   for name, x, y, _ in create_obj_calls)
+        # X 方向 (angle=0) で Rotate3D が呼ばれる
+        assert any(abs(rz) < 1e-6 for _, _, rz in rotate3d_calls)
         # Move3D でセンタリング後の始端 (1500-1000, 1500-1000) = (500, 500) へ移動
         # layer_elevation = storey.Elevation + resolve_beam_top_offset = 473 + 0 = 473
         assert any(
@@ -485,8 +485,8 @@ class TestImportMembers:
             member_module.import_members(ifc)
 
         set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
-        member_id_values = [v for _, _, f, v in set_rfield_args if f == '部材名']
-        assert '120×180 - 杉対称異等級集成材E105-F355' in member_id_values
+        label_values = [v for _, _, f, v in set_rfield_args if f == 'labelText']
+        assert '120×180 - 杉対称異等級集成材E105-F355' in label_values
 
     def test_skips_layer_not_yet_created(self):
         """横架材天端レイヤが未生成の場合はそのストーリをスキップする。"""
@@ -516,7 +516,7 @@ class TestImportMembers:
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
         # プラグインが存在しない → Handle(0) を返す
         null_handle = vs_mock.Handle.return_value
-        vs_mock.CreateCustomObjectPath.return_value = null_handle
+        vs_mock.CreateCustomObject.return_value = null_handle
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
             import vectorworks_plugin_import_ifc_homeskz.member as member_module
