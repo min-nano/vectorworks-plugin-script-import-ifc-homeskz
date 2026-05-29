@@ -35,6 +35,8 @@ def _get_placement_2d(element):
     if loc is None:
         return None
     coords = loc.Coordinates
+    if len(coords) < 3:
+        return None
     ox, oy, oz = float(coords[0]), float(coords[1]), float(coords[2])
 
     axis = rel.Axis
@@ -150,11 +152,14 @@ def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
 def _collect_all_beam_segments(ifc_file):
     """IFC 内の全 IfcBeam / IfcMember の位置・方向・断面幅を収集して返す。
 
-    戻り値: list of dict with keys ox, oy, oz, ex, ey, ez, dx, dy, w
+    戻り値: list of dict with keys element, ox, oy, oz, ex, ey, ez, dx, dy, w
     端点補正の参照データとして使用する。
     """
     segments = []
-    for element in ifc_file.by_type('IfcBeam'):
+    elements = []
+    for t in _IFC_MEMBER_TYPES:
+        elements.extend(ifc_file.by_type(t))
+    for element in elements:
         placement = getattr(element, 'ObjectPlacement', None)
         if not placement or not placement.is_a('IfcLocalPlacement'):
             continue
@@ -165,6 +170,8 @@ def _collect_all_beam_segments(ifc_file):
         if loc is None:
             continue
         coords = loc.Coordinates
+        if len(coords) < 3:
+            continue
         ox, oy, oz = float(coords[0]), float(coords[1]), float(coords[2])
 
         axis = rel.Axis
@@ -183,6 +190,7 @@ def _collect_all_beam_segments(ifc_file):
         if norm > 0:
             dx, dy, dz = dx / norm, dy / norm, dz / norm
         segments.append(dict(
+            element=element,
             ox=ox, oy=oy, oz=oz,
             ex=ox + dx * length, ey=oy + dy * length, ez=oz + dz * length,
             dx=dx, dy=dy, w=w,
@@ -190,14 +198,14 @@ def _collect_all_beam_segments(ifc_file):
     return segments
 
 
-def _endpoint_intrusion(px, py, pz, segments, skip_seg):
+def _endpoint_intrusion(px, py, pz, segments, skip_element):
     """端点 (px, py, pz) が他の梁線分の断面内に食い込む最大量 (mm) を返す。
 
     直交（端点付近を除く）する梁の半幅より垂直距離が小さい場合に食い込みとみなす。
     """
     max_intrusion = 0.0
     for seg in segments:
-        if seg is skip_seg:
+        if skip_element is not None and seg['element'] is skip_element:
             continue
         if abs(pz - seg['oz']) > 10:
             continue
@@ -205,7 +213,7 @@ def _endpoint_intrusion(px, py, pz, segments, skip_seg):
         bx, by = seg['ex'], seg['ey']
         sdx, sdy = bx - ax, by - ay
         seg_len = math.hypot(sdx, sdy)
-        if seg_len < 1e-6:
+        if seg_len < 1.0:
             continue
         t = ((px - ax) * sdx + (py - ay) * sdy) / (seg_len * seg_len)
         # t が 0.01〜0.99 の範囲にある場合のみ内部に射影されているとみなす
@@ -277,12 +285,9 @@ def import_members(ifc_file):
                 ifc_x2 = ifc_x1 + dx * length
                 ifc_y2 = ifc_y1 + dy * length
 
-                # 対応する _collect_all_beam_segments のエントリを特定
-                seg = _find_segment(all_segments, ifc_x1, ifc_y1, oz, dx, dy, length)
-
                 # 端点補正: 直交する梁への食い込み量だけ後退
-                s_in = _endpoint_intrusion(ifc_x1, ifc_y1, oz, all_segments, seg)
-                e_in = _endpoint_intrusion(ifc_x2, ifc_y2, oz, all_segments, seg)
+                s_in = _endpoint_intrusion(ifc_x1, ifc_y1, oz, all_segments, element)
+                e_in = _endpoint_intrusion(ifc_x2, ifc_y2, oz, all_segments, element)
                 ifc_x1 += s_in * dx
                 ifc_y1 += s_in * dy
                 ifc_x2 -= e_in * dx
@@ -302,16 +307,3 @@ def import_members(ifc_file):
     return count
 
 
-def _find_segment(segments, ox, oy, oz, dx, dy, length):
-    """_collect_all_beam_segments の結果から自分自身のエントリを返す。
-
-    端点比較で一致するものを探す。見つからない場合は None を返す。
-    """
-    ex = ox + dx * length
-    ey = oy + dy * length
-    for seg in segments:
-        if (abs(seg['ox'] - ox) < 1e-3 and abs(seg['oy'] - oy) < 1e-3
-                and abs(seg['oz'] - oz) < 1e-3
-                and abs(seg['ex'] - ex) < 1e-3 and abs(seg['ey'] - ey) < 1e-3):
-            return seg
-    return None
