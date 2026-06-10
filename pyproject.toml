@@ -9,7 +9,28 @@ requires-python = ">=3.9"
 dependencies = ["ifcopenshell"]
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-cov>=4"]
+test = ["pytest>=7", "pytest-cov>=4", "mypy>=1.8"]
 
 [tool.setuptools.package-dir]
 "" = "src"
+
+[tool.mypy]
+# 検査対象の Python バージョンは実行インタプリタに従う。
+# (mypy 1.19 以降は python_version = "3.9" 指定が不可。
+#  3.9 互換は CI の Python matrix の 3.9 レーンで mypy ごと実行して担保する)
+files = ["src", "tests", "main.py"]
+mypy_path = ["src"]
+# VectorWorks 公式 vs.py スタブは生成物で型注釈を持たないため除外する
+exclude = 'tests/vs\.py'
+# すべての関数に型注釈を必須とする（テストコード含む）
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# vs モジュールは VectorWorks 内蔵 API のため型スタブが存在しない。
+# 欠落スタブの許容は vs に限定し、その他の import は既定の厳格設定で検知する
+module = ["vs"]
+ignore_missing_imports = true

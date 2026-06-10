@@ -1,23 +1,27 @@
-"""横架材天端レイヤに土台・梁・桁を描画するモジュール。
+"""横架材 (IfcBeam / IfcMember) の解析と member 命令の組み立て。vs 非依存。
 
-IFC の IfcBeam / IfcMember を走査し、各階の横架材天端レイヤに
-VectorWorks 構造材ツール (CreateCustomObjectPath('StructuralMember', ...)) で配置する。
+IFC の IfcBeam / IfcMember を走査し、各階の横架材天端レイヤ
+（最上階は軒高レイヤ）に配置する member 命令を生成する。
 構造材 ID は断面寸法と材種から "{幅}×{背} - {材種}" の形式で自動生成する。
 """
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
-import vs
-
+from ..document import MemberCommand
 from .grid import resolve_lines
 from .story import LEVEL_BEAM_TOP, LEVEL_EAVES, layer_prefix_for, resolve_beam_top_offset
 
-PLUGIN_NAME = 'StructuralMember'
+if TYPE_CHECKING:
+    import ifcopenshell
 
-LAYER_SUFFIX = LEVEL_BEAM_TOP
 _IFC_MEMBER_TYPES = ('IfcBeam', 'IfcMember')
 
 
-def _get_placement_2d(element):
+def _get_placement_2d(
+    element: ifcopenshell.entity_instance,
+) -> tuple[float, float, float, float] | None:
     """IfcProduct のローカル配置から 2D 座標 (ox, oy, dx, dy) を返す。
 
     取得できない場合は None を返す。
@@ -52,7 +56,9 @@ def _get_placement_2d(element):
     return ox, oy, dx, dy
 
 
-def _get_profile_dims(element):
+def _get_profile_dims(
+    element: ifcopenshell.entity_instance,
+) -> tuple[float, float, float] | None:
     """IfcProduct の体ジオメトリから断面寸法 (width, height, length) を返す。
 
     Body 表現の IfcExtrudedAreaSolid + IfcRectangleProfileDef を解析する。
@@ -74,7 +80,7 @@ def _get_profile_dims(element):
     return None
 
 
-def _get_material_name(element):
+def _get_material_name(element: ifcopenshell.entity_instance) -> str:
     """IfcProduct に関連付けられた材種名を返す。見つからない場合は空文字。"""
     for rel in getattr(element, 'HasAssociations', ()):
         if not rel.is_a('IfcRelAssociatesMaterial'):
@@ -91,7 +97,7 @@ def _get_material_name(element):
     return ''
 
 
-def make_member_id(width, height, material):
+def make_member_id(width: float, height: float, material: str) -> str:
     """断面寸法と材種名から構造材 ID 文字列を生成する。
 
     例: make_member_id(120, 180, '杉対称異等級集成材E105-F355')
@@ -102,56 +108,11 @@ def make_member_id(width, height, material):
     return f'{w}×{h} - {material}' if material else f'{w}×{h}'
 
 
-def _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation):
-    """構造材ツールで 1 本の部材を描画する。
-
-    パスはローカル原点 (0,0,0) から方向ベクトルで定義し、
-    CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
-    これは VW 構造材ツールの期待する配置パターンと一致する。
-    プラグインが利用できない場合は通常の直線にフォールバックする。
-    """
-    # パスをローカル座標で作成 (始点=原点、終点=方向×長さ)
-    path_h = vs.CreateNurbsCurve(0, 0, 0, False, 1)
-    vs.AddVertex3D(path_h, x2 - x1, y2 - y1, 0)
-
-    w = int(round(width))
-    h = int(round(height))
-    vs.BeginGroup()
-    vs.ClosePoly()
-    vs.Poly(0, 0, 0, h, w, h, w, 0)
-    vs.EndGroup()
-    profile_h = vs.LNewObj()
-
-    obj = vs.CreateCustomObjectPath(PLUGIN_NAME, path_h, profile_h)
-    if obj != vs.Handle(0):
-        # ローカル原点から実際の配置位置へ移動
-        vs.ResetOrientation3D()
-        vs.Move3D(x1, y1, layer_elevation)
-        vs.SetRField(obj, PLUGIN_NAME, 'MemberID', member_id)
-        vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
-        vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, 'MajorDepth', str(h))
-        vs.SetRField(obj, PLUGIN_NAME, 'B', str(w))
-        vs.SetRField(obj, PLUGIN_NAME, 'D', str(h))
-        vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
-        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
-        vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
-        vs.SetRField(obj, PLUGIN_NAME, 'ProfileSeries', 'AISC (Inch)')
-        vs.ResetObject(obj)
-    else:
-        # フォールバック: 通常の直線
-        vs.MoveTo(x1, y1)
-        vs.LineTo(x2, y2)
-        vs.LNewObj()
-
-
-def import_members(ifc_file):
-    """IFC の横架材 (IfcBeam / IfcMember) を各階の横架材天端レイヤに描画し、配置数を返す。
+def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
+    """IFC の横架材から member 命令のリストを組み立てる。
 
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
-    最上階（屋根）には横架材天端レイヤが存在しないため対象外とする。
+    最上階（屋根）には横架材天端レイヤが存在しないため軒高レイヤを指定する。
     """
     _, center_x, center_y = resolve_lines(ifc_file)
 
@@ -161,21 +122,17 @@ def import_members(ifc_file):
         key=lambda s: float(s.Elevation or 0.0),
     )
     if not storeys:
-        return 0
+        return []
 
     top_idx = len(storeys) - 1
-    count = 0
+    commands: list[MemberCommand] = []
 
     for i, storey in enumerate(storeys):
         is_top = (i == top_idx)
         prefix = layer_prefix_for(i, is_top)
-        # 最上階は横架材天端レイヤがなく軒高レイヤに描画する
-        layer_suffix = LEVEL_EAVES if is_top else LAYER_SUFFIX
+        # 最上階は横架材天端レイヤがなく軒高レイヤに配置する
+        layer_suffix = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
         layer_name = f'{prefix}-{layer_suffix}'
-
-        if vs.GetObject(layer_name) == vs.Handle(0):
-            continue
-        vs.Layer(layer_name)
 
         storey_elevation = float(storey.Elevation or 0.0)
         if is_top:
@@ -206,7 +163,14 @@ def import_members(ifc_file):
                 material = _get_material_name(element)
                 member_id = make_member_id(width, height, material)
 
-                _draw_member(x1, y1, x2, y2, width, height, member_id, layer_elevation)
-                count += 1
+                commands.append({
+                    'layer': layer_name,
+                    'member_id': member_id,
+                    'start': [x1, y1],
+                    'end': [x2, y2],
+                    'width': width,
+                    'height': height,
+                    'elevation': layer_elevation,
+                })
 
-    return count
+    return commands

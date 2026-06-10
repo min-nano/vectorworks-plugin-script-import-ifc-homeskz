@@ -1,17 +1,28 @@
-import vs
+"""通り芯 (IfcGridAxis) の解析と grid 命令の組み立て。vs 非依存。"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ..document import GridCommand
+
+if TYPE_CHECKING:
+    import ifcopenshell
 
 CLASS_X = '01作図-01線-01基準線-01通り芯-X通り'
 CLASS_Y = '01作図-01線-01基準線-01通り芯-Y通り'
 TARGET_LAYER = '共通'
 
+# (x1, y1, x2, y2, 軸名)
+Line = tuple[float, float, float, float, str]
 
-def resolve_lines(ifc_file):
+
+def resolve_lines(ifc_file: ifcopenshell.file) -> tuple[list[Line], float, float]:
     """IfcGridAxis エンティティを座標に解決し (lines_to_draw, center_x, center_y) を返す。
 
     lines_to_draw: [(x1, y1, x2, y2, name), ...]
     """
-    lines_to_draw = []
-    drawn_keys = set()
+    lines_to_draw: list[Line] = []
+    drawn_keys: set[tuple[tuple[float, float], ...]] = set()
 
     min_x, max_x = float('inf'), float('-inf')
     min_y, max_y = float('inf'), float('-inf')
@@ -50,7 +61,7 @@ def resolve_lines(ifc_file):
     return lines_to_draw, center_x, center_y
 
 
-def determine_class(name, cx1, cy1, cx2, cy2):
+def determine_class(name: str, cx1: float, cy1: float, cx2: float, cy2: float) -> str:
     """グリッド線のクラス名（X通り or Y通り）を返す。"""
     if name.upper().startswith('X'):
         return CLASS_X
@@ -60,44 +71,22 @@ def determine_class(name, cx1, cy1, cx2, cy2):
         return CLASS_X if abs(cx1 - cx2) < abs(cy1 - cy2) else CLASS_Y
 
 
-def import_grids(ifc_file):
-    """IFC ファイルから通り芯 (IfcGridAxis) を VectorWorks に描画し、描画本数を返す。"""
+def build_grid_commands(ifc_file: ifcopenshell.file) -> list[GridCommand]:
+    """IFC の通り芯から grid 命令のリストを組み立てる。
+
+    座標はバウンディングボックス中心でセンタリングし VectorWorks 原点付近に揃える。
+    """
     lines_to_draw, center_x, center_y = resolve_lines(ifc_file)
 
-    if vs.GetObject(TARGET_LAYER) == vs.Handle(0):
-        vs.CreateLayer(TARGET_LAYER, 1)
-    vs.Layer(TARGET_LAYER)
-
-    count = 0
+    commands: list[GridCommand] = []
     for x1, y1, x2, y2, name in lines_to_draw:
         cx1, cy1 = x1 - center_x, y1 - center_y
         cx2, cy2 = x2 - center_x, y2 - center_y
-
-        current_class = determine_class(name, cx1, cy1, cx2, cy2)
-
-        vs.BeginPoly()
-        vs.MoveTo(cx1, cy1)
-        vs.LineTo(cx2, cy2)
-        vs.EndPoly()
-        path_handle = vs.LNewObj()
-
-        vs.BeginGroup()
-        vs.EndGroup()
-        profile_handle = vs.LNewObj()
-
-        grid_obj = vs.CreateCustomObjectPath('GridAxis', path_handle, profile_handle)
-
-        if grid_obj != vs.Handle(0):
-            vs.SetClass(grid_obj, current_class)
-            vs.SetRField(grid_obj, 'GridAxis', 'Label', name)
-            vs.SetRField(grid_obj, 'GridAxis', 'ShowBubbleAt', 'Start Point')
-            vs.ResetObject(grid_obj)
-        else:
-            vs.MoveTo(cx1, cy1)
-            vs.LineTo(cx2, cy2)
-            fallback_line = vs.LNewObj()
-            vs.SetClass(fallback_line, current_class)
-
-        count += 1
-
-    return count
+        commands.append({
+            'label': name,
+            'layer': TARGET_LAYER,
+            'class': determine_class(name, cx1, cy1, cx2, cy2),
+            'start': [cx1, cy1],
+            'end': [cx2, cy2],
+        })
+    return commands

@@ -1,3 +1,10 @@
+"""run() のエンドツーエンドテスト。
+
+IFC 解析フェーズ (ifc) → JSON 命令セット → 描画フェーズ (vw) の
+パイプライン全体を vs モックで検証する。
+"""
+from __future__ import annotations
+
 import importlib
 import os
 import tempfile
@@ -6,32 +13,34 @@ from unittest.mock import MagicMock, patch
 import ifcopenshell
 
 
-def _make_vs_mock():
+def _make_vs_mock() -> MagicMock:
     """ストーリ・レイヤ作成を追跡するステートフルなモック。"""
     vs_mock = MagicMock()
     null_handle = object()
     vs_mock.Handle.return_value = null_handle
 
-    created = set()
+    created: set[str] = set()
 
-    def get_obj(name):
+    def get_obj(name: str) -> object:
         if name in created:
             return 'HANDLE_' + name
         return null_handle
 
-    def create_story(name, suffix):
+    def create_story(name: str, suffix: str) -> bool:
         created.add(name)
         return True
 
-    def create_layer(name, layer_type):
+    def create_layer(name: str, layer_type: int) -> str:
         created.add(name)
         return 'HANDLE_' + name
 
     template_counter = [0]
 
-    def create_level_template(layer_name, scale, level_type, elev, wall_h):
+    def create_level_template(layer_name: str, scale: float, level_type: str,
+                              elev: float, wall_h: float) -> tuple[bool, int]:
         idx = template_counter[0]
         template_counter[0] += 1
+        created.add(layer_name)
         return (True, idx)
 
     vs_mock.GetObject.side_effect = get_obj
@@ -47,30 +56,30 @@ def _make_vs_mock():
     return vs_mock
 
 
-def _reload_package():
-    import vectorworks_plugin_import_ifc_homeskz as pkg
-    import vectorworks_plugin_import_ifc_homeskz.grid as grid_module
-    import vectorworks_plugin_import_ifc_homeskz.member as member_module
-    import vectorworks_plugin_import_ifc_homeskz.story as story_module
-    importlib.reload(grid_module)
-    importlib.reload(member_module)
-    importlib.reload(story_module)
-    importlib.reload(pkg)
-    return pkg
+def _reload_vw_modules() -> None:
+    """vs モックを差し替えた状態で vs 依存モジュール (vw) を再読込する。"""
+    import vectorworks_plugin_import_ifc_homeskz.vw as vw
+    import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
+    import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+    import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
+    importlib.reload(vw_grid)
+    importlib.reload(vw_member)
+    importlib.reload(vw_story)
+    importlib.reload(vw)
 
 
 class TestRun:
-    def test_run_cancel(self):
+    def test_run_cancel(self) -> None:
         vs_mock = _make_vs_mock()
         vs_mock.GetFileN.return_value = (False, '')
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
-            pkg = _reload_package()
+            import vectorworks_plugin_import_ifc_homeskz as pkg
             pkg.run()
 
         vs_mock.AlrtDialog.assert_called_once_with('キャンセルされました。')
 
-    def test_run_imports_grids_and_stories(self):
+    def test_run_imports_grids_and_stories(self) -> None:
         vs_mock = _make_vs_mock()
 
         ifc = ifcopenshell.file()
@@ -91,7 +100,8 @@ class TestRun:
             vs_mock.GetFileN.return_value = (True, ifc_path)
 
             with patch.dict('sys.modules', {'vs': vs_mock}):
-                pkg = _reload_package()
+                _reload_vw_modules()
+                import vectorworks_plugin_import_ifc_homeskz as pkg
                 pkg.run()
 
             completion = vs_mock.AlrtDialog.call_args[0][0]
@@ -109,12 +119,13 @@ class TestRun:
         finally:
             os.unlink(ifc_path)
 
-    def test_run_error_handling(self):
+    def test_run_error_handling(self) -> None:
         vs_mock = _make_vs_mock()
         vs_mock.GetFileN.return_value = (True, '/nonexistent/path/file.ifc')
 
         with patch.dict('sys.modules', {'vs': vs_mock}):
-            pkg = _reload_package()
+            _reload_vw_modules()
+            import vectorworks_plugin_import_ifc_homeskz as pkg
             pkg.run()
 
         call_arg = vs_mock.AlrtDialog.call_args[0][0]
