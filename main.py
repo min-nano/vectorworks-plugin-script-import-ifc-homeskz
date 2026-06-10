@@ -129,19 +129,27 @@ def _find_python_interpreter() -> str | None:
 def _run_pip(args: list[str]) -> bool:
     """pip を実行し、成功したかどうかを返す。
 
-    サブプロセスで実行できるインタプリタが見つからない場合は、
-    VectorWorks 内蔵 Python 上でインプロセス実行にフォールバックする。
+    サブプロセスで実行できるインタプリタが見つからない場合や、
+    サブプロセスでの pip 実行が失敗した場合は、VectorWorks 内蔵 Python
+    上でのインプロセス実行にフォールバックする。
     """
     interpreter = _find_python_interpreter()
     if interpreter is not None:
-        completed = subprocess.run(
-            [interpreter, "-m", "pip", *args],
-            capture_output=True,
-            timeout=INSTALL_TIMEOUT_SECONDS,
-            # Windows でコンソールウィンドウを表示させない (他 OS では 0)
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return completed.returncode == 0
+        try:
+            completed = subprocess.run(
+                [interpreter, "-m", "pip", *args],
+                capture_output=True,
+                timeout=INSTALL_TIMEOUT_SECONDS,
+                # Windows でコンソールウィンドウを表示させない (他 OS では 0)
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError):
+            # 見つけたインタプリタで pip を起動できない環境があるため、
+            # インプロセス実行のフォールバックへ進む
+            pass
+        else:
+            if completed.returncode == 0:
+                return True
     try:
         pip_main = importlib.import_module("pip._internal.cli.main").main
     except (ImportError, AttributeError):
@@ -150,6 +158,25 @@ def _run_pip(args: list[str]) -> bool:
         except (ImportError, AttributeError):
             return False
     return bool(pip_main(args) == 0)
+
+
+def _purge_cached_modules(externals: str) -> None:
+    """Python Externals 由来のキャッシュ済みモジュールを破棄する。
+
+    VectorWorks はスクリプト実行間で Python インタプリタを保持するため、
+    更新後も旧バージョンのモジュールが sys.modules に残る。pip は本体
+    だけでなく ifcopenshell 等の依存も更新し得るので、本体パッケージに
+    加えて Python Externals から読み込まれた全モジュールを破棄し、
+    次回 import で新バージョンを読み込ませる。
+    """
+    prefix = os.path.normcase(os.path.abspath(externals)) + os.sep
+    for name, module in list(sys.modules.items()):
+        if name == MODULE_NAME or name.startswith(MODULE_NAME + "."):
+            del sys.modules[name]
+            continue
+        file = getattr(module, "__file__", None)
+        if file and os.path.normcase(os.path.abspath(file)).startswith(prefix):
+            del sys.modules[name]
 
 
 def _upgrade_if_available() -> None:
@@ -178,16 +205,12 @@ def _upgrade_if_available() -> None:
     ]
     if not _run_pip(pip_args):
         return
-    if externals not in sys.path:
-        sys.path.insert(0, externals)
-    # VectorWorks はスクリプト実行間で Python インタプリタを保持するため、
-    # 旧バージョンのキャッシュ済みモジュールを破棄して再読込させる
-    for name in [
-        n
-        for n in sys.modules
-        if n == MODULE_NAME or n.startswith(MODULE_NAME + ".")
-    ]:
-        del sys.modules[name]
+    # sys.path の後方や別の場所にある旧版より確実に優先されるよう、
+    # Python Externals を sys.path の先頭へ移動する
+    if externals in sys.path:
+        sys.path.remove(externals)
+    sys.path.insert(0, externals)
+    _purge_cached_modules(externals)
     importlib.invalidate_caches()
 
 
