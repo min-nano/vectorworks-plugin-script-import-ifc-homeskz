@@ -29,7 +29,10 @@ EXTERNALS_FOLDER_NAME = "Python Externals"
 # (ユーザデータフォルダ) を返す
 USER_FOLDER_SPECIFIER = -15
 NETWORK_TIMEOUT_SECONDS = 10.0
-INSTALL_TIMEOUT_SECONDS = 600.0
+# タイムアウトで pip を kill するとコピー途中の部分的なファイルが残り
+# インストールが破損するため、遅いフォルダ (iCloud 同期下の設定フォルダ等)
+# でも完了できる長さにする
+INSTALL_TIMEOUT_SECONDS = 1800.0
 
 
 def _find_python_externals() -> str | None:
@@ -142,6 +145,7 @@ def _run_pip(args: list[str]) -> bool:
                 timeout=INSTALL_TIMEOUT_SECONDS,
                 # Windows でコンソールウィンドウを表示させない (他 OS では 0)
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
             )
         except (OSError, subprocess.SubprocessError):
             # 見つけたインタプリタで pip を起動できない環境があるため、
@@ -192,9 +196,57 @@ def _upgrade_if_available() -> None:
     if latest is None or latest == _installed_commit(externals):
         return
     archive_url = ARCHIVE_URL_TEMPLATE.format(sha=latest)
-    # コミットが変わってもバージョン番号は変わらないことがあるため、
-    # 同一バージョン扱いで pip がインストールをスキップしないよう
-    # --force-reinstall を付ける
+    # pip は --target の既存内容を「インストール済み」とみなさず依存も毎回
+    # コピーし直すため、通常更新は --no-deps で本体だけ入れ替える。
+    # ifcopenshell 等の大きな依存を毎回書き換えると、遅いフォルダ (iCloud
+    # 同期下の設定フォルダ等) でタイムアウト kill による部分書き込みが残る
+    # リスクがある。依存の不足・破損は import 失敗時に _repair_install()
+    # が依存ごと再インストールして補う。
+    pip_args = [
+        "install",
+        "--upgrade",
+        # コミットが変わってもバージョン番号は変わらないことがあるため、
+        # 同一バージョン扱いでスキップされないよう強制再インストールする
+        "--force-reinstall",
+        "--no-deps",
+        "--target",
+        externals,
+        archive_url,
+    ]
+    if not _run_pip(pip_args):
+        return
+    _activate_externals(externals)
+
+
+def _activate_externals(externals: str) -> None:
+    """インストール直後の Python Externals を確実に参照させる。
+
+    sys.path の後方や別の場所にある旧版より優先されるよう Python
+    Externals を sys.path の先頭へ移動し、キャッシュ済みモジュールを
+    破棄する。
+    """
+    if externals in sys.path:
+        sys.path.remove(externals)
+    sys.path.insert(0, externals)
+    _purge_cached_modules(externals)
+    importlib.invalidate_caches()
+
+
+def _repair_install() -> bool:
+    """破損したインストールを依存ごと強制再インストールして復旧する。
+
+    タイムアウト kill 等で部分的に書き込まれたパッケージが Python
+    Externals に残ると import が失敗し続けるため、main の最新コミットを
+    依存ライブラリも含めてクリーンに入れ直す。オフライン等で復旧できない
+    場合は False を返す。
+    """
+    externals = _find_python_externals()
+    if externals is None:
+        return False
+    latest = _latest_commit()
+    if latest is None:
+        return False
+    archive_url = ARCHIVE_URL_TEMPLATE.format(sha=latest)
     pip_args = [
         "install",
         "--upgrade",
@@ -204,14 +256,9 @@ def _upgrade_if_available() -> None:
         archive_url,
     ]
     if not _run_pip(pip_args):
-        return
-    # sys.path の後方や別の場所にある旧版より確実に優先されるよう、
-    # Python Externals を sys.path の先頭へ移動する
-    if externals in sys.path:
-        sys.path.remove(externals)
-    sys.path.insert(0, externals)
-    _purge_cached_modules(externals)
-    importlib.invalidate_caches()
+        return False
+    _activate_externals(externals)
+    return True
 
 
 def _main() -> None:
@@ -220,7 +267,19 @@ def _main() -> None:
     except Exception:
         # 更新の失敗がプラグイン本体の実行を妨げてはならない
         pass
-    module = importlib.import_module(MODULE_NAME)
+    try:
+        module = importlib.import_module(MODULE_NAME)
+    except Exception:
+        # 部分書き込み等でインストールが破損していると import が失敗し
+        # 続けるため、依存ごと強制再インストールして復旧を試みる
+        repaired = False
+        try:
+            repaired = _repair_install()
+        except Exception:
+            pass
+        if not repaired:
+            raise
+        module = importlib.import_module(MODULE_NAME)
     module.run()
 
 
