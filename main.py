@@ -11,6 +11,7 @@ main ブランチは常にテスト済みのため、バージョン番号では
 
 from __future__ import annotations
 
+import glob
 import importlib
 import os
 import re
@@ -54,24 +55,33 @@ def _find_python_externals() -> str | None:
     return None
 
 
-def _installed_commit() -> str | None:
-    """インストール済みパッケージの取得元コミット SHA を返す。
+def _installed_commit(externals: str) -> str | None:
+    """Python Externals 内のパッケージの取得元コミット SHA を返す。
 
     pip が dist-info に記録する direct_url.json (PEP 610) のアーカイブ URL
-    から SHA を取り出す。ローカルフォルダからの手動インストール等で SHA
-    が記録されていない場合は None を返す (= 次回オンライン時に main の
-    最新コミットで再インストールされる)。
+    から SHA を取り出す。sys.path 上の別環境にある同名パッケージを誤って
+    参照しないよう、更新先である Python Externals フォルダ直下の dist-info
+    だけを読む。ローカルフォルダからの手動インストール等で SHA が記録
+    されていない場合や一意に定まらない場合は None を返す (= 次回オンライン
+    時に main の最新コミットで再インストールされる)。
     """
-    try:
-        from importlib import metadata
-
-        text = metadata.distribution(PACKAGE_NAME).read_text("direct_url.json")
-    except Exception:
-        return None
-    if not text:
-        return None
-    match = re.search(r"/archive/([0-9a-f]{40})\.tar\.gz", text)
-    return match.group(1) if match else None
+    pattern = os.path.join(
+        externals, f"{MODULE_NAME}-*.dist-info", "direct_url.json"
+    )
+    shas: set[str] = set()
+    for path in glob.glob(pattern):
+        try:
+            with open(path, encoding="utf-8") as stream:
+                text = stream.read()
+        except OSError:
+            continue
+        match = re.search(r"/archive/([0-9a-f]{40})\.tar\.gz", text)
+        if match is None:
+            return None
+        shas.add(match.group(1))
+    if len(shas) == 1:
+        return shas.pop()
+    return None
 
 
 def _latest_commit() -> str | None:
@@ -148,11 +158,11 @@ def _upgrade_if_available() -> None:
     最新コミットの確認に失敗した場合 (オフライン等) や Python Externals
     フォルダを検出できない場合は何もしない。
     """
-    latest = _latest_commit()
-    if latest is None or latest == _installed_commit():
-        return
     externals = _find_python_externals()
     if externals is None:
+        return
+    latest = _latest_commit()
+    if latest is None or latest == _installed_commit(externals):
         return
     archive_url = ARCHIVE_URL_TEMPLATE.format(sha=latest)
     # コミットが変わってもバージョン番号は変わらないことがあるため、
