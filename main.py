@@ -15,6 +15,7 @@ import glob
 import importlib
 import os
 import re
+import ssl
 import subprocess
 import sys
 import urllib.request
@@ -22,7 +23,9 @@ import urllib.request
 PACKAGE_NAME = "vectorworks-plugin-import-ifc-homeskz"
 MODULE_NAME = "vectorworks_plugin_import_ifc_homeskz"
 REPOSITORY = "h-ikeda/vectorworks_plugin_import_ifc_homeskz"
-COMMITS_API_URL = f"https://api.github.com/repos/{REPOSITORY}/commits/main"
+# GitHub REST API は匿名アクセスのレートリミットが厳しいため、制限のない
+# git smart HTTP プロトコルの参照広告エンドポイントから SHA を取得する
+REFS_URL = f"https://github.com/{REPOSITORY}.git/info/refs?service=git-upload-pack"
 ARCHIVE_URL_TEMPLATE = f"https://github.com/{REPOSITORY}/archive/{{sha}}.tar.gz"
 EXTERNALS_FOLDER_NAME = "Python Externals"
 # vs.GetFolderPath の負数はユーザフォルダ系を指し、-15 は設定フォルダ
@@ -87,24 +90,53 @@ def _installed_commit(externals: str) -> str | None:
     return None
 
 
-def _latest_commit() -> str | None:
-    """GitHub API から main ブランチの最新コミット SHA を取得する。
+# 直近のネットワーク失敗の内容 (復旧失敗ダイアログでの診断用)
+_last_network_error: list[str] = []
 
-    インターネットに接続できない等で取得に失敗した場合は None を返す。
+
+def _ssl_context() -> ssl.SSLContext:
+    """HTTPS 用の SSL コンテキストを作る。
+
+    VectorWorks 同梱の Python には CA 証明書バンドルが含まれず既定の
+    証明書検証が失敗することがあるため、利用可能なら certifi (本
+    パッケージの依存として Python Externals に入る)、無ければ pip
+    同梱の CA バンドルを使う。
     """
+    for module_name in ("certifi", "pip._vendor.certifi"):
+        try:
+            certifi = importlib.import_module(module_name)
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            continue
+    return ssl.create_default_context()
+
+
+def _fetch(url: str) -> bytes | None:
+    """URL の内容を取得する。失敗時は理由を記録して None を返す。"""
     request = urllib.request.Request(
-        COMMITS_API_URL,
-        # SHA 文字列だけをプレーンテキストで受け取るメディアタイプ
-        headers={"Accept": "application/vnd.github.sha"},
+        url, headers={"User-Agent": PACKAGE_NAME}
     )
     try:
         with urllib.request.urlopen(
-            request, timeout=NETWORK_TIMEOUT_SECONDS
+            request, timeout=NETWORK_TIMEOUT_SECONDS, context=_ssl_context()
         ) as response:
-            sha = response.read().decode("utf-8").strip()
-    except Exception:
+            return bytes(response.read())
+    except Exception as error:
+        _last_network_error.append(f"{type(error).__name__}: {error}")
         return None
-    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
+
+
+def _latest_commit() -> str | None:
+    """main ブランチの最新コミット SHA を取得する。
+
+    インターネットに接続できない等で取得に失敗した場合は None を返す。
+    """
+    body = _fetch(REFS_URL)
+    if body is None:
+        return None
+    text = body.decode("utf-8", errors="replace")
+    match = re.search(r"([0-9a-f]{40}) refs/heads/main\b", text)
+    return match.group(1) if match else None
 
 
 def _find_python_interpreter() -> str | None:
@@ -270,9 +302,10 @@ def _repair_install() -> str | None:
         return "Python Externals フォルダを検出できませんでした。"
     latest = _latest_commit()
     if latest is None:
+        detail = _last_network_error[-1] if _last_network_error else ""
         return (
             "GitHub から最新コミットを取得できませんでした"
-            " (インターネット接続を確認してください)。"
+            " (インターネット接続を確認してください)。\n" + detail
         )
     archive_url = ARCHIVE_URL_TEMPLATE.format(sha=latest)
     pip_args = [
