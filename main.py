@@ -3,6 +3,8 @@
 実行のたびに GitHub の main ブランチの最新コミットを確認し、インストール
 済みのコミットと異なれば pip で VectorWorks 設定フォルダ内の Python
 Externals フォルダへ更新インストールしてから、プラグイン本体を実行する。
+パッケージが未インストールの場合 (初回起動時) は依存ライブラリも含めて
+自動的に新規インストールする。
 main ブランチは常にテスト済みのため、バージョン番号ではなくコミット SHA
 の一致で最新かどうかを判定する。インターネットに接続できない等で確認
 できない場合は、アップグレードをスキップしてインストール済みのバージョン
@@ -59,6 +61,12 @@ def _find_python_externals() -> str | None:
     if os.path.isdir(candidate):
         return candidate
     return None
+
+
+def _is_installed(externals: str) -> bool:
+    """本体パッケージが Python Externals にインストール済みか判定する。"""
+    pattern = os.path.join(externals, f"{MODULE_NAME}-*.dist-info")
+    return bool(glob.glob(pattern))
 
 
 def _installed_commit(externals: str) -> str | None:
@@ -253,23 +261,29 @@ def _upgrade_if_available() -> None:
     if latest is None or latest == _installed_commit(externals):
         return
     archive_url = ARCHIVE_URL_TEMPLATE.format(sha=latest)
-    # pip は --target の既存内容を「インストール済み」とみなさず依存も毎回
-    # コピーし直すため、通常更新は --no-deps で本体だけ入れ替える。
-    # ifcopenshell 等の大きな依存を毎回書き換えると、遅いフォルダ (iCloud
-    # 同期下の設定フォルダ等) でタイムアウト kill による部分書き込みが残る
-    # リスクがある。依存の不足・破損は import 失敗時に _repair_install()
-    # が依存ごと再インストールして補う。
-    pip_args = [
-        "install",
-        "--upgrade",
-        # コミットが変わってもバージョン番号は変わらないことがあるため、
-        # 同一バージョン扱いでスキップされないよう強制再インストールする
-        "--force-reinstall",
-        "--no-deps",
-        "--target",
-        externals,
-        archive_url,
-    ]
+    if _is_installed(externals):
+        # pip は --target の既存内容を「インストール済み」とみなさず依存も
+        # 毎回コピーし直すため、更新は --no-deps で本体だけ入れ替える。
+        # ifcopenshell 等の大きな依存を毎回書き換えると、遅いフォルダ
+        # (iCloud 同期下の設定フォルダ等) でタイムアウト kill による
+        # 部分書き込みが残るリスクがある。依存の不足・破損は import 失敗時
+        # に _repair_install() が依存ごと再インストールして補う。
+        pip_args = [
+            "install",
+            "--upgrade",
+            # コミットが変わってもバージョン番号は変わらないことがある
+            # ため、同一バージョン扱いでスキップされないよう強制再
+            # インストールする
+            "--force-reinstall",
+            "--no-deps",
+            "--target",
+            externals,
+            archive_url,
+        ]
+    else:
+        # 未インストール (初回起動・手動削除後) の場合は依存ライブラリ
+        # (ifcopenshell 等) も含めて新規インストールする
+        pip_args = ["install", "--upgrade", "--target", externals, archive_url]
     if not _run_pip(pip_args):
         return
     _activate_externals(externals)
