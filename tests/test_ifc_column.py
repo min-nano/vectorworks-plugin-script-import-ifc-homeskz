@@ -1,0 +1,217 @@
+"""IFC 解析フェーズ (ifc.column) のテスト。vs に依存せず実 IFC データで検証できる。"""
+from __future__ import annotations
+
+import json
+
+import ifcopenshell
+import pytest
+
+from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
+    _get_position_2d,
+    build_column_commands,
+)
+
+
+# ---------------------------------------------------------------------------
+# テスト用 IFC エンティティ生成ヘルパー
+# ---------------------------------------------------------------------------
+
+def make_storey(ifc: ifcopenshell.file, name: str, elevation: float) -> ifcopenshell.entity_instance:
+    """テスト用 IfcBuildingStorey を生成する。"""
+    return ifc.create_entity('IfcBuildingStorey', Name=name, Elevation=elevation)
+
+
+def make_column(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
+                ox: float, oy: float, oz: float = 0.0,
+                width: float = 105.0, depth: float = 105.0, height: float = 2844.0,
+                object_type: str | None = None) -> ifcopenshell.entity_instance:
+    """テスト用 IfcColumn を生成して storey に追加する。
+
+    Parameters
+    ----------
+    ox, oy, oz : 柱のローカル配置座標 (mm)。oz はストーリ原点からの相対 Z（負値）。
+    width      : IfcRectangleProfileDef.XDim (断面幅, mm)
+    depth      : IfcRectangleProfileDef.YDim (断面成, mm)
+    height     : IfcExtrudedAreaSolid.Depth (柱高さ, mm)
+    """
+    # 配置（柱はローカル Z 方向に押し出される）
+    pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[ox, oy, oz])
+    placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt)
+    local_placement = ifc.create_entity('IfcLocalPlacement', RelativePlacement=placement_3d)
+
+    # プロファイルと押し出しソリッド（押し出し方向 = ローカル Z）
+    profile = ifc.create_entity(
+        'IfcRectangleProfileDef', ProfileType='AREA', XDim=float(width), YDim=float(depth)
+    )
+    extrude_dir = ifc.create_entity('IfcDirection', DirectionRatios=[0.0, 0.0, 1.0])
+    solid = ifc.create_entity(
+        'IfcExtrudedAreaSolid', SweptArea=profile, ExtrudedDirection=extrude_dir, Depth=float(height)
+    )
+
+    wcs_pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, 0.0])
+    wcs = ifc.create_entity('IfcAxis2Placement3D', Location=wcs_pt)
+    ctx = ifc.create_entity(
+        'IfcGeometricRepresentationContext', CoordinateSpaceDimension=3, WorldCoordinateSystem=wcs
+    )
+    shape_rep = ifc.create_entity(
+        'IfcShapeRepresentation',
+        ContextOfItems=ctx,
+        RepresentationIdentifier='Body',
+        RepresentationType='SweptSolid',
+        Items=[solid],
+    )
+    prod_def = ifc.create_entity('IfcProductDefinitionShape', Representations=[shape_rep])
+
+    column = ifc.create_entity(
+        'IfcColumn', ObjectPlacement=local_placement, Representation=prod_def,
+        ObjectType=object_type,
+    )
+
+    ifc.create_entity(
+        'IfcRelContainedInSpatialStructure', RelatingStructure=storey, RelatedElements=[column]
+    )
+    return column
+
+
+def make_grid_axis(ifc: ifcopenshell.file, name: str,
+                   x1: float, y1: float, x2: float, y2: float) -> None:
+    """テスト用 IfcGridAxis を生成する（グリッド中心算出に使用）。"""
+    pts = [
+        ifc.create_entity('IfcCartesianPoint', Coordinates=[x1, y1]),
+        ifc.create_entity('IfcCartesianPoint', Coordinates=[x2, y2]),
+    ]
+    polyline = ifc.create_entity('IfcPolyline', Points=pts)
+    ifc.create_entity('IfcGridAxis', AxisTag=name, AxisCurve=polyline, SameSense=True)
+
+
+# ---------------------------------------------------------------------------
+# _get_position_2d
+# ---------------------------------------------------------------------------
+
+class TestGetPosition2D:
+    def test_extracts_origin(self) -> None:
+        ifc = ifcopenshell.file()
+        pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[1000.0, 2000.0, -174.0])
+        ap = ifc.create_entity('IfcAxis2Placement3D', Location=pt)
+        lp = ifc.create_entity('IfcLocalPlacement', RelativePlacement=ap)
+        col = ifc.create_entity('IfcColumn', ObjectPlacement=lp)
+
+        result = _get_position_2d(col)
+        assert result is not None
+        ox, oy = result
+        assert ox == pytest.approx(1000.0)
+        assert oy == pytest.approx(2000.0)
+
+    def test_returns_none_when_no_placement(self) -> None:
+        ifc = ifcopenshell.file()
+        col = ifc.create_entity('IfcColumn')
+        assert _get_position_2d(col) is None
+
+
+# ---------------------------------------------------------------------------
+# build_column_commands
+# ---------------------------------------------------------------------------
+
+class TestBuildColumnCommands:
+    def test_empty_ifc_returns_empty_list(self) -> None:
+        assert build_column_commands(ifcopenshell.file()) == []
+
+    def test_builds_command_per_column(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_column(ifc, storey, 0.0, 0.0)
+        make_column(ifc, storey, 1000.0, 0.0)
+        make_storey(ifc, 'RFL', 6300.0)
+
+        commands = build_column_commands(ifc)
+        assert len(commands) == 2
+        assert all(c['layer'] == '1-横架材天端' for c in commands)
+        assert all(c['column_type'] == '管柱' for c in commands)
+
+    def test_top_story_uses_eaves_layer(self) -> None:
+        """最上階 (RFL) の柱（小屋束等）は R-軒高レイヤを指定する。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, oz=-100.0)
+
+        commands = build_column_commands(ifc)
+        assert len(commands) == 1
+        assert commands[0]['layer'] == 'R-軒高'
+        # 配置高さ = ストーリ高さ + ローカル Z
+        assert commands[0]['elevation'] == pytest.approx(6200.0)
+
+    def test_assigns_layer_per_story(self) -> None:
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        s2 = make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s1, 0.0, 0.0)
+        make_column(ifc, s2, 0.0, 0.0)
+
+        layers = [c['layer'] for c in build_column_commands(ifc)]
+        assert '1-横架材天端' in layers
+        assert '2-横架材天端' in layers
+
+    def test_elevation_is_story_plus_local_z(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, oz=-174.0)
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['elevation'] == pytest.approx(426.0)
+
+    def test_applies_grid_center_offset(self) -> None:
+        """グリッド中心オフセットを引いた座標で命令を組み立てることを確認する。"""
+        ifc = ifcopenshell.file()
+        # グリッド軸: X=0〜2000, Y=0〜2000 → center=(1000, 1000)
+        make_grid_axis(ifc, 'X1', 0.0, 0.0, 2000.0, 0.0)
+        make_grid_axis(ifc, 'Y1', 0.0, 0.0, 0.0, 2000.0)
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # 柱 (1500, 1500): センタリング後 → (500, 500)
+        make_column(ifc, storey, 1500.0, 1500.0)
+
+        commands = build_column_commands(ifc)
+        assert len(commands) == 1
+        assert commands[0]['position'] == [pytest.approx(500.0), pytest.approx(500.0)]
+
+    def test_sets_dimensions(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, width=105.0, depth=120.0, height=2844.0)
+
+        command = build_column_commands(ifc)[0]
+        assert command['width'] == pytest.approx(105.0)
+        assert command['depth'] == pytest.approx(120.0)
+        assert command['height'] == pytest.approx(2844.0)
+
+    def test_standcolumn_object_type_still_uses_default_type(self) -> None:
+        """ObjectType=STANDCOLUMN（小屋束）でも種別は既定 (管柱) として扱う。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, object_type='STANDCOLUMN')
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['column_type'] == '管柱'
+
+    def test_skips_column_without_placement(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        column = ifc.create_entity('IfcColumn')  # 配置・ジオメトリなし
+        ifc.create_entity(
+            'IfcRelContainedInSpatialStructure', RelatingStructure=storey, RelatedElements=[column]
+        )
+
+        assert build_column_commands(ifc) == []
+
+    def test_commands_are_json_serializable(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0)
+
+        commands = build_column_commands(ifc)
+        assert json.loads(json.dumps(commands)) == commands

@@ -52,7 +52,8 @@ def run() -> None:
         vs.AlrtDialog(
             f'読込完了: {counts["stories"]} 階のストーリ・ストーリレベル・デザインレイヤを設定し、'
             f'「{TARGET_LAYER}」レイヤに {counts["grids"]} 本の通り芯を配置しました。'
-            f' 横架材天端レイヤに {counts["members"]} 本の構造材を配置しました。'
+            f' 横架材天端レイヤに {counts["members"]} 本の構造材、'
+            f'{counts["columns"]} 本の柱を配置しました。'
         )
 
     except Exception as e:

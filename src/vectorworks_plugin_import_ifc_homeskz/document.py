@@ -41,6 +41,17 @@
                 "height": 180.0,          # 断面背 (mm)
                 "elevation": 425.0        # 配置 Z 高さ (mm, 絶対値)
             }
+        ],
+        "columns": [
+            {
+                "layer": "1-横架材天端",   # 配置先デザインレイヤ名（既存のみ・なければスキップ）
+                "column_type": "管柱",     # 柱・間柱ツールの種別
+                "position": [x, y],       # 配置 XY (mm, センタリング済み)
+                "width": 105.0,           # 断面幅 (mm)
+                "depth": 105.0,           # 断面成 (mm)
+                "height": 2844.0,         # 柱高さ (mm)
+                "elevation": 426.0        # 配置 Z 高さ (mm, 絶対値)
+            }
         ]
     }
 """
@@ -92,6 +103,18 @@ class MemberCommand(TypedDict):
     elevation: float
 
 
+class ColumnCommand(TypedDict):
+    """柱 (柱・間柱 オブジェクト) を描画する命令。"""
+
+    layer: str
+    column_type: str
+    position: list[float]
+    width: float
+    depth: float
+    height: float
+    elevation: float
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -99,6 +122,7 @@ class Document(TypedDict):
     stories: list[StoryCommand]
     grids: list[GridCommand]
     members: list[MemberCommand]
+    columns: list[ColumnCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -179,12 +203,26 @@ def _validate_member(index: int, command: Any) -> None:
                  f'{where}.{key} は数値である必要があります')
 
 
+def _validate_column(index: int, command: Any) -> None:
+    where = f'columns[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('column_type'), str) and command['column_type'],
+             f'{where}.column_type は非空文字列である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+    for key in ('width', 'depth', 'height', 'elevation'):
+        _require(_is_number(command.get(key)),
+                 f'{where}.{key} は数値である必要があります')
+
+
 def validate_document(document: Any) -> Document:
     """命令セットを検証し、不正な場合は DocumentValidationError を送出する。"""
     _require(isinstance(document, dict), '命令セットは dict である必要があります')
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
-    for key in ('stories', 'grids', 'members'):
+    for key in ('stories', 'grids', 'members', 'columns'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -193,6 +231,8 @@ def validate_document(document: Any) -> Document:
         _validate_grid(i, command)
     for i, command in enumerate(document['members']):
         _validate_member(i, command)
+    for i, command in enumerate(document['columns']):
+        _validate_column(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

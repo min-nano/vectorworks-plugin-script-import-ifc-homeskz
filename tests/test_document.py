@@ -46,6 +46,13 @@ def make_valid_document() -> dict[str, Any]:
                 'width': 120.0, 'height': 180.0, 'elevation': 425.0,
             },
         ],
+        'columns': [
+            {
+                'layer': '1-横架材天端', 'column_type': '管柱',
+                'position': [0.0, 0.0],
+                'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
+            },
+        ],
     }
 
 
@@ -59,7 +66,8 @@ class TestValidateDocument:
         assert validate_document(document) is document
 
     def test_empty_command_lists_pass(self) -> None:
-        document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [], 'members': []}
+        document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
+                    'members': [], 'columns': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -78,7 +86,7 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError):
             validate_document(document)
 
-    @pytest.mark.parametrize('key', ['stories', 'grids', 'members'])
+    @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -126,6 +134,24 @@ class TestValidateDocument:
         document = make_valid_document()
         document['members'][0]['member_id'] = 120
         with pytest.raises(DocumentValidationError, match='member_id'):
+            validate_document(document)
+
+    def test_rejects_column_without_dimension(self) -> None:
+        document = make_valid_document()
+        del document['columns'][0]['depth']
+        with pytest.raises(DocumentValidationError, match='depth'):
+            validate_document(document)
+
+    def test_rejects_column_with_empty_type(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['column_type'] = ''
+        with pytest.raises(DocumentValidationError, match='column_type'):
+            validate_document(document)
+
+    def test_rejects_column_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:

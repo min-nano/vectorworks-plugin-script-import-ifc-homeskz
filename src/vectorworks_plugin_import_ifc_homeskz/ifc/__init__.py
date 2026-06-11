@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..document import DOCUMENT_VERSION, Document
+from .column import build_column_commands
 from .grid import build_grid_commands
 from .member import build_member_commands
 from .story import build_story_commands
@@ -16,8 +17,8 @@ from .story import build_story_commands
 if TYPE_CHECKING:
     import ifcopenshell
 
-__all__ = ['build_document', 'build_grid_commands', 'build_member_commands',
-           'build_story_commands']
+__all__ = ['build_column_commands', 'build_document', 'build_grid_commands',
+           'build_member_commands', 'build_story_commands']
 
 
 def build_document(ifc_file: ifcopenshell.file) -> Document:
@@ -27,4 +28,5 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'stories': build_story_commands(ifc_file),
         'grids': build_grid_commands(ifc_file),
         'members': build_member_commands(ifc_file),
+        'columns': build_column_commands(ifc_file),
     }

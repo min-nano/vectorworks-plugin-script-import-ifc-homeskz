@@ -57,12 +57,14 @@ def _make_stateful_vs_mock() -> MagicMock:
 def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[str, int]:
     with patch.dict('sys.modules', {'vs': vs_mock}):
         import vectorworks_plugin_import_ifc_homeskz.vw as vw
+        import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
         importlib.reload(vw_member)
         importlib.reload(vw_story)
+        importlib.reload(vw_column)
         importlib.reload(vw)
         return vw.execute_document(document)
 
@@ -94,6 +96,10 @@ def make_document() -> dict[str, Any]:
             {'layer': '1-横架材天端', 'member_id': '120×180', 'start': [0.0, 0.0],
              'end': [3000.0, 0.0], 'width': 120.0, 'height': 180.0, 'elevation': 425.0},
         ],
+        'columns': [
+            {'layer': '1-横架材天端', 'column_type': '管柱', 'position': [0.0, 0.0],
+             'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0},
+        ],
     }
 
 
@@ -101,13 +107,14 @@ class TestExecuteDocument:
     def test_executes_all_commands_and_returns_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
-        assert counts == {'stories': 2, 'grids': 1, 'members': 1}
+        assert counts == {'stories': 2, 'grids': 1, 'members': 1, 'columns': 1}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
-        document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [], 'members': []}
+        document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
+                    'members': [], 'columns': []}
         counts = _run_execute_document(vs_mock, document)
-        assert counts == {'stories': 0, 'grids': 0, 'members': 0}
+        assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()
