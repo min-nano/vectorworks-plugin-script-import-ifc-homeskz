@@ -19,13 +19,12 @@ from __future__ import annotations
 import importlib
 import json
 import os
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import ifcopenshell
 import pytest
 
-from vectorworks_plugin_import_ifc_homeskz.document import validate_document
+from vectorworks_plugin_import_ifc_homeskz.document import Document, validate_document
 from vectorworks_plugin_import_ifc_homeskz.ifc import build_document
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
@@ -104,7 +103,7 @@ def fixture_path(filename: str) -> str:
     return os.path.join(FIXTURES_DIR, filename)
 
 
-def build_fixture_document(filename: str) -> dict[str, Any]:
+def build_fixture_document(filename: str) -> Document:
     """フィクスチャ IFC を解析し JSON ラウンドトリップ済みの命令セットを返す。"""
     ifc = ifcopenshell.open(fixture_path(filename))
     document = build_document(ifc)
@@ -155,7 +154,7 @@ def make_vs_mock() -> MagicMock:
     return vs_mock
 
 
-def run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[str, int]:
+def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, int]:
     """vs モックを差し込んで描画フェーズ全体を実行する。"""
     with patch.dict('sys.modules', {'vs': vs_mock}):
         import vectorworks_plugin_import_ifc_homeskz.vw as vw
@@ -257,4 +256,6 @@ class TestFullPipeline:
         run_execute_document(vs_mock, document)
 
         created_story_names = [c.args[0] for c in vs_mock.CreateStory.call_args_list]
+        created_story_suffixes = [c.args[1] for c in vs_mock.CreateStory.call_args_list]
         assert created_story_names == exp.story_names
+        assert created_story_suffixes == exp.story_suffixes
