@@ -34,6 +34,9 @@ EXTERNALS_FOLDER_NAME = "Python Externals"
 # (ユーザデータフォルダ) を返す
 USER_FOLDER_SPECIFIER = -15
 NETWORK_TIMEOUT_SECONDS = 10.0
+# インタプリタ確認 (probe) 用の短いタイムアウト。誤って VectorWorks 等の
+# アプリを起動してしまった場合も、この時間で kill される
+PROBE_TIMEOUT_SECONDS = 15.0
 # タイムアウトで pip を kill するとコピー途中の部分的なファイルが残り
 # インストールが破損するため、遅いフォルダ (iCloud 同期下の設定フォルダ等)
 # でも完了できる長さにする
@@ -147,16 +150,76 @@ def _latest_commit() -> str | None:
     return match.group(1) if match else None
 
 
+def _subprocess_env() -> dict[str, str]:
+    """サブプロセス用に Python 関連の環境変数を除いた環境を返す。
+
+    VectorWorks は内蔵 Python 用に __PYVENV_LAUNCHER__ 等を設定して
+    おり、これを子インタプリタが継承すると sys.executable が
+    VectorWorks 本体を指す。pip はビルド時に sys.executable を子
+    プロセスとして起動するため、そのままでは VectorWorks が多重起動
+    してしまう。
+    """
+    env = dict(os.environ)
+    for name in (
+        "__PYVENV_LAUNCHER__",
+        "PYTHONEXECUTABLE",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+    ):
+        env.pop(name, None)
+    return env
+
+
+def _is_python_interpreter(candidate: str) -> bool:
+    """候補の実行ファイルが Python インタプリタとして応答するか確認する。
+
+    VectorWorks 内で見つかるパスを盲目的に pip 実行に使うと
+    VectorWorks 本体の多重起動を招き得るため、短いタイムアウトで
+    sys.executable の名前を print させ、Python として応答しない
+    プロセスは kill して棄却する。
+    """
+    sentinel = "vw-plugin-python-probe"
+    code = (
+        "import os.path, sys; "
+        f"print('{sentinel}', os.path.basename(sys.executable))"
+    )
+    try:
+        completed = subprocess.run(
+            [candidate, "-c", code],
+            capture_output=True,
+            timeout=PROBE_TIMEOUT_SECONDS,
+            # Windows でコンソールウィンドウを表示させない (他 OS では 0)
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            check=False,
+            env=_subprocess_env(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if completed.returncode != 0:
+        return False
+    output = completed.stdout.decode("utf-8", errors="replace")
+    match = re.search(sentinel + r" (\S+)", output)
+    return match is not None and match.group(1).lower().startswith("python")
+
+
+# 確認済みインタプリタのキャッシュ (確認の二重実行を避けるため)
+_interpreter_cache: list[str | None] = []
+
+
 def _find_python_interpreter() -> str | None:
     """VectorWorks 同梱の Python インタプリタ実行ファイルを探す。
 
     VectorWorks 内蔵 Python では sys.executable が VectorWorks 本体を指す
-    ことがあるため、pip をサブプロセスで実行できるインタプリタ本体を
-    sys.prefix 系のパスから探す。
+    ことがあるため、sys.prefix 系のパスから候補を集め、実際に Python
+    として応答することを確認できたものだけを返す。
     """
+    if _interpreter_cache:
+        return _interpreter_cache[0]
+    candidates: list[str] = []
     executable = sys.executable
     if executable and os.path.basename(executable).lower().startswith("python"):
-        return executable
+        candidates.append(executable)
     for prefix in {sys.base_prefix, sys.exec_prefix, sys.prefix}:
         for relative in (
             "python.exe",
@@ -165,8 +228,14 @@ def _find_python_interpreter() -> str | None:
         ):
             candidate = os.path.join(prefix, relative)
             if os.path.isfile(candidate):
-                return candidate
-    return None
+                candidates.append(candidate)
+    result: str | None = None
+    for candidate in candidates:
+        if _is_python_interpreter(candidate):
+            result = candidate
+            break
+    _interpreter_cache.append(result)
+    return result
 
 
 # 直近のサブプロセス失敗出力 (復旧失敗ダイアログでの診断用)
@@ -186,6 +255,7 @@ def _run_interpreter(interpreter: str, args: list[str]) -> bool:
             # Windows でコンソールウィンドウを表示させない (他 OS では 0)
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             check=False,
+            env=_subprocess_env(),
         )
     except (OSError, subprocess.SubprocessError) as error:
         _last_subprocess_output.append(f"{type(error).__name__}: {error}")
@@ -216,6 +286,14 @@ def _run_pip(args: list[str]) -> bool:
             ) and _run_interpreter(interpreter, ["-m", "pip", "--version"])
         if has_pip and _run_interpreter(interpreter, ["-m", "pip", *args]):
             return True
+    # インプロセス pip もビルド時に sys.executable を子プロセスとして
+    # 起動するため、sys.executable が VectorWorks 本体を指す環境では
+    # 多重起動を招く。Python を指している場合だけフォールバックする
+    if not os.path.basename(sys.executable or "").lower().startswith("python"):
+        _last_subprocess_output.append(
+            "pip を安全に実行できる Python インタプリタが見つかりません"
+        )
+        return False
     try:
         pip_main = importlib.import_module("pip._internal.cli.main").main
     except (ImportError, AttributeError):
