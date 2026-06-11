@@ -454,23 +454,26 @@ def _install_dependencies(externals: str) -> bool:
     )
 
 
-def _purge_cached_modules(externals: str) -> None:
+def _purge_cached_modules(externals: str, purge_dependencies: bool = False) -> None:
     """Python Externals 由来のキャッシュ済みモジュールを破棄する。
 
     VectorWorks はスクリプト実行間で Python インタプリタを保持するため、
-    更新後も旧バージョンのモジュールが sys.modules に残る。pip は本体
-    だけでなく ifcopenshell 等の依存も更新し得るので、本体パッケージに
-    加えて Python Externals から読み込まれた全モジュールを破棄し、
-    次回 import で新バージョンを読み込ませる。
+    更新後も旧バージョンのモジュールが sys.modules に残る。本体パッケージは
+    常に破棄する。purge_dependencies=True の場合は Python Externals 内の
+    依存ライブラリ (ifcopenshell・numpy 等) も破棄する。依存を更新した場合
+    (初回インストール・修復時) のみ True にすること。numpy 等の C 拡張は
+    一度ロードされたモジュールを sys.modules から除いて再 import すると
+    「reloaded a second time」警告が出るため、変更がないなら破棄しない。
     """
     prefix = os.path.normcase(os.path.abspath(externals)) + os.sep
     for name, module in list(sys.modules.items()):
         if name == MODULE_NAME or name.startswith(MODULE_NAME + "."):
             del sys.modules[name]
             continue
-        file = getattr(module, "__file__", None)
-        if file and os.path.normcase(os.path.abspath(file)).startswith(prefix):
-            del sys.modules[name]
+        if purge_dependencies:
+            file = getattr(module, "__file__", None)
+            if file and os.path.normcase(os.path.abspath(file)).startswith(prefix):
+                del sys.modules[name]
 
 
 def _upgrade_if_available() -> None:
@@ -498,7 +501,10 @@ def _upgrade_if_available() -> None:
         # import 失敗を経て _repair_install() が改めて試み、それでも
         # ダメなら理由をダイアログで表示する
         _install_dependencies(externals)
-    _activate_externals(externals)
+    # 依存ライブラリを更新した場合 (fresh) のみ依存も破棄する。
+    # 通常の本体更新では依存は変わらないため破棄しない (numpy 等の C 拡張を
+    # 再 import すると「reloaded a second time」警告が出るのを避けるため)。
+    _activate_externals(externals, purge_dependencies=fresh)
 
 
 def _prioritize_externals(externals: str) -> None:
@@ -513,14 +519,17 @@ def _prioritize_externals(externals: str) -> None:
     sys.path.insert(0, externals)
 
 
-def _activate_externals(externals: str) -> None:
+def _activate_externals(
+    externals: str, purge_dependencies: bool = False
+) -> None:
     """インストール直後の Python Externals を確実に参照させる。
 
     sys.path の優先順位を整えたうえで、キャッシュ済みの旧バージョンの
-    モジュールを破棄する。
+    モジュールを破棄する。purge_dependencies の意味は _purge_cached_modules
+    を参照。
     """
     _prioritize_externals(externals)
-    _purge_cached_modules(externals)
+    _purge_cached_modules(externals, purge_dependencies=purge_dependencies)
     importlib.invalidate_caches()
 
 
@@ -556,7 +565,7 @@ def _repair_install() -> str | None:
             "ターミナルで以下を実行してください:\n"
             f"{command}\n" + detail
         )
-    _activate_externals(externals)
+    _activate_externals(externals, purge_dependencies=True)
     return None
 
 
