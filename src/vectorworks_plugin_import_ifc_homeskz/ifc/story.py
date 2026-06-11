@@ -37,9 +37,9 @@ def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None
 def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
     """階に属する IfcColumn または IfcSlab から横架材天端の相対オフセット (FL からの負値) を求める。
 
-    IFC のローカル配置 Z 座標が負の柱・床版のうち最小値（最も深いオフセット）を返す。
-    最初に見つかった値ではなく最小値を使うことで、IFC ファイル内の
-    エンティティ列挙順に依存しない決定的な結果になる。
+    IFC のローカル配置 Z 座標が負の柱・床版のうち最大値（床に最も近接したオフセット）を返す。
+    最初に見つかった値ではなく最大値を使うことで、IFC ファイル内の
+    エンティティ列挙順に依存しない決定的な結果になり、かつ床に最も近い横架材天端を採用できる。
     見つからなければ 0.0 を返す。
     """
     offsets: list[float] = []
@@ -50,7 +50,7 @@ def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
             z = get_local_placement_z(element)
             if z is not None and z < 0:
                 offsets.append(z)
-    return min(offsets, default=0.0)
+    return max(offsets, default=0.0)
 
 
 def collect_stories(ifc_file: ifcopenshell.file) -> list[tuple[float, float | None]]:
