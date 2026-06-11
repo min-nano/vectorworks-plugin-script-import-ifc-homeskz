@@ -454,7 +454,7 @@ def _install_dependencies(externals: str) -> bool:
     )
 
 
-def _purge_cached_modules(externals: str, purge_dependencies: bool = False) -> None:
+def _purge_cached_modules(externals: str, *, purge_dependencies: bool = False) -> None:
     """Python Externals 由来のキャッシュ済みモジュールを破棄する。
 
     VectorWorks はスクリプト実行間で Python インタプリタを保持するため、
@@ -520,7 +520,7 @@ def _prioritize_externals(externals: str) -> None:
 
 
 def _activate_externals(
-    externals: str, purge_dependencies: bool = False
+    externals: str, *, purge_dependencies: bool = False
 ) -> None:
     """インストール直後の Python Externals を確実に参照させる。
 
