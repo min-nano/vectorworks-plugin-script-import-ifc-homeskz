@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import collections
 from typing import TYPE_CHECKING
 
 from ..document import LevelCommand, StoryCommand
@@ -35,12 +36,16 @@ def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None
 
 
 def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
-    """階に属する IfcColumn または IfcSlab から横架材天端の相対オフセット (FL からの負値) を求める。
+    """階に属する IfcColumn または IfcSlab から横架材天端の相対オフセット (FL からの値) を求める。
 
-    IFC のローカル配置 Z 座標が負の柱・床版のうち最小値（最も深いオフセット）を返す。
-    最初に見つかった値ではなく最小値を使うことで、IFC ファイル内の
-    エンティティ列挙順に依存しない決定的な結果になる。
-    見つからなければ 0.0 を返す。
+    柱はその階の横架材天端に立つため、柱底部 (ローカル配置 Z) が集中する高さが
+    横架材天端である。そこで IfcColumn・IfcSlab のローカル配置 Z の**最頻値**を返す。
+
+    最小値ではなく最頻値を使う理由: 一部の柱は仕口などで他より深く配置され
+    (例: 53 本が -10 のところ 1 本だけ -200)、最小値だと多数派の柱が横架材天端から
+    浮いてしまう。最頻値なら多数派の柱がちょうど横架材天端に乗る。
+    候補が同数の場合は最小値を選び、IFC ファイル内のエンティティ列挙順に依存しない
+    決定的な結果にする。柱・床版が無ければ 0.0 を返す。
     """
     offsets: list[float] = []
     for rel in storey.ContainsElements or ():
@@ -48,9 +53,13 @@ def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
             if not (element.is_a('IfcColumn') or element.is_a('IfcSlab')):
                 continue
             z = get_local_placement_z(element)
-            if z is not None and z < 0:
+            if z is not None:
                 offsets.append(z)
-    return min(offsets, default=0.0)
+    if not offsets:
+        return 0.0
+    counts = collections.Counter(offsets)
+    max_count = max(counts.values())
+    return min(z for z, c in counts.items() if c == max_count)
 
 
 def collect_stories(ifc_file: ifcopenshell.file) -> list[tuple[float, float | None]]:

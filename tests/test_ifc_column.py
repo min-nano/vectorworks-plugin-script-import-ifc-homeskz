@@ -236,6 +236,29 @@ class TestBuildColumnCommands:
         assert bound['level'] == '横架材天端'
         assert bound['offset'] == pytest.approx(0.0)
 
+    def test_typical_columns_sit_on_beam_top_despite_deeper_outlier(self) -> None:
+        """多数派の柱は横架材天端 (offset 0) に乗り、深い少数派だけが下に出る。
+
+        横架材天端は柱底部の最頻値で決まるため、1 本だけ深い柱があっても
+        多数派の柱が浮かない（min ベースだと多数派が浮いてしまう不具合の回帰防止）。
+        """
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # 多数派 3 本は local_z=-10、1 本だけ深い -200
+        for _ in range(3):
+            make_column(ifc, s1, 0.0, 0.0, oz=-10.0, height=2844.0)
+        make_column(ifc, s1, 0.0, 0.0, oz=-200.0, height=2844.0)
+
+        commands = build_column_commands(ifc)
+        bottoms = sorted(c['bottom_bound']['offset'] for c in commands)
+        # 多数派 (3 本) は横架材天端ちょうど、深い 1 本は -190 下
+        assert bottoms == [
+            pytest.approx(-190.0),
+            pytest.approx(0.0), pytest.approx(0.0), pytest.approx(0.0),
+        ]
+        assert all(c['bottom_bound']['level'] == '横架材天端' for c in commands)
+
     def test_top_bound_uses_upper_eaves_for_second_top_story(self) -> None:
         """上階が最上階のとき、高さ基準(上)は上階の軒高になる。"""
         ifc = ifcopenshell.file()

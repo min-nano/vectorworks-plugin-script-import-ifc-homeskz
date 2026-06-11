@@ -75,8 +75,32 @@ class TestResolveBeamTopOffset:
         storey = make_storey(ifc, '1FL', 473.0)
         assert resolve_beam_top_offset(storey) == 0.0
 
-    def test_returns_minimum_offset_regardless_of_order(self) -> None:
-        """複数候補があるときは列挙順に依らず最小の負値を返す。"""
+    def test_returns_most_common_offset(self) -> None:
+        """多数派の柱・床版が共有する Z (最頻値) を横架材天端とする。
+
+        少数の深い柱に引きずられず、多数派の柱が横架材天端に乗るようにする。
+        """
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0, [
+            ('IfcColumn', -10.0), ('IfcColumn', -10.0), ('IfcColumn', -10.0),
+            ('IfcColumn', -200.0),  # 深い少数派 (min だとこれに引きずられる)
+        ])
+        assert resolve_beam_top_offset(storey) == -10.0
+
+    def test_uses_non_negative_offset_when_most_common(self) -> None:
+        """多数派の柱が FL (Z=0) にある場合は横架材天端=FL とする。
+
+        負値だけを対象にすると少数派の深い柱に引きずられるため、Z=0 も候補にする。
+        """
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 500.0, [
+            ('IfcColumn', 0.0), ('IfcColumn', 0.0), ('IfcColumn', 0.0),
+            ('IfcColumn', -100.0),
+        ])
+        assert resolve_beam_top_offset(storey) == 0.0
+
+    def test_breaks_ties_by_minimum_regardless_of_order(self) -> None:
+        """候補が同数のときは列挙順に依らず最小値を返す (決定的)。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0, [('IfcColumn', -36.0), ('IfcSlab', -48.0)])
         assert resolve_beam_top_offset(storey) == -48.0
