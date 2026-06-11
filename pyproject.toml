@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "vectorworks-plugin-import-ifc-homeskz"
 version = "0.1.0"
 requires-python = ">=3.9"
-dependencies = ["ifcopenshell"]
+# certifi は main.py の自動更新が VectorWorks 同梱 Python (CA 証明書
+# バンドル非同梱の場合あり) から HTTPS アクセスするために使う
+dependencies = ["ifcopenshell", "certifi"]
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-cov>=4", "mypy>=1.8"]

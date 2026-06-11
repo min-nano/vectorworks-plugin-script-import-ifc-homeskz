@@ -43,12 +43,12 @@ src/
             grid.py           # grid 命令 → GridAxis オブジェクト
             story.py          # story 命令 → ストーリ・レベル・レイヤ
             member.py         # member 命令 → 構造材オブジェクト
-main.py                      # VectorWorks から呼び出すラッパースクリプト
+main.py                      # VectorWorks から呼び出すラッパースクリプト (実行時に自動インストール・更新)
 tests/                       # pytest 用テスト (CI は vs.py スタブを GitHub からダウンロード)
 pyproject.toml               # パッケージメタデータ
 ```
 
-`vs` を import してよいのは `vw` サブパッケージ内と `run()` 関数内（遅延 import）だけ。`ifc` サブパッケージや `document.py` に `vs` への依存を持ち込まないこと。テストもこの分離に従う: `tests/test_ifc_*.py`・`tests/test_document.py` は vs モック不要、`tests/test_vw_*.py` は手書きの命令セットを vs モックで実行して検証する。
+`vs` を import してよいのは `vw` サブパッケージ内・`run()` 関数内・`main.py` の設定フォルダ検出（いずれも関数内の遅延 import）だけ。`ifc` サブパッケージや `document.py` に `vs` への依存を持ち込まないこと。テストもこの分離に従う: `tests/test_ifc_*.py`・`tests/test_document.py` は vs モック不要、`tests/test_vw_*.py` は手書きの命令セットを vs モックで実行して検証する。
 
 ## コーディング規約: 型注釈
 
