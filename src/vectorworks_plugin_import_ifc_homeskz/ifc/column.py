@@ -21,8 +21,23 @@ from .story import (
 if TYPE_CHECKING:
     import ifcopenshell
 
-# IfcColumn.ObjectType が未設定（ホームズ君では管柱）の場合に使う既定種別。
+# IfcColumn.ObjectType から木造BIM 柱・間柱ツールの種別名へのマッピング。
+# ホームズ君 IFC では ObjectType は None（管柱）または "STANDCOLUMN"（小屋束）。
+# ツールの種別ドロップダウンの有効値は 管柱 / 通し柱 / 間柱 / 小屋束 / 吊木。
 DEFAULT_COLUMN_TYPE = '管柱'
+COLUMN_TYPE_BY_OBJECT_TYPE = {
+    'STANDCOLUMN': '小屋束',
+}
+
+
+def resolve_column_type(object_type: str | None) -> str:
+    """IfcColumn.ObjectType を柱・間柱ツールの種別名に変換する。
+
+    未知の ObjectType（None 含む）は既定種別（管柱）として扱う。
+    """
+    if object_type is None:
+        return DEFAULT_COLUMN_TYPE
+    return COLUMN_TYPE_BY_OBJECT_TYPE.get(object_type, DEFAULT_COLUMN_TYPE)
 
 
 def _get_position_2d(
@@ -97,11 +112,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 local_z = get_local_placement_z(element)
                 elevation = storey_elevation + (local_z if local_z is not None else 0.0)
 
-                # IfcColumn.ObjectType（None または "STANDCOLUMN"）は柱・間柱ツールの
-                # 種別名と一致しないため、現状はすべて既定種別（管柱）として扱う。
                 commands.append({
                     'layer': layer_name,
-                    'column_type': DEFAULT_COLUMN_TYPE,
+                    'column_type': resolve_column_type(element.ObjectType),
                     'position': [ox - center_x, oy - center_y],
                     'width': width,
                     'depth': depth,

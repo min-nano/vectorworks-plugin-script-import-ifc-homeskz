@@ -9,6 +9,7 @@ import pytest
 from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
     _get_position_2d,
     build_column_commands,
+    resolve_column_type,
 )
 
 
@@ -109,6 +110,21 @@ class TestGetPosition2D:
 
 
 # ---------------------------------------------------------------------------
+# resolve_column_type
+# ---------------------------------------------------------------------------
+
+class TestResolveColumnType:
+    def test_none_maps_to_kudabashira(self) -> None:
+        assert resolve_column_type(None) == '管柱'
+
+    def test_standcolumn_maps_to_koyazuka(self) -> None:
+        assert resolve_column_type('STANDCOLUMN') == '小屋束'
+
+    def test_unknown_falls_back_to_default(self) -> None:
+        assert resolve_column_type('SOMETHING_ELSE') == '管柱'
+
+
+# ---------------------------------------------------------------------------
 # build_column_commands
 # ---------------------------------------------------------------------------
 
@@ -187,14 +203,14 @@ class TestBuildColumnCommands:
         assert command['depth'] == pytest.approx(120.0)
         assert command['height'] == pytest.approx(2844.0)
 
-    def test_standcolumn_object_type_still_uses_default_type(self) -> None:
-        """ObjectType=STANDCOLUMN（小屋束）でも種別は既定 (管柱) として扱う。"""
+    def test_standcolumn_object_type_maps_to_koyazuka(self) -> None:
+        """ObjectType=STANDCOLUMN は小屋束に変換される。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, 'RFL', 6300.0)
         make_column(ifc, storey, 0.0, 0.0, object_type='STANDCOLUMN')
 
         commands = build_column_commands(ifc)
-        assert commands[0]['column_type'] == '管柱'
+        assert commands[0]['column_type'] == '小屋束'
 
     def test_skips_column_without_placement(self) -> None:
         ifc = ifcopenshell.file()
