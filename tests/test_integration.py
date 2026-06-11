@@ -55,7 +55,7 @@ class Expected:
 # 解析ロジックを変更したときに差分として検出できるよう明示的に記載する。
 FIXTURES = [
     Expected(
-        'homeskz_3story_01.ifc',
+        'サンプル1 (住木邸新築工事).ifc',
         story_names=['1階', '2階', '屋根'],
         story_suffixes=['1', '2', 'R'],
         story_elevations=[600.0, 3500.0, 6300.0],
@@ -63,7 +63,7 @@ FIXTURES = [
         members=147,
     ),
     Expected(
-        'homeskz_3story_02.ifc',
+        'スキップフロア_サンプル.ifc',
         story_names=['1階', '2階', '屋根'],
         story_suffixes=['1', '2', 'R'],
         story_elevations=[612.0, 3571.0, 6374.0],
@@ -71,7 +71,7 @@ FIXTURES = [
         members=266,
     ),
     Expected(
-        'homeskz_3story_03.ifc',
+        '伏図次郎【2階】.ifc',
         story_names=['1階', '2階', '屋根'],
         story_suffixes=['1', '2', 'R'],
         story_elevations=[600.0, 3500.0, 6300.0],
@@ -79,7 +79,7 @@ FIXTURES = [
         members=270,
     ),
     Expected(
-        'homeskz_4story_01.ifc',
+        'グレー本モデルプラン1【3階】.ifc',
         story_names=['1階', '2階', '3階', '屋根'],
         story_suffixes=['1', '2', '3', 'R'],
         story_elevations=[500.0, 3300.0, 6100.0, 8900.0],
@@ -87,7 +87,7 @@ FIXTURES = [
         members=196,
     ),
     Expected(
-        'homeskz_4story_02.ifc',
+        'グレー本モデルプラン2【3階】.ifc',
         story_names=['1階', '2階', '3階', '屋根'],
         story_suffixes=['1', '2', '3', 'R'],
         story_elevations=[455.0, 3185.0, 5915.0, 8190.0],
