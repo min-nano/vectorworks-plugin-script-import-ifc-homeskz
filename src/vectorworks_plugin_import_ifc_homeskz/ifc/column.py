@@ -71,7 +71,7 @@ def _base_level(
     """階 index の「基準レベル」(柱を配置するレイヤのレベル) を返す。
 
     Returns: (level_type, base_absolute)
-        一般階は横架材天端 (FL からの負オフセット)、最上階は軒高 (オフセット 0)。
+        一般階は横架材天端 (FL からの 0 または負オフセット)、最上階は軒高 (オフセット 0)。
         base_absolute はそのレベルの絶対 Z (= storey_elevation + base_offset)。
     """
     if index == top_idx:

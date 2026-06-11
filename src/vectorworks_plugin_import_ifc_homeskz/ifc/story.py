@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING
 
 from ..document import LevelCommand, StoryCommand
@@ -35,29 +36,39 @@ def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None
 
 
 def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
-    """階に属する IfcColumn または IfcSlab から横架材天端の相対オフセット (FL からの負値) を求める。
+    """階に属する IfcColumn から横架材天端の相対オフセット (FL からの 0 または負値) を求める。
 
-    IFC のローカル配置 Z 座標が負の柱・床版のうち最小値（最も深いオフセット）を返す。
-    最初に見つかった値ではなく最小値を使うことで、IFC ファイル内の
-    エンティティ列挙順に依存しない決定的な結果になる。
-    見つからなければ 0.0 を返す。
+    柱は横架材の上に載るため、柱のローカル配置 Z（FL からの相対値）の**最頻値**が
+    横架材天端のオフセットになる。最小値ではなく最頻値を使うのは、横架材天端より
+    深い位置から立つ柱（ポーチ柱・デッキ柱等）の外れ値に基準を引きずられないため。
+    最頻値が複数あるときは FL に近い方（大きい方）を採用して決定的な結果にする。
+    正の Z（小屋裏の束等、横架材天端より上の要素）は対象外。
+    柱が無い階は床版 (IfcSlab) で代用し、どちらも無ければ 0.0 を返す。
+    床版を柱と同列に数えないのは、バルコニー等の床下げされた床版が
+    本来の床版より多い階で誤った基準を選んでしまうため。
     """
-    offsets: list[float] = []
+    column_zs: Counter[float] = Counter()
+    slab_zs: Counter[float] = Counter()
     for rel in storey.ContainsElements or ():
         for element in rel.RelatedElements:
-            if not (element.is_a('IfcColumn') or element.is_a('IfcSlab')):
-                continue
             z = get_local_placement_z(element)
-            if z is not None and z < 0:
-                offsets.append(z)
-    return min(offsets, default=0.0)
+            if z is None or z > 0:
+                continue
+            if element.is_a('IfcColumn'):
+                column_zs[z] += 1
+            elif element.is_a('IfcSlab'):
+                slab_zs[z] += 1
+    zs = column_zs or slab_zs
+    if not zs:
+        return 0.0
+    return max(zs, key=lambda z: (zs[z], z))
 
 
 def collect_stories(ifc_file: ifcopenshell.file) -> list[tuple[float, float | None]]:
     """IFC からストーリ情報を集める。
 
     Returns: [(elevation, beam_offset_or_None), ...] を Elevation 昇順で返す。
-        最上階は beam_offset=None (軒高のみ)、それ以外は beam_offset=負値 (横架材天端の FL からのオフセット)。
+        最上階は beam_offset=None (軒高のみ)、それ以外は beam_offset=0 または負値 (横架材天端の FL からのオフセット)。
 
     名前が "FL" で終わらないストーリ (例: 設計GL) は地盤レベル等の参照高であり VW のストーリには
     しないため除外する。これを残すと既定高さ 0 のストーリが複数できて CreateStory が衝突する。
@@ -99,7 +110,7 @@ def layer_prefix_for(index: int, is_top: bool) -> str:
 def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     """IFC のストーリから story 命令のリストを組み立てる。
 
-    一般階は FL(0) と 横架材天端(負オフセット) の 2 レベル、最上階は 軒高(0) のみ。
+    一般階は FL(0) と 横架材天端(0 または負オフセット) の 2 レベル、最上階は 軒高(0) のみ。
     """
     stories = collect_stories(ifc_file)
 

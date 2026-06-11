@@ -236,6 +236,30 @@ class TestBuildColumnCommands:
         assert bound['level'] == '横架材天端'
         assert bound['offset'] == pytest.approx(0.0)
 
+    def test_outlier_column_does_not_shift_beam_top_basis(self) -> None:
+        """ポーチ柱等の外れ値があっても、通常の柱の下端は横架材天端 (offset=0) に一致する。
+
+        横架材天端は柱ローカル Z の最頻値 (-10) で決まり、外れ値の柱 (-200) は
+        基準を動かさず自身が負オフセットで配置される。
+        """
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s1, 0.0, 0.0, oz=-10.0)
+        make_column(ifc, s1, 1000.0, 0.0, oz=-10.0)
+        make_column(ifc, s1, 2000.0, 0.0, oz=-200.0)  # ポーチ柱 (外れ値)
+
+        commands = build_column_commands(ifc)
+        normal = [c for c in commands if c['elevation'] == pytest.approx(590.0)]
+        outlier = [c for c in commands if c['elevation'] == pytest.approx(400.0)]
+        assert len(normal) == 2
+        assert len(outlier) == 1
+        # 横架材天端 = 600-10 = 590: 通常の柱はちょうど横架材天端から立つ
+        for c in normal:
+            assert c['bottom_bound']['offset'] == pytest.approx(0.0)
+        # 外れ値の柱は横架材天端より 190 下から立つ
+        assert outlier[0]['bottom_bound']['offset'] == pytest.approx(-190.0)
+
     def test_top_bound_uses_upper_eaves_for_second_top_story(self) -> None:
         """上階が最上階のとき、高さ基準(上)は上階の軒高になる。"""
         ifc = ifcopenshell.file()

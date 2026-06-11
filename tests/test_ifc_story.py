@@ -75,15 +75,49 @@ class TestResolveBeamTopOffset:
         storey = make_storey(ifc, '1FL', 473.0)
         assert resolve_beam_top_offset(storey) == 0.0
 
-    def test_returns_minimum_offset_regardless_of_order(self) -> None:
-        """複数候補があるときは列挙順に依らず最小の負値を返す。"""
+    def test_prefers_columns_over_slabs(self) -> None:
+        """柱があるときは床版の Z（バルコニー床下げ等）に基準を引きずられない。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0, [('IfcColumn', -36.0), ('IfcSlab', -48.0)])
-        assert resolve_beam_top_offset(storey) == -48.0
+        assert resolve_beam_top_offset(storey) == -36.0
 
         ifc2 = ifcopenshell.file()
         storey2 = make_storey(ifc2, '1FL', 473.0, [('IfcSlab', -48.0), ('IfcColumn', -36.0)])
-        assert resolve_beam_top_offset(storey2) == -48.0
+        assert resolve_beam_top_offset(storey2) == -36.0
+
+    def test_uses_most_common_column_z_ignoring_outliers(self) -> None:
+        """ポーチ柱等の外れ値（最小値）ではなく柱 Z の最頻値を返す。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0, [
+            ('IfcColumn', -10.0), ('IfcColumn', -10.0), ('IfcColumn', -10.0),
+            ('IfcColumn', -200.0),  # ポーチ柱: 横架材天端より深い位置から立つ
+            ('IfcSlab', -10.0),
+        ])
+        assert resolve_beam_top_offset(storey) == -10.0
+
+    def test_counts_zero_z_columns(self) -> None:
+        """Z=0（FL=横架材天端のモデル）の柱も最頻値の候補に数える。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 500.0, [
+            ('IfcColumn', 0.0), ('IfcColumn', 0.0), ('IfcColumn', -100.0),
+        ])
+        assert resolve_beam_top_offset(storey) == 0.0
+
+    def test_ignores_positive_z(self) -> None:
+        """横架材天端より上（正の Z）の要素は基準の候補にしない。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '2FL', 3273.0, [
+            ('IfcColumn', -36.0), ('IfcSlab', 723.0), ('IfcSlab', 723.0),
+        ])
+        assert resolve_beam_top_offset(storey) == -36.0
+
+    def test_tie_breaks_to_offset_closest_to_fl(self) -> None:
+        """最頻値が同数のときは FL に近い方（大きい方）を採用する。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0, [
+            ('IfcColumn', -48.0), ('IfcColumn', -36.0),
+        ])
+        assert resolve_beam_top_offset(storey) == -36.0
 
 
 class TestCollectStories:
