@@ -41,6 +41,7 @@ class Expected:
         story_elevations: list[float],
         grids: int,
         members: int,
+        columns: int,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -48,6 +49,7 @@ class Expected:
         self.story_elevations = story_elevations
         self.grids = grids
         self.members = members
+        self.columns = columns
 
 
 # 各フィクスチャの想定値。値は build_document の実出力から取得しており、
@@ -60,6 +62,7 @@ FIXTURES = [
         story_elevations=[600.0, 3500.0, 6300.0],
         grids=22,
         members=147,
+        columns=138,
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -68,6 +71,7 @@ FIXTURES = [
         story_elevations=[612.0, 3571.0, 6374.0],
         grids=25,
         members=266,
+        columns=197,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -76,6 +80,7 @@ FIXTURES = [
         story_elevations=[600.0, 3500.0, 6300.0],
         grids=24,
         members=270,
+        columns=141,
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -84,6 +89,7 @@ FIXTURES = [
         story_elevations=[500.0, 3300.0, 6100.0, 8900.0],
         grids=22,
         members=196,
+        columns=165,
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -92,6 +98,7 @@ FIXTURES = [
         story_elevations=[455.0, 3185.0, 5915.0, 8190.0],
         grids=20,
         members=69,
+        columns=109,
     ),
 ]
 
@@ -158,12 +165,14 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
     """vs モックを差し込んで描画フェーズ全体を実行する。"""
     with patch.dict('sys.modules', {'vs': vs_mock}):
         import vectorworks_plugin_import_ifc_homeskz.vw as vw
+        import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
         importlib.reload(vw_member)
         importlib.reload(vw_story)
+        importlib.reload(vw_column)
         importlib.reload(vw)
         return vw.execute_document(document)
 
@@ -203,6 +212,7 @@ class TestSampleIfcAnalysis:
         document = build_fixture_document(exp.filename)
         assert len(document['grids']) == exp.grids
         assert len(document['members']) == exp.members
+        assert len(document['columns']) == exp.columns
 
     def test_grids_are_x_or_y_axis_classes(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)
@@ -226,6 +236,18 @@ class TestSampleIfcAnalysis:
             assert member['layer'] in story_layers, \
                 f"未知のレイヤを参照しています: {member['layer']}"
 
+    def test_column_layers_reference_known_story_layers(self, exp: Expected) -> None:
+        """柱が参照するレイヤは story 命令で生成されるレイヤ名に含まれる。"""
+        document = build_fixture_document(exp.filename)
+        story_layers = {
+            level['layer']
+            for story in document['stories']
+            for level in story['levels']
+        }
+        for column in document['columns']:
+            assert column['layer'] in story_layers, \
+                f"未知のレイヤを参照しています: {column['layer']}"
+
     def test_document_passes_validation(self, exp: Expected) -> None:
         """JSON ラウンドトリップ後の命令セットが検証を通過する。"""
         document = build_fixture_document(exp.filename)
@@ -246,9 +268,11 @@ class TestFullPipeline:
         assert counts['stories'] == len(document['stories'])
         assert counts['grids'] == len(document['grids'])
         assert counts['members'] == len(document['members'])
+        assert counts['columns'] == len(document['columns'])
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
         assert counts['members'] == exp.members
+        assert counts['columns'] == exp.columns
 
     def test_each_story_is_created(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)
