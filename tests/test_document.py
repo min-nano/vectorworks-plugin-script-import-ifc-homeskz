@@ -51,6 +51,8 @@ def make_valid_document() -> dict[str, Any]:
                 'layer': '1-横架材天端', 'column_type': '管柱',
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
+                'bottom_bound': {'story': 0, 'level': '横架材天端', 'offset': 1.0},
+                'top_bound': {'story': 1, 'level': '横架材天端', 'offset': -200.0},
             },
         ],
     }
@@ -152,6 +154,31 @@ class TestValidateDocument:
         document = make_valid_document()
         document['columns'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_column_without_bound(self) -> None:
+        document = make_valid_document()
+        del document['columns'][0]['top_bound']
+        with pytest.raises(DocumentValidationError, match='top_bound'):
+            validate_document(document)
+
+    def test_rejects_bound_with_non_int_story(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['bottom_bound']['story'] = 0.5
+        with pytest.raises(DocumentValidationError, match='story'):
+            validate_document(document)
+
+    def test_rejects_bound_with_out_of_range_story(self) -> None:
+        # boundStory は -1/0/1 のみ（SetObjectStoryBound の契約）
+        document = make_valid_document()
+        document['columns'][0]['top_bound']['story'] = 2
+        with pytest.raises(DocumentValidationError, match='story'):
+            validate_document(document)
+
+    def test_rejects_bound_with_empty_level(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['top_bound']['level'] = ''
+        with pytest.raises(DocumentValidationError, match='level'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:

@@ -223,6 +223,64 @@ class TestBuildColumnCommands:
 
         assert build_column_commands(ifc) == []
 
+    def test_bottom_bound_references_current_beam_top(self) -> None:
+        """高さ基準(下)は当該階の横架材天端で、オフセットは IFC の高さに一致する。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # local_z=-174 → 1FL 横架材天端 = 600-174 = 426（この柱が最小なので基準と一致）
+        make_column(ifc, s1, 0.0, 0.0, oz=-174.0, height=2844.0)
+
+        bound = build_column_commands(ifc)[0]['bottom_bound']
+        assert bound['story'] == 0
+        assert bound['level'] == '横架材天端'
+        assert bound['offset'] == pytest.approx(0.0)
+
+    def test_top_bound_uses_upper_eaves_for_second_top_story(self) -> None:
+        """上階が最上階のとき、高さ基準(上)は上階の軒高になる。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # bottom=426, top=426+2844=3270 → 軒高(6300) からのオフセット -3030
+        make_column(ifc, s1, 0.0, 0.0, oz=-174.0, height=2844.0)
+
+        bound = build_column_commands(ifc)[0]['top_bound']
+        assert bound['story'] == 1
+        assert bound['level'] == '軒高'
+        assert bound['offset'] == pytest.approx(-3030.0)
+
+    def test_top_bound_uses_upper_beam_top_for_middle_story(self) -> None:
+        """上階が一般階のとき、高さ基準(上)は上階の横架材天端になる。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        s2 = make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s1, 0.0, 0.0, oz=-174.0, height=2844.0)
+        # 2FL に負の local_z の柱を置き、2FL 横架材天端 = 3500-80 = 3420 にする
+        make_column(ifc, s2, 0.0, 0.0, oz=-80.0, height=2700.0)
+
+        s1_cmd = next(c for c in build_column_commands(ifc) if c['layer'] == '1-横架材天端')
+        bound = s1_cmd['top_bound']
+        assert bound['story'] == 1
+        assert bound['level'] == '横架材天端'
+        # 1FL 柱の頂部 = 600-174+2844 = 3270, 2FL 横架材天端 = 3420 → -150
+        assert bound['offset'] == pytest.approx(-150.0)
+
+    def test_top_story_column_binds_to_same_eaves(self) -> None:
+        """最上階の柱（上階なし）は上下端とも当該階の軒高を基準にする。"""
+        ifc = ifcopenshell.file()
+        s = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s, 0.0, 0.0, oz=-100.0, height=500.0,
+                    object_type='STANDCOLUMN')
+
+        cmd = build_column_commands(ifc)[0]
+        assert cmd['layer'] == 'R-軒高'
+        # 軒高 = 6300, bottom = 6200 → -100, top = 6700 → +400
+        assert cmd['bottom_bound'] == {
+            'story': 0, 'level': '軒高', 'offset': pytest.approx(-100.0)}
+        assert cmd['top_bound'] == {
+            'story': 0, 'level': '軒高', 'offset': pytest.approx(400.0)}
+
     def test_commands_are_json_serializable(self) -> None:
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 600.0)
