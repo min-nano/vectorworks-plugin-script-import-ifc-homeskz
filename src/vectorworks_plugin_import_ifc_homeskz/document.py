@@ -49,8 +49,20 @@
                 "position": [x, y],       # 配置 XY (mm, センタリング済み)
                 "width": 105.0,           # 断面幅 (mm)
                 "depth": 105.0,           # 断面成 (mm)
-                "height": 2844.0,         # 柱高さ (mm)
-                "elevation": 426.0        # 配置 Z 高さ (mm, 絶対値)
+                "height": 2844.0,         # 柱高さ (mm, フォールバック/Height フィールド用)
+                "elevation": 426.0,       # 配置 Z 高さ (mm, 絶対値, フォールバック用)
+                # 上下端の高さ基準（ストーリレベル基準）。柱・間柱ツールの
+                # SetObjectStoryBound に渡し、階高変更に追従させる。
+                "bottom_bound": {         # 高さ基準(下): 該当階の横架材天端
+                    "story": 0,           # boundStory: 0=当該階, 1=上階, -1=下階
+                    "level": "横架材天端",  # layerLevelType (ストーリレベルタイプ名)
+                    "offset": 1.0         # そのレベルからのオフセット (mm)
+                },
+                "top_bound": {            # 高さ基準(上): 上階の横架材天端 or 軒高
+                    "story": 1,
+                    "level": "横架材天端",
+                    "offset": -200.0
+                }
             }
         ]
     }
@@ -103,6 +115,17 @@ class MemberCommand(TypedDict):
     elevation: float
 
 
+class StoryBound(TypedDict):
+    """柱の上端/下端の高さ基準（ストーリレベル基準）。
+
+    VW の SetObjectStoryBound(boundType=2 / Story) に対応する。
+    """
+
+    story: int  # boundStory: 0=当該階, 1=上階, -1=下階
+    level: str  # layerLevelType (ストーリレベルタイプ名)
+    offset: float  # 指定レベルからのオフセット (mm)
+
+
 class ColumnCommand(TypedDict):
     """柱 (柱・間柱 オブジェクト) を描画する命令。"""
 
@@ -113,6 +136,8 @@ class ColumnCommand(TypedDict):
     depth: float
     height: float
     elevation: float
+    bottom_bound: StoryBound
+    top_bound: StoryBound
 
 
 class Document(TypedDict):
@@ -203,6 +228,16 @@ def _validate_member(index: int, command: Any) -> None:
                  f'{where}.{key} は数値である必要があります')
 
 
+def _validate_story_bound(where: str, bound: Any) -> None:
+    _require(isinstance(bound, dict), f'{where} は dict である必要があります')
+    _require(isinstance(bound.get('story'), int) and not isinstance(bound.get('story'), bool),
+             f'{where}.story は整数である必要があります')
+    _require(isinstance(bound.get('level'), str) and bound['level'],
+             f'{where}.level は非空文字列である必要があります')
+    _require(_is_number(bound.get('offset')),
+             f'{where}.offset は数値である必要があります')
+
+
 def _validate_column(index: int, command: Any) -> None:
     where = f'columns[{index}]'
     _require(isinstance(command, dict), f'{where} は dict である必要があります')
@@ -215,6 +250,9 @@ def _validate_column(index: int, command: Any) -> None:
     for key in ('width', 'depth', 'height', 'elevation'):
         _require(_is_number(command.get(key)),
                  f'{where}.{key} は数値である必要があります')
+    for key in ('bottom_bound', 'top_bound'):
+        _require(key in command, f'{where}.{key} は必須です')
+        _validate_story_bound(f'{where}.{key}', command[key])
 
 
 def validate_document(document: Any) -> Document:

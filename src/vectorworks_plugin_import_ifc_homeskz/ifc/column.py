@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..document import ColumnCommand
+from ..document import ColumnCommand, StoryBound
 from .grid import resolve_lines
 from .member import _get_profile_dims
 from .story import (
@@ -16,6 +16,7 @@ from .story import (
     LEVEL_EAVES,
     get_local_placement_z,
     layer_prefix_for,
+    resolve_beam_top_offset,
 )
 
 if TYPE_CHECKING:
@@ -64,12 +65,32 @@ def _get_position_2d(
     return float(coords[0]), float(coords[1])
 
 
+def _base_level(
+    index: int, top_idx: int, elevations: list[float], beam_offsets: list[float],
+) -> tuple[str, float, float]:
+    """階 index の「基準レベル」(柱を配置するレイヤのレベル) を返す。
+
+    Returns: (level_type, base_offset, base_absolute)
+        一般階は横架材天端 (FL からの負オフセット)、最上階は軒高 (オフセット 0)。
+        base_absolute はそのレベルの絶対 Z (= storey_elevation + base_offset)。
+    """
+    if index == top_idx:
+        return LEVEL_EAVES, 0.0, elevations[index]
+    base_offset = beam_offsets[index]
+    return LEVEL_BEAM_TOP, base_offset, elevations[index] + base_offset
+
+
 def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
     """IFC の柱から column 命令のリストを組み立てる。
 
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
     一般階は横架材天端レイヤ、最上階（屋根）は軒高レイヤを指定する
     （横架材と同じレイヤ割り当て規則）。
+
+    柱高さは固定値ではなく上下端をストーリレベル基準で指定する
+    （高さ基準(下)=当該階の横架材天端、高さ基準(上)=上階の横架材天端 or 軒高）。
+    オフセットは IFC 上の絶対高さに合わせ、階高変更に追従できるようにする。
+    最上階（上階が存在しない）の柱は上下端とも当該階の軒高を基準にする。
     """
     _, center_x, center_y = resolve_lines(ifc_file)
 
@@ -82,6 +103,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
         return []
 
     top_idx = len(storeys) - 1
+    elevations = [float(s.Elevation or 0.0) for s in storeys]
+    beam_offsets = [resolve_beam_top_offset(s) for s in storeys]
+
     commands: list[ColumnCommand] = []
 
     for i, storey in enumerate(storeys):
@@ -91,7 +115,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
         layer_suffix = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
         layer_name = f'{prefix}-{layer_suffix}'
 
-        storey_elevation = float(storey.Elevation or 0.0)
+        storey_elevation = elevations[i]
+        base_level_type, base_offset, base_abs = _base_level(
+            i, top_idx, elevations, beam_offsets)
 
         for rel in storey.ContainsElements or ():
             for element in rel.RelatedElements:
@@ -109,8 +135,36 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 # 押し出し: XDim=幅, YDim=成, Depth=柱高さ
                 width, depth, height = dims
 
-                local_z = get_local_placement_z(element)
-                elevation = storey_elevation + (local_z if local_z is not None else 0.0)
+                local_z = get_local_placement_z(element) or 0.0
+                bottom_abs = storey_elevation + local_z
+                top_abs = bottom_abs + height
+
+                # 高さ基準(下): 当該階の基準レベル (横架材天端 or 軒高)
+                bottom_bound: StoryBound = {
+                    'story': 0,
+                    'level': base_level_type,
+                    'offset': bottom_abs - base_abs,
+                }
+
+                # 高さ基準(上): 上階の横架材天端 or 軒高。上階が無ければ当該階の軒高。
+                if i < top_idx:
+                    upper = i + 1
+                    if upper == top_idx:
+                        upper_level_type, upper_abs = LEVEL_EAVES, elevations[upper]
+                    else:
+                        upper_level_type = LEVEL_BEAM_TOP
+                        upper_abs = elevations[upper] + beam_offsets[upper]
+                    top_bound: StoryBound = {
+                        'story': 1,
+                        'level': upper_level_type,
+                        'offset': top_abs - upper_abs,
+                    }
+                else:
+                    top_bound = {
+                        'story': 0,
+                        'level': LEVEL_EAVES,
+                        'offset': top_abs - base_abs,
+                    }
 
                 commands.append({
                     'layer': layer_name,
@@ -119,7 +173,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                     'width': width,
                     'depth': depth,
                     'height': height,
-                    'elevation': elevation,
+                    'elevation': bottom_abs,
+                    'bottom_bound': bottom_bound,
+                    'top_bound': top_bound,
                 })
 
     return commands

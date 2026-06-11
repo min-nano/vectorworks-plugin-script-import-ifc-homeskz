@@ -3,17 +3,32 @@ from __future__ import annotations
 
 import vs
 
-from ..document import ColumnCommand
+from ..document import ColumnCommand, StoryBound
 
 PLUGIN_NAME = '柱・間柱'
+
+# SetObjectStoryBound の boundType: 0=LayerZ, 1=DefaultWallHeight, 2=Story
+BOUND_TYPE_STORY = 2
+# 上下端それぞれの story bound 識別子 (0=上端, 1=下端)
+BOUND_ID_TOP = 0
+BOUND_ID_BOTTOM = 1
+
+
+def _set_story_bound(obj: object, bound_id: int, bound: StoryBound) -> None:
+    """柱の上端/下端の高さ基準をストーリレベル基準で設定する。"""
+    vs.SetObjectStoryBound(
+        obj, bound_id, BOUND_TYPE_STORY,
+        bound['story'], bound['level'], bound['offset'],
+    )
 
 
 def draw_column(command: ColumnCommand) -> None:
     """column 命令 1 件を柱・間柱ツールで描画する。
 
     柱はローカル原点 (0, 0) に生成し、CreateCustomObject 後に Move3D で
-    絶対位置（XY + 配置 Z 高さ）へ移動する。これは VW 柱・間柱ツールが
-    期待する配置パターンと一致する。
+    XY 位置へ移動する。上下端の高さは固定値ではなく SetObjectStoryBound で
+    ストーリレベル基準（下=横架材天端、上=上階の横架材天端 or 軒高）に
+    バインドし、階高変更に追従させる（Z 方向の高さはこのバインドが決める）。
     プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
@@ -26,6 +41,9 @@ def draw_column(command: ColumnCommand) -> None:
         # ローカル原点から実際の配置位置へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x, y, command['elevation'])
+        # 上下端の高さ基準をストーリレベルにバインド（Z 高さを決定する）
+        _set_story_bound(obj, BOUND_ID_TOP, command['top_bound'])
+        _set_story_bound(obj, BOUND_ID_BOTTOM, command['bottom_bound'])
         vs.SetRField(obj, PLUGIN_NAME, 'Type', command['column_type'])
         vs.SetRField(obj, PLUGIN_NAME, 'SecShape', '矩形')
         vs.SetRField(obj, PLUGIN_NAME, 'Width', str(w))

@@ -98,7 +98,9 @@ def make_document() -> dict[str, Any]:
         ],
         'columns': [
             {'layer': '1-横架材天端', 'column_type': '管柱', 'position': [0.0, 0.0],
-             'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0},
+             'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
+             'bottom_bound': {'story': 0, 'level': '横架材天端', 'offset': 1.0},
+             'top_bound': {'story': 1, 'level': '横架材天端', 'offset': -200.0}},
         ],
     }
 
