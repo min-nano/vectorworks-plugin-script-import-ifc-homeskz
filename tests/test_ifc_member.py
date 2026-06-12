@@ -529,13 +529,41 @@ class TestResolveMemberInterferences:
         assert result[0]['end'] == [pytest.approx(1000.0), pytest.approx(0.0)]
         assert result[1]['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
 
-    def test_l_corner_not_trimmed(self) -> None:
-        # 端点同士が突き合う L 字仕口は調整しない
-        a = _member([0.0, 0.0], [0.0, 1000.0], member_id='a')
-        b = _member([1000.0, 0.0], [0.0, 0.0], member_id='b')
+    def test_symmetric_l_corner_not_trimmed(self) -> None:
+        # 同寸の材が出隅で相互に食い込む対称な角（勝ち負けが付かない）は触らない
+        a = _member([0.0, 0.0], [0.0, 1000.0], width=120.0, member_id='a')
+        b = _member([1000.0, 0.0], [0.0, 0.0], width=120.0, member_id='b')
         result = resolve_member_interferences([a, b])
         assert result[0]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert result[0]['end'] == [pytest.approx(0.0), pytest.approx(1000.0)]
         assert result[1]['end'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert result[1]['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
+
+    def test_asymmetric_l_corner_trims_loser(self) -> None:
+        """出隅で食い込みが非対称な場合、深く食い込む負け材だけを面まで詰める。
+
+        勝ち材 (幅120, 半幅60) は垂直に x=0 を通り、負け材 (幅105) が水平に
+        x=0（勝ち材の中心線）まで食い込む。負け材の方が深く食い込むため、
+        負け材の端部を勝ち材の面 (x=60) まで詰める。勝ち材は変更しない。
+        """
+        winner = _member([0.0, 0.0], [0.0, 2000.0], width=120.0, member_id='win')
+        loser = _member([1000.0, 0.0], [0.0, 0.0], width=105.0, member_id='lose')
+        result = resolve_member_interferences([winner, loser])
+        win = next(c for c in result if c['member_id'] == 'win')
+        lose = next(c for c in result if c['member_id'] == 'lose')
+        assert lose['end'] == [pytest.approx(60.0), pytest.approx(0.0)]
+        assert lose['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
+        assert win['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert win['end'] == [pytest.approx(0.0), pytest.approx(2000.0)]
+
+    def test_diagonal_brace_corner_not_trimmed(self) -> None:
+        # 同寸・同長の斜材が一点で交わる対称な角（火打等）は触らない
+        d = 1000.0
+        a = _member([0.0, 0.0], [d, d], width=105.0, member_id='a')
+        b = _member([0.0, 0.0], [d, -d], width=105.0, member_id='b')
+        result = resolve_member_interferences([a, b])
+        assert result[0]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert result[1]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
 
     def test_non_overlapping_z_not_trimmed(self) -> None:
         # 上下に離れた段差梁（Z 範囲が重ならない）は干渉とみなさない
