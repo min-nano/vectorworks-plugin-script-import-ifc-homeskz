@@ -380,6 +380,37 @@ class TestBuildMemberCommands:
         assert elevations[0] == pytest.approx(173.0)   # 473 - 300
         assert elevations[1] == pytest.approx(425.0)   # 473 - 48
 
+    def test_falls_back_to_layer_elevation_when_local_z_unavailable(self) -> None:
+        """ローカル Z を取得できない梁はレイヤ基準高さ（横架材天端）にフォールバックする。
+
+        配置 Coordinates が 2 要素だと get_local_placement_z() は None を返すが、
+        _get_placement_2d() は XY を取得できるため命令自体は生成される。
+        このときレイヤ基準高さ（ストーリ高さ + resolve_beam_top_offset）を使う。
+        オフセットを 0 でない値にして、ストーリ高さそのものではなくレイヤ基準高さが
+        使われることを検証する。
+        """
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        # 床版 (Z=-50) を置き resolve_beam_top_offset を -50 にする
+        slab_pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, -50.0])
+        slab_ap = ifc.create_entity('IfcAxis2Placement3D', Location=slab_pt)
+        slab_lp = ifc.create_entity('IfcLocalPlacement', RelativePlacement=slab_ap)
+        slab = ifc.create_entity('IfcSlab', ObjectPlacement=slab_lp)
+        ifc.create_entity(
+            'IfcRelContainedInSpatialStructure',
+            RelatingStructure=storey, RelatedElements=[slab],
+        )
+        # 梁の配置 Z を欠落させ get_local_placement_z() を None にする
+        beam = make_beam(ifc, storey, 0.0, 0.0)
+        beam.ObjectPlacement.RelativePlacement.Location.Coordinates = [0.0, 0.0]
+
+        commands = build_member_commands(ifc)
+        member_cmds = [c for c in commands if c['member_id'] == '120×180']
+        assert len(member_cmds) == 1
+        # layer_elevation = 473 + (-50) = 423（ストーリ高さ 473 ではない）
+        assert member_cmds[0]['elevation'] == pytest.approx(423.0)
+
     def test_sets_member_id_and_dimensions(self) -> None:
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
