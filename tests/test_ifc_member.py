@@ -8,12 +8,14 @@ from unittest.mock import MagicMock
 import ifcopenshell
 import pytest
 
+from vectorworks_plugin_import_ifc_homeskz.document import MemberCommand
 from vectorworks_plugin_import_ifc_homeskz.ifc.member import (
     _get_material_name,
     _get_placement_2d,
     _get_profile_dims,
     build_member_commands,
     make_member_id,
+    resolve_member_interferences,
 )
 
 
@@ -442,3 +444,149 @@ class TestBuildMemberCommands:
 
         commands = build_member_commands(ifc)
         assert json.loads(json.dumps(commands)) == commands
+
+    def test_trims_interfering_beam_end(self) -> None:
+        """T 字状に食い込む乙梁の端部が甲梁の面まで詰められる（build 経由）。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        # 甲梁: Y 方向の通し材 (x=0, y=-1000〜1000), 幅 120 → 面は x=±60
+        make_beam(ifc, storey, 0.0, -1000.0, dx=0.0, dy=1.0, width=120.0,
+                  height=180.0, length=2000.0, material_name='甲')
+        # 乙梁: X 方向, +x 側から甲の中心線 (x=0) まで食い込む
+        make_beam(ifc, storey, 600.0, 500.0, dx=-1.0, dy=0.0, width=105.0,
+                  height=180.0, length=600.0, material_name='乙')
+
+        commands = build_member_commands(ifc)
+        otsu = next(c for c in commands if c['member_id'].endswith('乙'))
+        kou = next(c for c in commands if c['member_id'].endswith('甲'))
+        # 乙の端部は甲の +x 面 (x=60) まで詰められる
+        assert otsu['end'][0] == pytest.approx(60.0)
+        assert otsu['end'][1] == pytest.approx(500.0)
+        assert otsu['start'] == [pytest.approx(600.0), pytest.approx(500.0)]
+        # 甲（通し材）は変更されない
+        assert kou['start'] == [pytest.approx(0.0), pytest.approx(-1000.0)]
+        assert kou['end'] == [pytest.approx(0.0), pytest.approx(1000.0)]
+
+
+# ---------------------------------------------------------------------------
+# resolve_member_interferences
+# ---------------------------------------------------------------------------
+
+def _member(start: list[float], end: list[float], width: float = 120.0,
+            height: float = 180.0, elevation: float = 473.0,
+            layer: str = '1-横架材天端', member_id: str = 'm') -> MemberCommand:
+    return {
+        'layer': layer, 'member_id': member_id,
+        'start': start, 'end': end,
+        'width': width, 'height': height, 'elevation': elevation,
+    }
+
+
+class TestResolveMemberInterferences:
+    def test_trims_t_joint_end_to_face(self) -> None:
+        # 通し材: 幅 120 (面 x=±60), Y 方向 x=0
+        primary = _member([0.0, -1000.0], [0.0, 1000.0], member_id='primary')
+        # 食い込む材: +x から x=0 まで, 端点を x=60 (面) へ詰める
+        butting = _member([600.0, 500.0], [0.0, 500.0], width=105.0, member_id='butting')
+
+        result = resolve_member_interferences([primary, butting])
+        prim, but = result[0], result[1]
+        assert but['end'] == [pytest.approx(60.0), pytest.approx(500.0)]
+        assert but['start'] == [pytest.approx(600.0), pytest.approx(500.0)]
+        # 通し材は不変
+        assert prim['start'] == [pytest.approx(0.0), pytest.approx(-1000.0)]
+        assert prim['end'] == [pytest.approx(0.0), pytest.approx(1000.0)]
+
+    def test_does_not_modify_input(self) -> None:
+        butting = _member([600.0, 500.0], [0.0, 500.0])
+        primary = _member([0.0, -1000.0], [0.0, 1000.0])
+        resolve_member_interferences([primary, butting])
+        assert butting['end'] == [0.0, 500.0]  # 元の命令は変更されない
+
+    def test_order_independent(self) -> None:
+        primary = _member([0.0, -1000.0], [0.0, 1000.0])
+        butting = _member([600.0, 500.0], [0.0, 500.0], width=105.0)
+        a = resolve_member_interferences([primary, butting])
+        b = resolve_member_interferences([butting, primary])
+        assert a[1]['end'] == pytest.approx(b[0]['end'])
+
+    def test_trims_both_ends_between_two_primaries(self) -> None:
+        left = _member([-300.0, -1000.0], [-300.0, 1000.0], member_id='L')
+        right = _member([300.0, -1000.0], [300.0, 1000.0], member_id='R')
+        mid = _member([-300.0, 0.0], [300.0, 0.0], width=105.0, member_id='mid')
+
+        result = resolve_member_interferences([left, right, mid])
+        m = next(c for c in result if c['member_id'] == 'mid')
+        # 両端を各通し材の手前の面 (幅120 → 60) まで詰める
+        assert m['start'] == [pytest.approx(-240.0), pytest.approx(0.0)]
+        assert m['end'] == [pytest.approx(240.0), pytest.approx(0.0)]
+
+    def test_parallel_beams_not_trimmed(self) -> None:
+        a = _member([0.0, 0.0], [1000.0, 0.0])
+        b = _member([1000.0, 0.0], [2000.0, 0.0])  # 同一直線上の継ぎ手
+        result = resolve_member_interferences([a, b])
+        assert result[0]['end'] == [pytest.approx(1000.0), pytest.approx(0.0)]
+        assert result[1]['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
+
+    def test_symmetric_l_corner_not_trimmed(self) -> None:
+        # 同寸の材が出隅で相互に食い込む対称な角（勝ち負けが付かない）は触らない
+        a = _member([0.0, 0.0], [0.0, 1000.0], width=120.0, member_id='a')
+        b = _member([1000.0, 0.0], [0.0, 0.0], width=120.0, member_id='b')
+        result = resolve_member_interferences([a, b])
+        assert result[0]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert result[0]['end'] == [pytest.approx(0.0), pytest.approx(1000.0)]
+        assert result[1]['end'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert result[1]['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
+
+    def test_asymmetric_l_corner_trims_loser(self) -> None:
+        """出隅で食い込みが非対称な場合、深く食い込む負け材だけを面まで詰める。
+
+        勝ち材 (幅120, 半幅60) は垂直に x=0 を通り、負け材 (幅105) が水平に
+        x=0（勝ち材の中心線）まで食い込む。負け材の方が深く食い込むため、
+        負け材の端部を勝ち材の面 (x=60) まで詰める。勝ち材は変更しない。
+        """
+        winner = _member([0.0, 0.0], [0.0, 2000.0], width=120.0, member_id='win')
+        loser = _member([1000.0, 0.0], [0.0, 0.0], width=105.0, member_id='lose')
+        result = resolve_member_interferences([winner, loser])
+        win = next(c for c in result if c['member_id'] == 'win')
+        lose = next(c for c in result if c['member_id'] == 'lose')
+        assert lose['end'] == [pytest.approx(60.0), pytest.approx(0.0)]
+        assert lose['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
+        assert win['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert win['end'] == [pytest.approx(0.0), pytest.approx(2000.0)]
+
+    def test_diagonal_brace_corner_not_trimmed(self) -> None:
+        # 同寸・同長の斜材が一点で交わる対称な角（火打等）は触らない
+        d = 1000.0
+        a = _member([0.0, 0.0], [d, d], width=105.0, member_id='a')
+        b = _member([0.0, 0.0], [d, -d], width=105.0, member_id='b')
+        result = resolve_member_interferences([a, b])
+        assert result[0]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert result[1]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
+
+    def test_non_overlapping_z_not_trimmed(self) -> None:
+        # 上下に離れた段差梁（Z 範囲が重ならない）は干渉とみなさない
+        primary = _member([0.0, -1000.0], [0.0, 1000.0], elevation=473.0)
+        butting = _member([600.0, 500.0], [0.0, 500.0], elevation=0.0)  # 背 180 で離れる
+        result = resolve_member_interferences([primary, butting])
+        assert result[1]['end'] == [pytest.approx(0.0), pytest.approx(500.0)]
+
+    def test_different_layers_not_trimmed(self) -> None:
+        primary = _member([0.0, -1000.0], [0.0, 1000.0], layer='1-横架材天端')
+        butting = _member([600.0, 500.0], [0.0, 500.0], layer='2-横架材天端')
+        result = resolve_member_interferences([primary, butting])
+        assert result[1]['end'] == [pytest.approx(0.0), pytest.approx(500.0)]
+
+    def test_non_interfering_beam_unchanged(self) -> None:
+        # 相手の幅内に達していない（食い込んでいない）端部は不変
+        primary = _member([0.0, -1000.0], [0.0, 1000.0])
+        far = _member([600.0, 500.0], [200.0, 500.0])  # 端点 x=200, 甲の面 x=60 より外
+        result = resolve_member_interferences([primary, far])
+        assert result[1]['end'] == [pytest.approx(200.0), pytest.approx(500.0)]
+
+    def test_output_json_serializable(self) -> None:
+        primary = _member([0.0, -1000.0], [0.0, 1000.0])
+        butting = _member([600.0, 500.0], [0.0, 500.0])
+        result = resolve_member_interferences([primary, butting])
+        assert json.loads(json.dumps(result)) == result
