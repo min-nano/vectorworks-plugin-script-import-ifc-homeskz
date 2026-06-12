@@ -75,15 +75,15 @@ class TestResolveBeamTopOffset:
         storey = make_storey(ifc, '1FL', 473.0)
         assert resolve_beam_top_offset(storey) == 0.0
 
-    def test_returns_minimum_offset_regardless_of_order(self) -> None:
-        """複数候補があるときは列挙順に依らず最小の負値を返す。"""
+    def test_returns_maximum_offset_regardless_of_order(self) -> None:
+        """複数候補があるときは列挙順に依らず床に最も近接した (0 以下の最大) 負値を返す。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0, [('IfcColumn', -36.0), ('IfcSlab', -48.0)])
-        assert resolve_beam_top_offset(storey) == -48.0
+        assert resolve_beam_top_offset(storey) == -36.0
 
         ifc2 = ifcopenshell.file()
         storey2 = make_storey(ifc2, '1FL', 473.0, [('IfcSlab', -48.0), ('IfcColumn', -36.0)])
-        assert resolve_beam_top_offset(storey2) == -48.0
+        assert resolve_beam_top_offset(storey2) == -36.0
 
 
 class TestCollectStories:
