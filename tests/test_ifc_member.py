@@ -116,7 +116,7 @@ class TestGetPlacement3D:
 
         result = _get_placement_3d(beam)
         assert result is not None
-        ox, oy, oz, ax, ay, az = result
+        ox, oy, oz, _ax, _ay, _az = result
         assert ox == pytest.approx(1000.0)
         assert oy == pytest.approx(2000.0)
         assert oz == pytest.approx(-48.0)
@@ -141,7 +141,7 @@ class TestGetPlacement3D:
 
         result = _get_placement_3d(beam)
         assert result is not None
-        ox, oy, oz, ax, ay, az = result
+        _ox, _oy, _oz, ax, ay, az = result
         assert (ax, ay, az) == (pytest.approx(1.0), pytest.approx(0.0), pytest.approx(0.0))
 
     def test_extracts_axis_direction(self) -> None:
@@ -154,7 +154,7 @@ class TestGetPlacement3D:
 
         result = _get_placement_3d(beam)
         assert result is not None
-        ox, oy, oz, ax, ay, az = result
+        _ox, _oy, _oz, ax, ay, az = result
         assert ax == pytest.approx(0.0)
         assert ay == pytest.approx(1.0)
         assert az == pytest.approx(0.0)
@@ -170,7 +170,7 @@ class TestGetPlacement3D:
 
         result = _get_placement_3d(beam)
         assert result is not None
-        ox, oy, oz, ax, ay, az = result
+        _ox, _oy, _oz, ax, ay, az = result
         assert ax == pytest.approx(0.6)
         assert ay == pytest.approx(0.0)
         assert az == pytest.approx(0.8)
@@ -186,7 +186,7 @@ class TestGetPlacement3D:
 
         result = _get_placement_3d(beam)
         assert result is not None
-        ox, oy, oz, ax, ay, az = result
+        _ox, _oy, _oz, ax, ay, az = result
         assert math.sqrt(ax * ax + ay * ay + az * az) == pytest.approx(1.0)
 
     def test_returns_none_when_no_placement(self) -> None:
