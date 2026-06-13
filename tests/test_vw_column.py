@@ -16,7 +16,9 @@ def make_column_command(layer: str = '1-柱', plan_layer: str = '1-柱(伏図)',
                         width: float = 105.0, depth: float = 105.0,
                         height: float = 2844.0, elevation: float = 426.0,
                         bottom_bound: StoryBound | None = None,
-                        top_bound: StoryBound | None = None) -> ColumnCommand:
+                        top_bound: StoryBound | None = None,
+                        top_hardware: str = '',
+                        bottom_hardware: str = '') -> ColumnCommand:
     return {
         'layer': layer,
         'plan_layer': plan_layer,
@@ -28,6 +30,8 @@ def make_column_command(layer: str = '1-柱', plan_layer: str = '1-柱(伏図)',
         'elevation': elevation,
         'bottom_bound': bottom_bound or {'story': 0, 'level': '横架材天端', 'offset': 1.0},
         'top_bound': top_bound or {'story': 1, 'level': '横架材天端', 'offset': -200.0},
+        'top_hardware': top_hardware,
+        'bottom_hardware': bottom_hardware,
     }
 
 
@@ -150,6 +154,17 @@ class TestExecuteColumns:
         assert fields['SectionMarkClass'] == '01作図-01線-02実線-01極細線'
         assert fields['CircleMarkClass'] == '01作図-01線-02実線-03中線'
         assert fields['SecondaryClass'] == '01作図-01線-02実線-03中線'
+
+    def test_sets_hardware_fields(self) -> None:
+        """柱頭・柱脚金物の仕様を TopHardware / BottomHardware に格納する。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        _run_execute_columns(vs_mock, [
+            make_column_command(top_hardware='(ろ)', bottom_hardware='(い)'),
+        ])
+        set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
+        fields = {field: value for _, _, field, value in set_rfield_args}
+        assert fields['TopHardware'] == '(ろ)'
+        assert fields['BottomHardware'] == '(い)'
 
     def test_maps_standcolumn_to_koyatsuka(self) -> None:
         """STANDCOLUMN を小屋束にマッピングする。"""

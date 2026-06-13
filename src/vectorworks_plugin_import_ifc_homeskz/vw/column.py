@@ -16,6 +16,9 @@ BOUND_ID_BOTTOM = 1
 # 伏図記号表示フィールド名・伏図レイヤフィールド名
 FIELD_SHOW_PLAN_SYMBOL = 'isShowSecondary'
 FIELD_PLAN_LAYER = 'upperLayerName'
+# 柱頭金物・柱脚金物フィールド名
+FIELD_TOP_HARDWARE = 'TopHardware'
+FIELD_BOTTOM_HARDWARE = 'BottomHardware'
 # 伏図記号表示を有効にするブール値
 PLAN_SYMBOL_ON = 'True'
 
@@ -48,6 +51,7 @@ def draw_column(command: ColumnCommand) -> None:
     ストーリレベル基準(下=横架材天端、上=上階の横架材天端 or 軒高)に
     バインドし、階高変更に追従させる(Z 方向の高さはこのバインドが決める)。
     伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する。
+    柱頭・柱脚金物の仕様を TopHardware / BottomHardware フィールドに格納する。
     プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
@@ -97,6 +101,9 @@ def draw_column(command: ColumnCommand) -> None:
         # 伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する
         vs.SetRField(obj, PLUGIN_NAME, FIELD_SHOW_PLAN_SYMBOL, PLAN_SYMBOL_ON)
         vs.SetRField(obj, PLUGIN_NAME, FIELD_PLAN_LAYER, command['plan_layer'])
+        # 柱頭・柱脚金物の仕様(該当金物が無ければ空文字)
+        vs.SetRField(obj, PLUGIN_NAME, FIELD_TOP_HARDWARE, command['top_hardware'])
+        vs.SetRField(obj, PLUGIN_NAME, FIELD_BOTTOM_HARDWARE, command['bottom_hardware'])
         vs.ResetObject(obj)
     else:
         # フォールバック: 断面の矩形
