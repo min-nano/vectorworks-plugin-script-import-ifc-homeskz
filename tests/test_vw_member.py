@@ -72,7 +72,7 @@ class TestExecuteMembers:
         assert count == 2
 
     def test_skips_command_when_layer_missing(self) -> None:
-        """配置先レイヤが未生成の命令はスキップする（勝手にレイヤを作らない）。"""
+        """配置先レイヤが未生成の命令はスキップする(勝手にレイヤを作らない)。"""
         vs_mock = _make_vs_mock(existing_layers=set())
         count = _run_execute_members(vs_mock, [make_member_command()])
         assert count == 0
@@ -126,7 +126,7 @@ class TestExecuteMembers:
         )
 
     def test_draws_sloped_member_with_3d_path(self) -> None:
-        """傾斜梁（elevation ≠ end_elevation）は Z 成分を持つ 3D パスで描画する。"""
+        """傾斜梁(elevation ≠ end_elevation)は Z 成分を持つ 3D パスで描画する。"""
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
         vertex_calls: list[tuple[float, float, float]] = []
         move3d_calls: list[tuple[float, float, float]] = []
@@ -145,7 +145,7 @@ class TestExecuteMembers:
                                 elevation=527.0, end_elevation=1327.0),
         ])
 
-        # 方向ベクトルは (600, 600, 800)（Z は天端 Z の差分）
+        # 方向ベクトルは (600, 600, 800)(Z は天端 Z の差分)
         assert vertex_calls == [
             (pytest.approx(600.0), pytest.approx(600.0), pytest.approx(800.0)),
         ]

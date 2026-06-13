@@ -24,7 +24,7 @@ __all__ = ['build_document', 'run', 'validate_document']
 
 def run() -> None:
     # vs に依存するモジュールは VectorWorks 上での実行時のみ読み込む。
-    # これにより ifc パッケージ（解析フェーズ）は通常の Python 環境でも利用できる。
+    # これにより ifc パッケージ(解析フェーズ)は通常の Python 環境でも利用できる。
     import vs
 
     from .vw import execute_document
@@ -42,7 +42,7 @@ def run() -> None:
         # フェーズ1: IFC 解析 → JSON 命令セット
         document = build_document(ifc_file)
         # JSON 文字列を経由して受け渡すことで、命令セットが常に
-        # 直列化可能（= vs やifcopenshell のオブジェクトを含まない）ことを保証する
+        # 直列化可能(= vs やifcopenshell のオブジェクトを含まない)ことを保証する
         document = json.loads(json.dumps(document))
 
         # フェーズ2: 命令セットに従って描画

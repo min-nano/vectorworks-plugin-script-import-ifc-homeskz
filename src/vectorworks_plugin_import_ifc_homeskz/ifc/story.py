@@ -39,7 +39,7 @@ def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None
 def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
     """階に属する IfcColumn または IfcSlab から横架材天端の相対オフセット (FL からの負値) を求める。
 
-    IFC のローカル配置 Z 座標が負の柱・床版のうち最大値（床に最も近接したオフセット）を返す。
+    IFC のローカル配置 Z 座標が負の柱・床版のうち最大値(床に最も近接したオフセット)を返す。
     最初に見つかった値ではなく最大値を使うことで、IFC ファイル内の
     エンティティ列挙順に依存しない決定的な結果になり、かつ床に最も近い横架材天端を採用できる。
     見つからなければ 0.0 を返す。
@@ -102,7 +102,7 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     """IFC のストーリから story 命令のリストを組み立てる。
 
     一般階は FL(0) と 横架材天端(負オフセット)、最上階は 軒高(0) を構造レベルとし、
-    さらに各階に柱配置用の 柱・柱(伏図) レベル（オフセットは横架材天端と同じ＝最上階は軒高）
+    さらに各階に柱配置用の 柱・柱(伏図) レベル(オフセットは横架材天端と同じ=最上階は軒高)
     を加える。柱は 柱 レイヤに配置し、柱・間柱ツールの伏図記号を 柱(伏図) レイヤに描く。
     """
     stories = collect_stories(ifc_file)
@@ -113,7 +113,7 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
         is_top = i == n - 1
         prefix = layer_prefix_for(i, is_top)
         if is_top:
-            # 最上階の柱配置基準は軒高（オフセット 0）
+            # 最上階の柱配置基準は軒高(オフセット 0)
             column_offset = 0.0
             levels: list[LevelCommand] = [
                 {'type': LEVEL_EAVES, 'offset': 0.0, 'layer': f'{prefix}-{LEVEL_EAVES}'},
@@ -127,7 +127,7 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
                  'layer': f'{prefix}-{LEVEL_BEAM_TOP}'},
             ]
         # 柱を配置するレイヤと、柱・間柱ツールの伏図記号を描く伏図レイヤ。
-        # 高さは横架材天端（最上階は軒高）に揃える。
+        # 高さは横架材天端(最上階は軒高)に揃える。
         levels.append(
             {'type': LEVEL_COLUMN, 'offset': column_offset,
              'layer': f'{prefix}-{LEVEL_COLUMN}'})

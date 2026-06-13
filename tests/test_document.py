@@ -182,7 +182,7 @@ class TestValidateDocument:
             validate_document(document)
 
     def test_rejects_bound_with_out_of_range_story(self) -> None:
-        # boundStory は -1/0/1 のみ（SetObjectStoryBound の契約）
+        # boundStory は -1/0/1 のみ(SetObjectStoryBound の契約)
         document = make_valid_document()
         document['columns'][0]['top_bound']['story'] = 2
         with pytest.raises(DocumentValidationError, match='story'):

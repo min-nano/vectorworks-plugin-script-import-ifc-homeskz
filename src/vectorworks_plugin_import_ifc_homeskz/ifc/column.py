@@ -1,7 +1,7 @@
 """柱 (IfcColumn) の解析と column 命令の組み立て。vs 非依存。
 
-IFC の IfcColumn を走査し、各階の横架材天端レイヤ（最上階は軒高レイヤ）に
-配置する column 命令を生成する。断面寸法（幅・成）と柱高さは押し出しソリッド
+IFC の IfcColumn を走査し、各階の横架材天端レイヤ(最上階は軒高レイヤ)に
+配置する column 命令を生成する。断面寸法(幅・成)と柱高さは押し出しソリッド
 から取得し、配置 Z はストーリ高さに柱のローカル配置 Z を加えた絶対値を使う。
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     import ifcopenshell
 
 # IfcColumn.ObjectType から木造BIM 柱・間柱ツールの種別名へのマッピング。
-# ホームズ君 IFC では ObjectType は None（管柱）または "STANDCOLUMN"（小屋束）。
+# ホームズ君 IFC では ObjectType は None(管柱)または "STANDCOLUMN"(小屋束)。
 # ツールの種別ドロップダウンの有効値は 管柱 / 通し柱 / 間柱 / 小屋束 / 吊木。
 DEFAULT_COLUMN_TYPE = '管柱'
 COLUMN_TYPE_BY_OBJECT_TYPE = {
@@ -36,7 +36,7 @@ COLUMN_TYPE_BY_OBJECT_TYPE = {
 def resolve_column_type(object_type: str | None) -> str:
     """IfcColumn.ObjectType を柱・間柱ツールの種別名に変換する。
 
-    未知の ObjectType（None 含む）は既定種別（管柱）として扱う。
+    未知の ObjectType(None 含む)は既定種別(管柱)として扱う。
     """
     if object_type is None:
         return DEFAULT_COLUMN_TYPE
@@ -50,7 +50,7 @@ def _get_position_2d(
 
     取得できない場合は None を返す。ホームズ君 IFC ではストーリの XY 原点が
     (0, 0) のため、ローカル配置 Location の XY をそのまま平面座標として扱える
-    （横架材と同じ座標系・グリッド中心オフセットで補正できる）。
+    (横架材と同じ座標系・グリッド中心オフセットで補正できる)。
     """
     placement = getattr(element, 'ObjectPlacement', None)
     if placement is None or not placement.is_a('IfcLocalPlacement'):
@@ -85,14 +85,14 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
     """IFC の柱から column 命令のリストを組み立てる。
 
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
-    柱は各階の柱レイヤ（``n-柱``）に配置し、柱・間柱ツールの伏図記号は
-    伏図レイヤ（``n-柱(伏図)``）に描く。高さ基準（横架材天端／軒高）は
+    柱は各階の柱レイヤ(``n-柱``)に配置し、柱・間柱ツールの伏図記号は
+    伏図レイヤ(``n-柱(伏図)``)に描く。高さ基準(横架材天端／軒高)は
     レベルタイプとして引き続き参照する。
 
     柱高さは固定値ではなく上下端をストーリレベル基準で指定する
-    （高さ基準(下)=当該階の横架材天端、高さ基準(上)=上階の横架材天端 or 軒高）。
+    (高さ基準(下)=当該階の横架材天端、高さ基準(上)=上階の横架材天端 or 軒高)。
     オフセットは IFC 上の絶対高さに合わせ、階高変更に追従できるようにする。
-    最上階（上階が存在しない）の柱は上下端とも当該階の軒高を基準にする。
+    最上階(上階が存在しない)の柱は上下端とも当該階の軒高を基準にする。
     """
     _, center_x, center_y = resolve_lines(ifc_file)
 
