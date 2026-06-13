@@ -79,6 +79,8 @@ def make_document() -> dict[str, Any]:
                 'levels': [
                     {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
                     {'type': '横架材天端', 'offset': -48.0, 'layer': '1-横架材天端'},
+                    {'type': '柱', 'offset': -48.0, 'layer': '1-柱'},
+                    {'type': '柱(伏図)', 'offset': -48.0, 'layer': '1-柱(伏図)'},
                 ],
             },
             {
@@ -98,7 +100,8 @@ def make_document() -> dict[str, Any]:
              'elevation': 425.0, 'end_elevation': 425.0},
         ],
         'columns': [
-            {'layer': '1-横架材天端', 'column_type': '管柱', 'position': [0.0, 0.0],
+            {'layer': '1-柱', 'plan_layer': '1-柱(伏図)', 'column_type': '管柱',
+             'position': [0.0, 0.0],
              'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
              'bottom_bound': {'story': 0, 'level': '横架材天端', 'offset': 1.0},
              'top_bound': {'story': 1, 'level': '横架材天端', 'offset': -200.0}},

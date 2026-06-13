@@ -13,6 +13,12 @@ BOUND_TYPE_STORY = 2
 BOUND_ID_TOP = 0
 BOUND_ID_BOTTOM = 1
 
+# 柱・間柱ツールの伏図記号関連フィールド（ツールが日本語名のため内部名も日本語）
+FIELD_SHOW_PLAN_SYMBOL = '伏図記号を表示'
+FIELD_PLAN_LAYER = '伏図レイヤ'
+# 伏図記号表示を有効にするブール値（VW のブールフィールドは 'True'/'False'）
+PLAN_SYMBOL_ON = 'True'
+
 
 def _set_story_bound(obj: object, bound_id: int, bound: StoryBound) -> None:
     """柱の上端/下端の高さ基準をストーリレベル基準で設定する。"""
@@ -29,6 +35,7 @@ def draw_column(command: ColumnCommand) -> None:
     XY 位置へ移動する。上下端の高さは固定値ではなく SetObjectStoryBound で
     ストーリレベル基準（下=横架材天端、上=上階の横架材天端 or 軒高）に
     バインドし、階高変更に追従させる（Z 方向の高さはこのバインドが決める）。
+    伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する。
     プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
@@ -46,6 +53,9 @@ def draw_column(command: ColumnCommand) -> None:
         _set_story_bound(obj, BOUND_ID_BOTTOM, command['bottom_bound'])
         vs.SetRField(obj, PLUGIN_NAME, 'Type', command['column_type'])
         vs.SetRField(obj, PLUGIN_NAME, 'SecShape', '矩形')
+        # 伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する
+        vs.SetRField(obj, PLUGIN_NAME, FIELD_SHOW_PLAN_SYMBOL, PLAN_SYMBOL_ON)
+        vs.SetRField(obj, PLUGIN_NAME, FIELD_PLAN_LAYER, command['plan_layer'])
         vs.SetRField(obj, PLUGIN_NAME, 'Width', str(w))
         vs.SetRField(obj, PLUGIN_NAME, 'Depth', str(d))
         vs.SetRField(obj, PLUGIN_NAME, 'Height', str(h))

@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 LEVEL_FL = 'FL'
 LEVEL_BEAM_TOP = '横架材天端'
 LEVEL_EAVES = '軒高'
+LEVEL_COLUMN = '柱'
+LEVEL_COLUMN_PLAN = '柱(伏図)'
 STORY_ROOF = '屋根'
 
 
@@ -99,7 +101,9 @@ def layer_prefix_for(index: int, is_top: bool) -> str:
 def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     """IFC のストーリから story 命令のリストを組み立てる。
 
-    一般階は FL(0) と 横架材天端(負オフセット) の 2 レベル、最上階は 軒高(0) のみ。
+    一般階は FL(0) と 横架材天端(負オフセット)、最上階は 軒高(0) を構造レベルとし、
+    さらに各階に柱配置用の 柱・柱(伏図) レベル（オフセットは横架材天端と同じ＝最上階は軒高）
+    を加える。柱は 柱 レイヤに配置し、柱・間柱ツールの伏図記号を 柱(伏図) レイヤに描く。
     """
     stories = collect_stories(ifc_file)
 
@@ -109,17 +113,27 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
         is_top = i == n - 1
         prefix = layer_prefix_for(i, is_top)
         if is_top:
+            # 最上階の柱配置基準は軒高（オフセット 0）
+            column_offset = 0.0
             levels: list[LevelCommand] = [
                 {'type': LEVEL_EAVES, 'offset': 0.0, 'layer': f'{prefix}-{LEVEL_EAVES}'},
             ]
         else:
             # 最上階以外では collect_stories が必ず float を返す
-            offset = beam_offset if beam_offset is not None else 0.0
+            column_offset = beam_offset if beam_offset is not None else 0.0
             levels = [
                 {'type': LEVEL_FL, 'offset': 0.0, 'layer': f'{prefix}-{LEVEL_FL}'},
-                {'type': LEVEL_BEAM_TOP, 'offset': offset,
+                {'type': LEVEL_BEAM_TOP, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_BEAM_TOP}'},
             ]
+        # 柱を配置するレイヤと、柱・間柱ツールの伏図記号を描く伏図レイヤ。
+        # 高さは横架材天端（最上階は軒高）に揃える。
+        levels.append(
+            {'type': LEVEL_COLUMN, 'offset': column_offset,
+             'layer': f'{prefix}-{LEVEL_COLUMN}'})
+        levels.append(
+            {'type': LEVEL_COLUMN_PLAN, 'offset': column_offset,
+             'layer': f'{prefix}-{LEVEL_COLUMN_PLAN}'})
         commands.append({
             'name': story_name_for(i, is_top),
             'suffix': story_suffix_for(i, is_top),

@@ -13,6 +13,8 @@ from .grid import resolve_lines
 from .member import _get_profile_dims
 from .story import (
     LEVEL_BEAM_TOP,
+    LEVEL_COLUMN,
+    LEVEL_COLUMN_PLAN,
     LEVEL_EAVES,
     get_local_placement_z,
     layer_prefix_for,
@@ -83,8 +85,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
     """IFC の柱から column 命令のリストを組み立てる。
 
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
-    一般階は横架材天端レイヤ、最上階（屋根）は軒高レイヤを指定する
-    （横架材と同じレイヤ割り当て規則）。
+    柱は各階の柱レイヤ（``n-柱``）に配置し、柱・間柱ツールの伏図記号は
+    伏図レイヤ（``n-柱(伏図)``）に描く。高さ基準（横架材天端／軒高）は
+    レベルタイプとして引き続き参照する。
 
     柱高さは固定値ではなく上下端をストーリレベル基準で指定する
     （高さ基準(下)=当該階の横架材天端、高さ基準(上)=上階の横架材天端 or 軒高）。
@@ -110,9 +113,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
     for i, storey in enumerate(storeys):
         is_top = (i == top_idx)
         prefix = layer_prefix_for(i, is_top)
-        # 最上階は横架材天端レイヤがなく軒高レイヤに配置する
-        layer_suffix = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
-        layer_name = f'{prefix}-{layer_suffix}'
+        # 柱は各階の柱レイヤに配置し、伏図記号は伏図レイヤに描く
+        layer_name = f'{prefix}-{LEVEL_COLUMN}'
+        plan_layer_name = f'{prefix}-{LEVEL_COLUMN_PLAN}'
 
         storey_elevation = elevations[i]
         base_level_type, base_abs = _base_level(
@@ -167,6 +170,7 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
 
                 commands.append({
                     'layer': layer_name,
+                    'plan_layer': plan_layer_name,
                     'column_type': resolve_column_type(element.ObjectType),
                     'position': [ox - center_x, oy - center_y],
                     'width': width,

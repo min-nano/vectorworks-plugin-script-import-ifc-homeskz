@@ -141,18 +141,20 @@ class TestBuildColumnCommands:
 
         commands = build_column_commands(ifc)
         assert len(commands) == 2
-        assert all(c['layer'] == '1-横架材天端' for c in commands)
+        assert all(c['layer'] == '1-柱' for c in commands)
+        assert all(c['plan_layer'] == '1-柱(伏図)' for c in commands)
         assert all(c['column_type'] == '管柱' for c in commands)
 
-    def test_top_story_uses_eaves_layer(self) -> None:
-        """最上階 (RFL) の柱（小屋束等）は R-軒高レイヤを指定する。"""
+    def test_top_story_uses_column_layer(self) -> None:
+        """最上階 (RFL) の柱（小屋束等）は R-柱 レイヤに配置し伏図は R-柱(伏図)。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, 'RFL', 6300.0)
         make_column(ifc, storey, 0.0, 0.0, oz=-100.0)
 
         commands = build_column_commands(ifc)
         assert len(commands) == 1
-        assert commands[0]['layer'] == 'R-軒高'
+        assert commands[0]['layer'] == 'R-柱'
+        assert commands[0]['plan_layer'] == 'R-柱(伏図)'
         # 配置高さ = ストーリ高さ + ローカル Z
         assert commands[0]['elevation'] == pytest.approx(6200.0)
 
@@ -165,8 +167,8 @@ class TestBuildColumnCommands:
         make_column(ifc, s2, 0.0, 0.0)
 
         layers = [c['layer'] for c in build_column_commands(ifc)]
-        assert '1-横架材天端' in layers
-        assert '2-横架材天端' in layers
+        assert '1-柱' in layers
+        assert '2-柱' in layers
 
     def test_elevation_is_story_plus_local_z(self) -> None:
         ifc = ifcopenshell.file()
@@ -259,7 +261,7 @@ class TestBuildColumnCommands:
         # 2FL に負の local_z の柱を置き、2FL 横架材天端 = 3500-80 = 3420 にする
         make_column(ifc, s2, 0.0, 0.0, oz=-80.0, height=2700.0)
 
-        s1_cmd = next(c for c in build_column_commands(ifc) if c['layer'] == '1-横架材天端')
+        s1_cmd = next(c for c in build_column_commands(ifc) if c['layer'] == '1-柱')
         bound = s1_cmd['top_bound']
         assert bound['story'] == 1
         assert bound['level'] == '横架材天端'
@@ -274,7 +276,8 @@ class TestBuildColumnCommands:
                     object_type='STANDCOLUMN')
 
         cmd = build_column_commands(ifc)[0]
-        assert cmd['layer'] == 'R-軒高'
+        assert cmd['layer'] == 'R-柱'
+        assert cmd['plan_layer'] == 'R-柱(伏図)'
         # 軒高 = 6300, bottom = 6200 → -100, top = 6700 → +400
         assert cmd['bottom_bound'] == {
             'story': 0, 'level': '軒高', 'offset': pytest.approx(-100.0)}

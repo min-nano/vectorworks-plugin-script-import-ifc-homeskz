@@ -49,7 +49,7 @@ def make_valid_document() -> dict[str, Any]:
         ],
         'columns': [
             {
-                'layer': '1-横架材天端', 'column_type': '管柱',
+                'layer': '1-柱', 'plan_layer': '1-柱(伏図)', 'column_type': '管柱',
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
                 'bottom_bound': {'story': 0, 'level': '横架材天端', 'offset': 1.0},
@@ -149,6 +149,12 @@ class TestValidateDocument:
         document = make_valid_document()
         del document['columns'][0]['depth']
         with pytest.raises(DocumentValidationError, match='depth'):
+            validate_document(document)
+
+    def test_rejects_column_without_plan_layer(self) -> None:
+        document = make_valid_document()
+        del document['columns'][0]['plan_layer']
+        with pytest.raises(DocumentValidationError, match='plan_layer'):
             validate_document(document)
 
     def test_rejects_column_with_empty_type(self) -> None:

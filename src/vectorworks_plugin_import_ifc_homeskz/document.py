@@ -4,10 +4,10 @@
 描画フェーズ（``vw`` パッケージ）が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 2):
+スキーマ (version 3):
 
     {
-        "version": 2,
+        "version": 3,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -49,7 +49,8 @@
         ],
         "columns": [
             {
-                "layer": "1-横架材天端",   # 配置先デザインレイヤ名（既存のみ・なければスキップ）
+                "layer": "1-柱",          # 配置先デザインレイヤ名（既存のみ・なければスキップ）
+                "plan_layer": "1-柱(伏図)", # 柱・間柱ツールの伏図記号を描く伏図レイヤ名
                 "column_type": "管柱",     # 柱・間柱ツールの種別
                 "position": [x, y],       # 配置 XY (mm, センタリング済み)
                 "width": 105.0,           # 断面幅 (mm)
@@ -77,7 +78,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 2
+DOCUMENT_VERSION = 3
 
 
 class LevelCommand(TypedDict):
@@ -141,6 +142,7 @@ class ColumnCommand(TypedDict):
     """柱 (柱・間柱 オブジェクト) を描画する命令。"""
 
     layer: str
+    plan_layer: str
     column_type: str
     position: list[float]
     width: float
@@ -257,6 +259,8 @@ def _validate_column(index: int, command: Any) -> None:
     _require(isinstance(command, dict), f'{where} は dict である必要があります')
     _require(isinstance(command.get('layer'), str) and command['layer'],
              f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('plan_layer'), str) and command['plan_layer'],
+             f'{where}.plan_layer は非空文字列である必要があります')
     _require(isinstance(command.get('column_type'), str) and command['column_type'],
              f'{where}.column_type は非空文字列である必要があります')
     _require(_is_point(command.get('position')),
