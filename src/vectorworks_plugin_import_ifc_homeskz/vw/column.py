@@ -63,8 +63,9 @@ def draw_column(command: ColumnCommand) -> None:
         # 上下端の高さ基準をストーリレベルにバインド(Z 高さを決定する)
         _set_story_bound(obj, BOUND_ID_TOP, command['top_bound'])
         _set_story_bound(obj, BOUND_ID_BOTTOM, command['bottom_bound'])
-        column_type = command['column_type']
-        body_class = _COLUMN_TYPE_CLASS.get(column_type, _COLUMN_TYPE_CLASS['管柱'])
+        raw_column_type = command['column_type']
+        column_type = raw_column_type if raw_column_type in _COLUMN_TYPE_CLASS else '管柱'
+        body_class = _COLUMN_TYPE_CLASS[column_type]
         vs.SetRField(obj, PLUGIN_NAME, 'Type', column_type)
         vs.SetRField(obj, PLUGIN_NAME, 'SecShape', '矩形')
         vs.SetRField(obj, PLUGIN_NAME, 'Width', str(w))

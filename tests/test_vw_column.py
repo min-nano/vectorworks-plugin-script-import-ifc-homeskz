@@ -144,6 +144,12 @@ class TestExecuteColumns:
         fields = {field: value for _, _, field, value in set_rfield_args}
         assert fields['isShowSecondary'] == 'True'
         assert fields['upperLayerName'] == '1-柱(伏図)'
+        assert fields['Mclass'] == '04構造-02木造-03柱-02管柱'
+        assert fields['2DShapeClass'] == '04構造-02木造-03柱-02管柱'
+        assert fields['3DShapeClass'] == '04構造-02木造-03柱-02管柱'
+        assert fields['SectionMarkClass'] == '01作図-01線-02実線-01極細線'
+        assert fields['CircleMarkClass'] == '01作図-01線-02実線-03中線'
+        assert fields['SecondaryClass'] == '01作図-01線-02実線-03中線'
 
     def test_sets_story_bounds_for_top_and_bottom(self) -> None:
         """上下端の高さをストーリレベル基準 (SetObjectStoryBound) でバインドする。"""
