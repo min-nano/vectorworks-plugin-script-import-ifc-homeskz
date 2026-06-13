@@ -62,7 +62,7 @@ def resolve_lines(ifc_file: ifcopenshell.file) -> tuple[list[Line], float, float
 
 
 def determine_class(name: str, cx1: float, cy1: float, cx2: float, cy2: float) -> str:
-    """グリッド線のクラス名（X通り or Y通り）を返す。"""
+    """グリッド線のクラス名(X通り or Y通り)を返す。"""
     if name.upper().startswith('X'):
         return CLASS_X
     elif name.upper().startswith('Y'):

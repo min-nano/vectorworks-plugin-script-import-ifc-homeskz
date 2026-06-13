@@ -1,6 +1,6 @@
 """フェーズ2: VectorWorks 描画。
 
-JSON 命令セット（``document.py`` のスキーマ参照）に従って vs モジュールで
+JSON 命令セット(``document.py`` のスキーマ参照)に従って vs モジュールで
 実際の描画を行う。このパッケージだけが vs に依存し、IFC や ifcopenshell の
 知識は持たない。
 """

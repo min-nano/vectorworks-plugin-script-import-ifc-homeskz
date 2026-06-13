@@ -75,7 +75,7 @@ class TestExecuteColumns:
         assert count == 2
 
     def test_skips_command_when_layer_missing(self) -> None:
-        """配置先レイヤが未生成の命令はスキップする（勝手にレイヤを作らない）。"""
+        """配置先レイヤが未生成の命令はスキップする(勝手にレイヤを作らない)。"""
         vs_mock = _make_vs_mock(existing_layers=set())
         count = _run_execute_columns(vs_mock, [make_column_command()])
         assert count == 0
@@ -93,7 +93,7 @@ class TestExecuteColumns:
         assert 'R-柱' in layer_calls
 
     def test_creates_object_at_origin_and_moves_to_position(self) -> None:
-        """柱はローカル原点に生成し、Move3D で絶対位置（XY + Z）へ移動する。"""
+        """柱はローカル原点に生成し、Move3D で絶対位置(XY + Z)へ移動する。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})
         create_calls: list[tuple[str, float, float]] = []
         move3d_calls: list[tuple[float, float, float]] = []

@@ -43,9 +43,9 @@ def make_beam(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
     height   : IfcRectangleProfileDef.YDim (背, mm)
     length   : IfcExtrudedAreaSolid.Depth (長さ, mm)
     oz       : ビームのローカル配置 Z 座標 (mm, ストーリ FL からの相対)
-    dz       : ビーム軸方向の Z 成分（登り梁・隅木等の傾斜梁用）
+    dz       : ビーム軸方向の Z 成分(登り梁・隅木等の傾斜梁用)
     """
-    # 配置（梁の延伸方向 = ローカル Z = Axis 属性）
+    # 配置(梁の延伸方向 = ローカル Z = Axis 属性)
     pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[ox, oy, oz])
     axis = ifc.create_entity('IfcDirection', DirectionRatios=[dx, dy, dz])
     placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt, Axis=axis)
@@ -93,7 +93,7 @@ def make_beam(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
 
 def make_grid_axis(ifc: ifcopenshell.file, name: str,
                    x1: float, y1: float, x2: float, y2: float) -> None:
-    """テスト用 IfcGridAxis を生成する（グリッド中心算出に使用）。"""
+    """テスト用 IfcGridAxis を生成する(グリッド中心算出に使用)。"""
     pts = [
         ifc.create_entity('IfcCartesianPoint', Coordinates=[x1, y1]),
         ifc.create_entity('IfcCartesianPoint', Coordinates=[x2, y2]),
@@ -160,7 +160,7 @@ class TestGetPlacement3D:
         assert az == pytest.approx(0.0)
 
     def test_extracts_sloped_axis_z_component(self) -> None:
-        """傾斜梁（隅木・登り梁等）の Axis Z 成分を保持する。"""
+        """傾斜梁(隅木・登り梁等)の Axis Z 成分を保持する。"""
         ifc = ifcopenshell.file()
         pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, 0.0])
         axis = ifc.create_entity('IfcDirection', DirectionRatios=[0.6, 0.0, 0.8])
@@ -390,7 +390,7 @@ class TestBuildMemberCommands:
         assert command['elevation'] == pytest.approx(563.0)
 
     def test_uses_beam_local_z_for_elevation(self) -> None:
-        """各横架材は自身のローカル配置 Z（断面中心）から天端高さに描画される。"""
+        """各横架材は自身のローカル配置 Z(断面中心)から天端高さに描画される。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
         make_storey(ifc, 'RFL', 5973.0)
@@ -404,7 +404,7 @@ class TestBuildMemberCommands:
     def test_elevation_is_section_top_not_center(self) -> None:
         """ホームズ君 IFC の配置 Z は断面中心なので、背/2 を足した天端を格納する。
 
-        構造材ツールの断面基準点（左右中央・上端）にそのまま渡せる値にするため。
+        構造材ツールの断面基準点(左右中央・上端)にそのまま渡せる値にするため。
         """
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
@@ -431,9 +431,9 @@ class TestBuildMemberCommands:
         assert elevations[1] == pytest.approx(515.0)   # 473 - 48 + 90
 
     def test_sloped_beam_keeps_slope_and_plan_projection(self) -> None:
-        """傾斜梁（登り梁・隅木等）は始端・終端の天端 Z が異なる傾斜した命令になる。
+        """傾斜梁(登り梁・隅木等)は始端・終端の天端 Z が異なる傾斜した命令になる。
 
-        平面座標は軸の XY 成分 × 全長（平面投影長）で求め、
+        平面座標は軸の XY 成分 × 全長(平面投影長)で求め、
         天端中央線は断面中心線を軸直交方向に背/2 持ち上げた位置になる。
         """
         ifc = ifcopenshell.file()
@@ -456,7 +456,7 @@ class TestBuildMemberCommands:
         assert command['end_elevation'] == pytest.approx(1327.0)
 
     def test_skips_vertical_axis_member(self) -> None:
-        """軸が鉛直な材（横架材でない）は命令を生成しない。"""
+        """軸が鉛直な材(横架材でない)は命令を生成しない。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
         make_storey(ifc, 'RFL', 5973.0)
@@ -465,11 +465,11 @@ class TestBuildMemberCommands:
         assert build_member_commands(ifc) == []
 
     def test_falls_back_to_layer_elevation_when_local_z_unavailable(self) -> None:
-        """ローカル Z を取得できない梁はレイヤ基準高さ（横架材天端）にフォールバックする。
+        """ローカル Z を取得できない梁はレイヤ基準高さ(横架材天端)にフォールバックする。
 
         配置 Coordinates が 2 要素だと get_local_placement_z() は None を返すが、
         _get_placement_2d() は XY を取得できるため命令自体は生成される。
-        このときレイヤ基準高さ（ストーリ高さ + resolve_beam_top_offset）を使う。
+        このときレイヤ基準高さ(ストーリ高さ + resolve_beam_top_offset)を使う。
         オフセットを 0 でない値にして、ストーリ高さそのものではなくレイヤ基準高さが
         使われることを検証する。
         """
@@ -492,7 +492,7 @@ class TestBuildMemberCommands:
         commands = build_member_commands(ifc)
         member_cmds = [c for c in commands if c['member_id'] == '120×180']
         assert len(member_cmds) == 1
-        # layer_elevation = 473 + (-50) = 423（ストーリ高さ 473 ではない）。
+        # layer_elevation = 473 + (-50) = 423(ストーリ高さ 473 ではない)。
         # レイヤ基準高さは既に天端なので背/2 の補正は掛からない
         assert member_cmds[0]['elevation'] == pytest.approx(423.0)
         assert member_cmds[0]['end_elevation'] == pytest.approx(423.0)
@@ -530,7 +530,7 @@ class TestBuildMemberCommands:
         assert json.loads(json.dumps(commands)) == commands
 
     def test_trims_interfering_beam_end(self) -> None:
-        """T 字状に食い込む乙梁の端部が甲梁の面まで詰められる（build 経由）。"""
+        """T 字状に食い込む乙梁の端部が甲梁の面まで詰められる(build 経由)。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
         make_storey(ifc, 'RFL', 5973.0)
@@ -548,7 +548,7 @@ class TestBuildMemberCommands:
         assert otsu['end'][0] == pytest.approx(60.0)
         assert otsu['end'][1] == pytest.approx(500.0)
         assert otsu['start'] == [pytest.approx(600.0), pytest.approx(500.0)]
-        # 甲（通し材）は変更されない
+        # 甲(通し材)は変更されない
         assert kou['start'] == [pytest.approx(0.0), pytest.approx(-1000.0)]
         assert kou['end'] == [pytest.approx(0.0), pytest.approx(1000.0)]
 
@@ -616,7 +616,7 @@ class TestResolveMemberInterferences:
         assert result[1]['start'] == [pytest.approx(1000.0), pytest.approx(0.0)]
 
     def test_symmetric_l_corner_not_trimmed(self) -> None:
-        # 同寸の材が出隅で相互に食い込む対称な角（勝ち負けが付かない）は触らない
+        # 同寸の材が出隅で相互に食い込む対称な角(勝ち負けが付かない)は触らない
         a = _member([0.0, 0.0], [0.0, 1000.0], width=120.0, member_id='a')
         b = _member([1000.0, 0.0], [0.0, 0.0], width=120.0, member_id='b')
         result = resolve_member_interferences([a, b])
@@ -629,7 +629,7 @@ class TestResolveMemberInterferences:
         """出隅で食い込みが非対称な場合、深く食い込む負け材だけを面まで詰める。
 
         勝ち材 (幅120, 半幅60) は垂直に x=0 を通り、負け材 (幅105) が水平に
-        x=0（勝ち材の中心線）まで食い込む。負け材の方が深く食い込むため、
+        x=0(勝ち材の中心線)まで食い込む。負け材の方が深く食い込むため、
         負け材の端部を勝ち材の面 (x=60) まで詰める。勝ち材は変更しない。
         """
         winner = _member([0.0, 0.0], [0.0, 2000.0], width=120.0, member_id='win')
@@ -643,7 +643,7 @@ class TestResolveMemberInterferences:
         assert win['end'] == [pytest.approx(0.0), pytest.approx(2000.0)]
 
     def test_diagonal_brace_corner_not_trimmed(self) -> None:
-        # 同寸・同長の斜材が一点で交わる対称な角（火打等）は触らない
+        # 同寸・同長の斜材が一点で交わる対称な角(火打等)は触らない
         d = 1000.0
         a = _member([0.0, 0.0], [d, d], width=105.0, member_id='a')
         b = _member([0.0, 0.0], [d, -d], width=105.0, member_id='b')
@@ -652,7 +652,7 @@ class TestResolveMemberInterferences:
         assert result[1]['start'] == [pytest.approx(0.0), pytest.approx(0.0)]
 
     def test_sloped_member_not_trimmed(self) -> None:
-        """傾斜梁（両端の天端 Z が異なる材）は詰める側にも相手側にもしない。"""
+        """傾斜梁(両端の天端 Z が異なる材)は詰める側にも相手側にもしない。"""
         primary = _member([0.0, -1000.0], [0.0, 1000.0], member_id='primary')
         # 通し材に食い込む登り梁: 高さが一定でないため詰めない
         sloped = _member([600.0, 500.0], [0.0, 500.0], width=105.0,
@@ -663,7 +663,7 @@ class TestResolveMemberInterferences:
         assert s['end_elevation'] == pytest.approx(973.0)
 
     def test_member_butting_sloped_member_not_trimmed(self) -> None:
-        """傾斜梁を相手とする食い込みも調整しない（水平面内の矩形モデル外）。"""
+        """傾斜梁を相手とする食い込みも調整しない(水平面内の矩形モデル外)。"""
         sloped = _member([0.0, -1000.0], [0.0, 1000.0],
                          elevation=473.0, end_elevation=1473.0, member_id='sloped')
         butting = _member([600.0, 500.0], [0.0, 500.0], width=105.0, member_id='butting')
@@ -672,7 +672,7 @@ class TestResolveMemberInterferences:
         assert b['end'] == [pytest.approx(0.0), pytest.approx(500.0)]
 
     def test_non_overlapping_z_not_trimmed(self) -> None:
-        # 上下に離れた段差梁（Z 範囲が重ならない）は干渉とみなさない
+        # 上下に離れた段差梁(Z 範囲が重ならない)は干渉とみなさない
         primary = _member([0.0, -1000.0], [0.0, 1000.0], elevation=473.0)
         butting = _member([600.0, 500.0], [0.0, 500.0], elevation=0.0)  # 背 180 で離れる
         result = resolve_member_interferences([primary, butting])
@@ -685,7 +685,7 @@ class TestResolveMemberInterferences:
         assert result[1]['end'] == [pytest.approx(0.0), pytest.approx(500.0)]
 
     def test_non_interfering_beam_unchanged(self) -> None:
-        # 相手の幅内に達していない（食い込んでいない）端部は不変
+        # 相手の幅内に達していない(食い込んでいない)端部は不変
         primary = _member([0.0, -1000.0], [0.0, 1000.0])
         far = _member([600.0, 500.0], [200.0, 500.0])  # 端点 x=200, 甲の面 x=60 より外
         result = resolve_member_interferences([primary, far])

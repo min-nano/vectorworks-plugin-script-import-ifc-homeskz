@@ -13,10 +13,10 @@ BOUND_TYPE_STORY = 2
 BOUND_ID_TOP = 0
 BOUND_ID_BOTTOM = 1
 
-# 柱・間柱ツールの伏図記号関連フィールド（ツールが日本語名のため内部名も日本語）
+# 柱・間柱ツールの伏図記号関連フィールド(ツールが日本語名のため内部名も日本語)
 FIELD_SHOW_PLAN_SYMBOL = '伏図記号を表示'
 FIELD_PLAN_LAYER = '伏図レイヤ'
-# 伏図記号表示を有効にするブール値（VW のブールフィールドは 'True'/'False'）
+# 伏図記号表示を有効にするブール値(VW のブールフィールドは 'True'/'False')
 PLAN_SYMBOL_ON = 'True'
 
 
@@ -33,8 +33,8 @@ def draw_column(command: ColumnCommand) -> None:
 
     柱はローカル原点 (0, 0) に生成し、CreateCustomObject 後に Move3D で
     XY 位置へ移動する。上下端の高さは固定値ではなく SetObjectStoryBound で
-    ストーリレベル基準（下=横架材天端、上=上階の横架材天端 or 軒高）に
-    バインドし、階高変更に追従させる（Z 方向の高さはこのバインドが決める）。
+    ストーリレベル基準(下=横架材天端、上=上階の横架材天端 or 軒高)に
+    バインドし、階高変更に追従させる(Z 方向の高さはこのバインドが決める)。
     伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する。
     プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
@@ -48,7 +48,7 @@ def draw_column(command: ColumnCommand) -> None:
         # ローカル原点から実際の配置位置へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x, y, command['elevation'])
-        # 上下端の高さ基準をストーリレベルにバインド（Z 高さを決定する）
+        # 上下端の高さ基準をストーリレベルにバインド(Z 高さを決定する)
         _set_story_bound(obj, BOUND_ID_TOP, command['top_bound'])
         _set_story_bound(obj, BOUND_ID_BOTTOM, command['bottom_bound'])
         vs.SetRField(obj, PLUGIN_NAME, 'Type', command['column_type'])
@@ -71,8 +71,8 @@ def draw_column(command: ColumnCommand) -> None:
 def execute_columns(commands: list[ColumnCommand]) -> int:
     """column 命令のリストを描画し、配置数を返す。
 
-    配置先レイヤが存在しない命令はスキップする（レイヤは story 命令が生成する。
-    未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない）。
+    配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する。
+    未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない)。
     """
     count = 0
     for command in commands:

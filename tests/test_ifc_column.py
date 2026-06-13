@@ -30,17 +30,17 @@ def make_column(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
 
     Parameters
     ----------
-    ox, oy, oz : 柱のローカル配置座標 (mm)。oz はストーリ原点からの相対 Z（負値）。
+    ox, oy, oz : 柱のローカル配置座標 (mm)。oz はストーリ原点からの相対 Z(負値)。
     width      : IfcRectangleProfileDef.XDim (断面幅, mm)
     depth      : IfcRectangleProfileDef.YDim (断面成, mm)
     height     : IfcExtrudedAreaSolid.Depth (柱高さ, mm)
     """
-    # 配置（柱はローカル Z 方向に押し出される）
+    # 配置(柱はローカル Z 方向に押し出される)
     pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[ox, oy, oz])
     placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt)
     local_placement = ifc.create_entity('IfcLocalPlacement', RelativePlacement=placement_3d)
 
-    # プロファイルと押し出しソリッド（押し出し方向 = ローカル Z）
+    # プロファイルと押し出しソリッド(押し出し方向 = ローカル Z)
     profile = ifc.create_entity(
         'IfcRectangleProfileDef', ProfileType='AREA', XDim=float(width), YDim=float(depth)
     )
@@ -76,7 +76,7 @@ def make_column(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
 
 def make_grid_axis(ifc: ifcopenshell.file, name: str,
                    x1: float, y1: float, x2: float, y2: float) -> None:
-    """テスト用 IfcGridAxis を生成する（グリッド中心算出に使用）。"""
+    """テスト用 IfcGridAxis を生成する(グリッド中心算出に使用)。"""
     pts = [
         ifc.create_entity('IfcCartesianPoint', Coordinates=[x1, y1]),
         ifc.create_entity('IfcCartesianPoint', Coordinates=[x2, y2]),
@@ -146,7 +146,7 @@ class TestBuildColumnCommands:
         assert all(c['column_type'] == '管柱' for c in commands)
 
     def test_top_story_uses_column_layer(self) -> None:
-        """最上階 (RFL) の柱（小屋束等）は R-柱 レイヤに配置し伏図は R-柱(伏図)。"""
+        """最上階 (RFL) の柱(小屋束等)は R-柱 レイヤに配置し伏図は R-柱(伏図)。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, 'RFL', 6300.0)
         make_column(ifc, storey, 0.0, 0.0, oz=-100.0)
@@ -230,7 +230,7 @@ class TestBuildColumnCommands:
         ifc = ifcopenshell.file()
         s1 = make_storey(ifc, '1FL', 600.0)
         make_storey(ifc, 'RFL', 6300.0)
-        # local_z=-174 → 1FL 横架材天端 = 600-174 = 426（この柱が最小なので基準と一致）
+        # local_z=-174 → 1FL 横架材天端 = 600-174 = 426(この柱が最小なので基準と一致)
         make_column(ifc, s1, 0.0, 0.0, oz=-174.0, height=2844.0)
 
         bound = build_column_commands(ifc)[0]['bottom_bound']
@@ -269,7 +269,7 @@ class TestBuildColumnCommands:
         assert bound['offset'] == pytest.approx(-150.0)
 
     def test_top_story_column_binds_to_same_eaves(self) -> None:
-        """最上階の柱（上階なし）は上下端とも当該階の軒高を基準にする。"""
+        """最上階の柱(上階なし)は上下端とも当該階の軒高を基準にする。"""
         ifc = ifcopenshell.file()
         s = make_storey(ifc, 'RFL', 6300.0)
         make_column(ifc, s, 0.0, 0.0, oz=-100.0, height=500.0,

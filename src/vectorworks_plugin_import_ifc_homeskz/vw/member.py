@@ -14,8 +14,8 @@ def draw_member(command: MemberCommand) -> None:
     パスはローカル原点 (0,0,0) から方向ベクトルで定義し、
     CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
     これは VW 構造材ツールの期待する配置パターンと一致する。
-    始端と終端の天端 Z（elevation/end_elevation）が異なる傾斜梁
-    （登り梁・隅木等）は Z 成分を持つ 3D パスとして描画する。
+    始端と終端の天端 Z(elevation/end_elevation)が異なる傾斜梁
+    (登り梁・隅木等)は Z 成分を持つ 3D パスとして描画する。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
     x1, y1 = command['start']
@@ -63,8 +63,8 @@ def draw_member(command: MemberCommand) -> None:
 def execute_members(commands: list[MemberCommand]) -> int:
     """member 命令のリストを描画し、配置数を返す。
 
-    配置先レイヤが存在しない命令はスキップする（レイヤは story 命令が生成する。
-    未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない）。
+    配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する。
+    未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない)。
     """
     count = 0
     for command in commands:

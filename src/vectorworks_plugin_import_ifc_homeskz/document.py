@@ -1,7 +1,7 @@
-"""JSON 命令セット（ドキュメント）のスキーマ定義と検証。
+"""JSON 命令セット(ドキュメント)のスキーマ定義と検証。
 
-命令セットは IFC 解析フェーズ（``ifc`` パッケージ）が生成し、
-描画フェーズ（``vw`` パッケージ）が消費する JSON 直列化可能な dict。
+命令セットは IFC 解析フェーズ(``ifc`` パッケージ)が生成し、
+描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
 スキーマ (version 3):
@@ -11,7 +11,7 @@
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
-                "suffix": "1",            # CreateStory の suffix（非空必須）
+                "suffix": "1",            # CreateStory の suffix(非空必須)
                 "elevation": 473.0,       # ストーリ高さ (mm)
                 "levels": [
                     {
@@ -33,23 +33,23 @@
         ],
         "members": [
             {
-                "layer": "1-横架材天端",   # 配置先デザインレイヤ名（既存のみ・なければスキップ）
+                "layer": "1-横架材天端",   # 配置先デザインレイヤ名(既存のみ・なければスキップ)
                 "member_id": "120×180 - 杉...",  # 構造材 ID
                 # start/end・elevation/end_elevation は断面の基準点
-                # （左右中央・上端 = 天端中央）が通る線を表す。構造材ツールの
-                # 断面基準点（左右中央・上端）にそのまま渡せる座標。
+                # (左右中央・上端 = 天端中央)が通る線を表す。構造材ツールの
+                # 断面基準点(左右中央・上端)にそのまま渡せる座標。
                 "start": [x1, y1],        # 始点 (mm, センタリング済み)
                 "end": [x2, y2],          # 終点 (mm, センタリング済み)
                 "width": 120.0,           # 断面幅 (mm)
                 "height": 180.0,          # 断面背 (mm)
                 "elevation": 425.0,       # 始点の天端 Z 高さ (mm, 絶対値)
                 "end_elevation": 425.0    # 終点の天端 Z 高さ (mm, 絶対値)。
-                                          # 始点と異なる場合は傾斜梁（登り梁・隅木等）
+                                          # 始点と異なる場合は傾斜梁(登り梁・隅木等)
             }
         ],
         "columns": [
             {
-                "layer": "1-柱",          # 配置先デザインレイヤ名（既存のみ・なければスキップ）
+                "layer": "1-柱",          # 配置先デザインレイヤ名(既存のみ・なければスキップ)
                 "plan_layer": "1-柱(伏図)", # 柱・間柱ツールの伏図記号を描く伏図レイヤ名
                 "column_type": "管柱",     # 柱・間柱ツールの種別
                 "position": [x, y],       # 配置 XY (mm, センタリング済み)
@@ -57,7 +57,7 @@
                 "depth": 105.0,           # 断面成 (mm)
                 "height": 2844.0,         # 柱高さ (mm, フォールバック/Height フィールド用)
                 "elevation": 426.0,       # 配置 Z 高さ (mm, 絶対値, フォールバック用)
-                # 上下端の高さ基準（ストーリレベル基準）。柱・間柱ツールの
+                # 上下端の高さ基準(ストーリレベル基準)。柱・間柱ツールの
                 # SetObjectStoryBound に渡し、階高変更に追従させる。
                 "bottom_bound": {         # 高さ基準(下): 該当階の横架材天端
                     "story": 0,           # boundStory: 0=当該階, 1=上階, -1=下階
@@ -112,9 +112,9 @@ GridCommand = TypedDict('GridCommand', {
 class MemberCommand(TypedDict):
     """構造材 (StructuralMember オブジェクト) を描画する命令。
 
-    start/end と elevation/end_elevation は断面の基準点（左右中央・上端 =
-    天端中央）が通る線を表す。elevation と end_elevation が異なる場合は
-    傾斜梁（登り梁・隅木等）。
+    start/end と elevation/end_elevation は断面の基準点(左右中央・上端 =
+    天端中央)が通る線を表す。elevation と end_elevation が異なる場合は
+    傾斜梁(登り梁・隅木等)。
     """
 
     layer: str
@@ -128,7 +128,7 @@ class MemberCommand(TypedDict):
 
 
 class StoryBound(TypedDict):
-    """柱の上端/下端の高さ基準（ストーリレベル基準）。
+    """柱の上端/下端の高さ基準(ストーリレベル基準)。
 
     VW の SetObjectStoryBound(boundType=2 / Story) に対応する。
     """
