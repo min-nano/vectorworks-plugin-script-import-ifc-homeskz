@@ -156,15 +156,15 @@ class TestExecuteColumns:
         assert fields['SecondaryClass'] == '01作図-01線-02実線-03中線'
 
     def test_sets_hardware_fields(self) -> None:
-        """柱頭・柱脚金物の仕様を TopHardware / BottomHardware に格納する。"""
+        """柱頭・柱脚金物の仕様を TopHard / BtmHard に格納する。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})
         _run_execute_columns(vs_mock, [
             make_column_command(top_hardware='(ろ)', bottom_hardware='(い)'),
         ])
         set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
         fields = {field: value for _, _, field, value in set_rfield_args}
-        assert fields['TopHardware'] == '(ろ)'
-        assert fields['BottomHardware'] == '(い)'
+        assert fields['TopHard'] == '(ろ)'
+        assert fields['BtmHard'] == '(い)'
 
     def test_maps_standcolumn_to_koyatsuka(self) -> None:
         """STANDCOLUMN を小屋束にマッピングする。"""

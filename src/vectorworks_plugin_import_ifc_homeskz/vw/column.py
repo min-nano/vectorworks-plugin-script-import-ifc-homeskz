@@ -16,9 +16,11 @@ BOUND_ID_BOTTOM = 1
 # 伏図記号表示フィールド名・伏図レイヤフィールド名
 FIELD_SHOW_PLAN_SYMBOL = 'isShowSecondary'
 FIELD_PLAN_LAYER = 'upperLayerName'
-# 柱頭金物・柱脚金物フィールド名
-FIELD_TOP_HARDWARE = 'TopHardware'
-FIELD_BOTTOM_HARDWARE = 'BottomHardware'
+# 柱頭金物・柱脚金物フィールド名(柱・間柱ツール AAPillarS の実フィールド名)。
+# 仕様文字列(例: '(る)')は SetRField でそのまま書き込まれ、ツールの
+# ドロップダウン候補に無いカスタム値でも登録不要でそのまま格納・表示される。
+FIELD_TOP_HARDWARE = 'TopHard'
+FIELD_BOTTOM_HARDWARE = 'BtmHard'
 # 伏図記号表示を有効にするブール値
 PLAN_SYMBOL_ON = 'True'
 
