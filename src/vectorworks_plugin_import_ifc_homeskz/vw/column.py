@@ -64,7 +64,12 @@ def draw_column(command: ColumnCommand) -> None:
         _set_story_bound(obj, BOUND_ID_TOP, command['top_bound'])
         _set_story_bound(obj, BOUND_ID_BOTTOM, command['bottom_bound'])
         raw_column_type = command['column_type']
-        column_type = raw_column_type if raw_column_type in _COLUMN_TYPE_CLASS else '管柱'
+        if raw_column_type == 'STANDCOLUMN':
+            column_type = '小屋束'
+        elif raw_column_type in _COLUMN_TYPE_CLASS:
+            column_type = raw_column_type
+        else:
+            column_type = '管柱'
         body_class = _COLUMN_TYPE_CLASS[column_type]
         vs.SetRField(obj, PLUGIN_NAME, 'Type', column_type)
         vs.SetRField(obj, PLUGIN_NAME, 'SecShape', '矩形')
