@@ -142,8 +142,36 @@ class TestExecuteColumns:
         ])
         set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
         fields = {field: value for _, _, field, value in set_rfield_args}
-        assert fields['伏図記号を表示'] == 'True'
-        assert fields['伏図レイヤ'] == '1-柱(伏図)'
+        assert fields['isShowSecondary'] == 'True'
+        assert fields['upperLayerName'] == '1-柱(伏図)'
+        assert fields['Mclass'] == '04構造-02木造-03柱-02管柱'
+        assert fields['2DShapeClass'] == '04構造-02木造-03柱-02管柱'
+        assert fields['3DShapeClass'] == '04構造-02木造-03柱-02管柱'
+        assert fields['SectionMarkClass'] == '01作図-01線-02実線-01極細線'
+        assert fields['CircleMarkClass'] == '01作図-01線-02実線-03中線'
+        assert fields['SecondaryClass'] == '01作図-01線-02実線-03中線'
+
+    def test_maps_standcolumn_to_koyatsuka(self) -> None:
+        """STANDCOLUMN を小屋束にマッピングする。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        _run_execute_columns(vs_mock, [
+            make_column_command(column_type='STANDCOLUMN'),
+        ])
+        set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
+        fields = {field: value for _, _, field, value in set_rfield_args}
+        assert fields['Type'] == '小屋束'
+        assert fields['Mclass'] == '04構造-02木造-05小屋組-02小屋束'
+
+    def test_sets_tooshidbashira_class(self) -> None:
+        """通し柱の場合に対応するクラスを設定する。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        _run_execute_columns(vs_mock, [
+            make_column_command(column_type='通し柱'),
+        ])
+        set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
+        fields = {field: value for _, _, field, value in set_rfield_args}
+        assert fields['Type'] == '通し柱'
+        assert fields['Mclass'] == '04構造-02木造-03柱-01通し柱'
 
     def test_sets_story_bounds_for_top_and_bottom(self) -> None:
         """上下端の高さをストーリレベル基準 (SetObjectStoryBound) でバインドする。"""

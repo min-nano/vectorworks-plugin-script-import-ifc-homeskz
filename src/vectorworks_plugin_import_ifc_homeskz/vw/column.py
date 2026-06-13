@@ -13,11 +13,23 @@ BOUND_TYPE_STORY = 2
 BOUND_ID_TOP = 0
 BOUND_ID_BOTTOM = 1
 
-# 柱・間柱ツールの伏図記号関連フィールド(ツールが日本語名のため内部名も日本語)
-FIELD_SHOW_PLAN_SYMBOL = '伏図記号を表示'
-FIELD_PLAN_LAYER = '伏図レイヤ'
-# 伏図記号表示を有効にするブール値(VW のブールフィールドは 'True'/'False')
+# 伏図記号表示フィールド名・伏図レイヤフィールド名
+FIELD_SHOW_PLAN_SYMBOL = 'isShowSecondary'
+FIELD_PLAN_LAYER = 'upperLayerName'
+# 伏図記号表示を有効にするブール値
 PLAN_SYMBOL_ON = 'True'
+
+# 断面斜線クラス・丸記号クラス・伏図記号クラス（全種別共通）
+CLASS_SECTION_MARK = '01作図-01線-02実線-01極細線'
+CLASS_CIRCLE_MARK = '01作図-01線-02実線-03中線'
+CLASS_SECONDARY = '01作図-01線-02実線-03中線'
+
+# 柱種別ごとの本体クラス
+_COLUMN_TYPE_CLASS: dict[str, str] = {
+    '管柱': '04構造-02木造-03柱-02管柱',
+    '通し柱': '04構造-02木造-03柱-01通し柱',
+    '小屋束': '04構造-02木造-05小屋組-02小屋束',
+}
 
 
 def _set_story_bound(obj: object, bound_id: int, bound: StoryBound) -> None:
@@ -51,16 +63,40 @@ def draw_column(command: ColumnCommand) -> None:
         # 上下端の高さ基準をストーリレベルにバインド(Z 高さを決定する)
         _set_story_bound(obj, BOUND_ID_TOP, command['top_bound'])
         _set_story_bound(obj, BOUND_ID_BOTTOM, command['bottom_bound'])
-        vs.SetRField(obj, PLUGIN_NAME, 'Type', command['column_type'])
+        raw_column_type = command['column_type']
+        if raw_column_type == 'STANDCOLUMN':
+            column_type = '小屋束'
+        elif raw_column_type in _COLUMN_TYPE_CLASS:
+            column_type = raw_column_type
+        else:
+            column_type = '管柱'
+        body_class = _COLUMN_TYPE_CLASS[column_type]
+        vs.SetRField(obj, PLUGIN_NAME, 'Type', column_type)
         vs.SetRField(obj, PLUGIN_NAME, 'SecShape', '矩形')
-        # 伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する
-        vs.SetRField(obj, PLUGIN_NAME, FIELD_SHOW_PLAN_SYMBOL, PLAN_SYMBOL_ON)
-        vs.SetRField(obj, PLUGIN_NAME, FIELD_PLAN_LAYER, command['plan_layer'])
         vs.SetRField(obj, PLUGIN_NAME, 'Width', str(w))
         vs.SetRField(obj, PLUGIN_NAME, 'Depth', str(d))
         vs.SetRField(obj, PLUGIN_NAME, 'Height', str(h))
         vs.SetRField(obj, PLUGIN_NAME, 'Rad', str(int(round(min(w, d) / 2))))
         vs.SetRField(obj, PLUGIN_NAME, 'Dia', str(w))
+        # 本体クラス（2D・3D 共通、クラス属性を使用）
+        vs.SetRField(obj, PLUGIN_NAME, 'Mclass', body_class)
+        vs.SetRField(obj, PLUGIN_NAME, '2DShapeClass', body_class)
+        vs.SetRField(obj, PLUGIN_NAME, 'use2DShapeClass', 'True')
+        vs.SetRField(obj, PLUGIN_NAME, '3DShapeClass', body_class)
+        vs.SetRField(obj, PLUGIN_NAME, 'use3DShapeClass', 'True')
+        # 断面斜線クラス（クラス属性を使用）
+        vs.SetRField(obj, PLUGIN_NAME, 'SectionMarkClass', CLASS_SECTION_MARK)
+        vs.SetRField(obj, PLUGIN_NAME, 'useSectionMarkClass', 'True')
+        # 丸記号クラス（クラス属性を使用）
+        vs.SetRField(obj, PLUGIN_NAME, 'CircleMarkClass', CLASS_CIRCLE_MARK)
+        vs.SetRField(obj, PLUGIN_NAME, 'useCircleMarkClass', 'True')
+        vs.SetRField(obj, PLUGIN_NAME, 'Sclass', CLASS_CIRCLE_MARK)
+        # 伏図記号クラス（クラス属性を使用）
+        vs.SetRField(obj, PLUGIN_NAME, 'SecondaryClass', CLASS_SECONDARY)
+        vs.SetRField(obj, PLUGIN_NAME, 'useSecondaryClass', 'True')
+        # 伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する
+        vs.SetRField(obj, PLUGIN_NAME, FIELD_SHOW_PLAN_SYMBOL, PLAN_SYMBOL_ON)
+        vs.SetRField(obj, PLUGIN_NAME, FIELD_PLAN_LAYER, command['plan_layer'])
         vs.ResetObject(obj)
     else:
         # フォールバック: 断面の矩形
