@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 3):
+スキーマ (version 4):
 
     {
-        "version": 3,
+        "version": 4,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -57,6 +57,10 @@
                 "depth": 105.0,           # 断面成 (mm)
                 "height": 2844.0,         # 柱高さ (mm, フォールバック/Height フィールド用)
                 "elevation": 426.0,       # 配置 Z 高さ (mm, 絶対値, フォールバック用)
+                # 柱頭・柱脚金物の仕様文字列 (柱・間柱ツールの TopHardware /
+                # BottomHardware フィールドに格納する。該当金物が無ければ "")
+                "top_hardware": "(ろ)",    # 柱頭金物の仕様
+                "bottom_hardware": "(ろ)", # 柱脚金物の仕様
                 # 上下端の高さ基準(ストーリレベル基準)。柱・間柱ツールの
                 # SetObjectStoryBound に渡し、階高変更に追従させる。
                 "bottom_bound": {         # 高さ基準(下): 該当階の横架材天端
@@ -78,7 +82,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 3
+DOCUMENT_VERSION = 4
 
 
 class LevelCommand(TypedDict):
@@ -151,6 +155,8 @@ class ColumnCommand(TypedDict):
     elevation: float
     bottom_bound: StoryBound
     top_bound: StoryBound
+    top_hardware: str
+    bottom_hardware: str
 
 
 class Document(TypedDict):
@@ -268,6 +274,9 @@ def _validate_column(index: int, command: Any) -> None:
     for key in ('width', 'depth', 'height', 'elevation'):
         _require(_is_number(command.get(key)),
                  f'{where}.{key} は数値である必要があります')
+    for key in ('top_hardware', 'bottom_hardware'):
+        _require(isinstance(command.get(key), str),
+                 f'{where}.{key} は文字列である必要があります')
     for key in ('bottom_bound', 'top_bound'):
         _require(key in command, f'{where}.{key} は必須です')
         _validate_story_bound(f'{where}.{key}', command[key])

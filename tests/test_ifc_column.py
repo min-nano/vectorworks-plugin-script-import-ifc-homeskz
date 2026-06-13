@@ -8,6 +8,7 @@ import pytest
 
 from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
     _get_position_2d,
+    _hardware_spec,
     build_column_commands,
     resolve_column_type,
 )
@@ -74,6 +75,32 @@ def make_column(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
     return column
 
 
+def make_hardware(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
+                  ox: float, oy: float, name: str, type_name: str,
+                  oz: float = 0.0) -> ifcopenshell.entity_instance:
+    """テスト用 柱頭/柱脚金物 (IfcMechanicalFastener) を生成して storey に追加する。
+
+    name に ``柱頭金物`` / ``柱脚金物`` を含めると柱頭/柱脚として分類される。
+    type_name は金物の型名(例: ``柱頭金物:(ろ)``)で、コロン以降が仕様になる。
+    """
+    pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[ox, oy, oz])
+    placement_3d = ifc.create_entity('IfcAxis2Placement3D', Location=pt)
+    local_placement = ifc.create_entity('IfcLocalPlacement', RelativePlacement=placement_3d)
+
+    fastener = ifc.create_entity(
+        'IfcMechanicalFastener', Name=name, ObjectPlacement=local_placement
+    )
+    fastener_type = ifc.create_entity('IfcMechanicalFastenerType', Name=type_name)
+    ifc.create_entity(
+        'IfcRelDefinesByType', RelatedObjects=[fastener], RelatingType=fastener_type
+    )
+    ifc.create_entity(
+        'IfcRelContainedInSpatialStructure', RelatingStructure=storey,
+        RelatedElements=[fastener],
+    )
+    return fastener
+
+
 def make_grid_axis(ifc: ifcopenshell.file, name: str,
                    x1: float, y1: float, x2: float, y2: float) -> None:
     """テスト用 IfcGridAxis を生成する(グリッド中心算出に使用)。"""
@@ -122,6 +149,23 @@ class TestResolveColumnType:
 
     def test_unknown_falls_back_to_default(self) -> None:
         assert resolve_column_type('SOMETHING_ELSE') == '管柱'
+
+
+# ---------------------------------------------------------------------------
+# _hardware_spec
+# ---------------------------------------------------------------------------
+
+class TestHardwareSpec:
+    def test_extracts_part_after_colon(self) -> None:
+        assert _hardware_spec('柱頭金物:(ろ)') == '(ろ)'
+        assert _hardware_spec('柱脚金物:C12') == 'C12'
+
+    def test_returns_whole_name_without_separator(self) -> None:
+        assert _hardware_spec('HD-B20') == 'HD-B20'
+
+    def test_returns_empty_for_none_or_empty(self) -> None:
+        assert _hardware_spec(None) == ''
+        assert _hardware_spec('') == ''
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +327,45 @@ class TestBuildColumnCommands:
             'story': 0, 'level': '軒高', 'offset': pytest.approx(-100.0)}
         assert cmd['top_bound'] == {
             'story': 0, 'level': '軒高', 'offset': pytest.approx(400.0)}
+
+    def test_hardware_defaults_to_empty_when_absent(self) -> None:
+        """金物が無い柱は top_hardware / bottom_hardware が空文字になる。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0)
+
+        command = build_column_commands(ifc)[0]
+        assert command['top_hardware'] == ''
+        assert command['bottom_hardware'] == ''
+
+    def test_matches_hardware_by_position(self) -> None:
+        """同一平面座標の柱頭・柱脚金物の仕様を柱に対応付ける。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 1000.0, 2000.0)
+        make_hardware(ifc, storey, 1000.0, 2000.0,
+                      name='柱No.4:柱頭金物', type_name='柱頭金物:(ろ)', oz=2544.0)
+        make_hardware(ifc, storey, 1000.0, 2000.0,
+                      name='柱No.4:柱脚金物', type_name='柱脚金物:(い)', oz=-174.0)
+
+        command = build_column_commands(ifc)[0]
+        assert command['top_hardware'] == '(ろ)'
+        assert command['bottom_hardware'] == '(い)'
+
+    def test_does_not_match_hardware_at_other_position(self) -> None:
+        """別の平面座標の金物は対応付けない。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0)
+        make_hardware(ifc, storey, 5000.0, 5000.0,
+                      name='柱No.9:柱頭金物', type_name='柱頭金物:(ろ)')
+
+        command = build_column_commands(ifc)[0]
+        assert command['top_hardware'] == ''
+        assert command['bottom_hardware'] == ''
 
     def test_commands_are_json_serializable(self) -> None:
         ifc = ifcopenshell.file()
