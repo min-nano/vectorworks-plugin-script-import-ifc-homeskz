@@ -161,4 +161,4 @@ VW 2026 でレイヤをストーリレベルに正しくバインドするには
    - CI が全て green でレビュー上の問題もなければ**自動的にマージする**。
 
 3. **コミットメッセージ**:
-   - PR の URL を追加する形式: `https://claude.ai/code/session_<SESSION_ID>`
+   - Claude セッション URL を追加する形式: `https://claude.ai/code/session_<SESSION_ID>`
