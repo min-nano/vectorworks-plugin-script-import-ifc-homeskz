@@ -53,7 +53,7 @@ def draw_column(command: ColumnCommand) -> None:
     ストーリレベル基準(下=横架材天端、上=上階の横架材天端 or 軒高)に
     バインドし、階高変更に追従させる(Z 方向の高さはこのバインドが決める)。
     伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する。
-    柱頭・柱脚金物の仕様を TopHardware / BottomHardware フィールドに格納する。
+    柱頭・柱脚金物の仕様を TopHard / BtmHard フィールドに格納する。
     プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
