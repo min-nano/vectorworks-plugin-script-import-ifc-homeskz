@@ -116,8 +116,8 @@ class TestExecuteColumns:
             make_column_command(position=(500.0, 800.0), elevation=426.0),
         ])
 
-        # ローカル原点 (0, 0) に生成
-        assert create_calls == [('柱・間柱', 0, 0)]
+        # ローカル原点 (0, 0) に、ユニバーサル名 AAPillarS で生成
+        assert create_calls == [('AAPillarS', 0, 0)]
         # Move3D で (500, 800, 426) へ移動
         assert any(
             abs(x - 500.0) < 1e-6 and abs(y - 800.0) < 1e-6 and abs(z - 426.0) < 1e-6

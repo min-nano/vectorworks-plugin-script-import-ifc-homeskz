@@ -5,7 +5,13 @@ import vs
 
 from ..document import ColumnCommand, StoryBound
 
-PLUGIN_NAME = '柱・間柱'
+# 木造BIM 柱・間柱ツールの「ユニバーサル名」。CreateCustomObject / SetRField に
+# はローカライズ名(柱・間柱)ではなくユニバーサル名を渡す必要がある。ローカライズ名
+# を渡すと VW がその名前のパラメトリックオブジェクト型を新規定義しようとし、
+# プラグインが登録済みの同名レコードフォーマット(柱・間柱)と衝突して
+# 「同じ名前のレコードフォーマットがすでに存在しています」エラーになる。
+# 構造材(StructuralMember)・通り芯(GridAxis)と同様にユニバーサル名で統一する。
+PLUGIN_NAME = 'AAPillarS'
 
 # SetObjectStoryBound の boundType: 0=LayerZ, 1=DefaultWallHeight, 2=Story
 BOUND_TYPE_STORY = 2
