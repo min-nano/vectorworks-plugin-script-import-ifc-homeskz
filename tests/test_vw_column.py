@@ -166,6 +166,37 @@ class TestExecuteColumns:
         assert fields['TopHard'] == '(ろ)'
         assert fields['BtmHard'] == '(い)'
 
+    def test_hardware_fields_set_after_reset_object(self) -> None:
+        """TopHard / BtmHard は ResetObject の後に書き込む。
+
+        柱・間柱ツールは ResetObject 時に継手条件から金物を再計算するため、
+        ResetObject の前に設定すると空に上書きされる。再計算後に書き込んで
+        値を残すよう、SetRField(TopHard/BtmHard) は ResetObject より後に
+        呼ばれなければならない。
+        """
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        order: list[str] = []
+
+        def record_set_rfield(obj: object, plugin: str, field: str, value: str) -> None:
+            if field in ('TopHard', 'BtmHard'):
+                order.append(f'set:{field}')
+
+        def record_reset(obj: object) -> None:
+            order.append('reset')
+
+        vs_mock.SetRField.side_effect = record_set_rfield
+        vs_mock.ResetObject.side_effect = record_reset
+
+        _run_execute_columns(vs_mock, [
+            make_column_command(top_hardware='(ろ)', bottom_hardware='(い)'),
+        ])
+
+        assert 'reset' in order
+        reset_index = order.index('reset')
+        # 金物フィールドの書き込みはすべて ResetObject より後に来る
+        assert order.index('set:TopHard') > reset_index
+        assert order.index('set:BtmHard') > reset_index
+
     def test_maps_standcolumn_to_koyatsuka(self) -> None:
         """STANDCOLUMN を小屋束にマッピングする。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})

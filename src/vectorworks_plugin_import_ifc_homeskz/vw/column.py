@@ -54,6 +54,8 @@ def draw_column(command: ColumnCommand) -> None:
     バインドし、階高変更に追従させる(Z 方向の高さはこのバインドが決める)。
     伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する。
     柱頭・柱脚金物の仕様を TopHard / BtmHard フィールドに格納する。
+    TopHard / BtmHard はツールが ResetObject 時に再計算する出力フィールドの
+    ため、ResetObject の後に書き込む(前に設定すると空に上書きされる)。
     プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
@@ -103,10 +105,14 @@ def draw_column(command: ColumnCommand) -> None:
         # 伏図記号を表示し、伏図レイヤを当該階の柱(伏図)レイヤに設定する
         vs.SetRField(obj, PLUGIN_NAME, FIELD_SHOW_PLAN_SYMBOL, PLAN_SYMBOL_ON)
         vs.SetRField(obj, PLUGIN_NAME, FIELD_PLAN_LAYER, command['plan_layer'])
-        # 柱頭・柱脚金物の仕様(該当金物が無ければ空文字)
+        vs.ResetObject(obj)
+        # 柱頭・柱脚金物の仕様(該当金物が無ければ空文字)。
+        # TopHard / BtmHard は柱・間柱ツールが ResetObject 時に継手条件から
+        # 再計算する出力フィールドのため、ResetObject の前に設定すると上書きで
+        # 消える(取り込んだ柱には継手ジオメトリが無いため空に再計算される)。
+        # ResetObject の後に書き込み、以降は再リセットしないことで値を残す。
         vs.SetRField(obj, PLUGIN_NAME, FIELD_TOP_HARDWARE, command['top_hardware'])
         vs.SetRField(obj, PLUGIN_NAME, FIELD_BOTTOM_HARDWARE, command['bottom_hardware'])
-        vs.ResetObject(obj)
     else:
         # フォールバック: 断面の矩形
         vs.Rect(x - w / 2, y + d / 2, x + w / 2, y - d / 2)
