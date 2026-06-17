@@ -23,20 +23,10 @@ def execute_document(document: Any) -> dict[str, int]:
 
     Returns: {'stories': int, 'grids': int, 'members': int, 'columns': int} 各命令の実行数。
     """
-    import vs
-
     validated = validate_document(document)
-
-    vs.Message(f'ストーリ・レイヤを生成中... (1/4, 計 {len(validated["stories"])} 階)')
-    stories = execute_stories(validated['stories'])
-
-    vs.Message(f'通り芯を配置中... (2/4, 計 {len(validated["grids"])} 本)')
-    grids = execute_grids(validated['grids'])
-
-    vs.Message(f'横架材を配置中... (3/4, 計 {len(validated["members"])} 本)')
-    members = execute_members(validated['members'])
-
-    vs.Message(f'柱を配置中... (4/4, 計 {len(validated["columns"])} 本)')
-    columns = execute_columns(validated['columns'])
-
-    return {'stories': stories, 'grids': grids, 'members': members, 'columns': columns}
+    return {
+        'stories': execute_stories(validated['stories']),
+        'grids': execute_grids(validated['grids']),
+        'members': execute_members(validated['members']),
+        'columns': execute_columns(validated['columns']),
+    }

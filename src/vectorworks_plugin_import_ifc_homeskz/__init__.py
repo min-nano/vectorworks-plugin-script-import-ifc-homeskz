@@ -35,7 +35,7 @@ def run() -> None:
         return
 
     try:
-        vs.Message('IFCデータを解析中... (フェーズ1/2)')
+        vs.Message('IFCデータを解析中...')
 
         ifc_file = ifcopenshell.open(filepath)
 
@@ -45,7 +45,7 @@ def run() -> None:
         # 直列化可能(= vs やifcopenshell のオブジェクトを含まない)ことを保証する
         document = json.loads(json.dumps(document))
 
-        # フェーズ2: 命令セットに従って描画（execute_document 内で各ステップのメッセージを更新）
+        # フェーズ2: 命令セットに従って描画
         counts = execute_document(document)
 
         vs.ClrMessage()
