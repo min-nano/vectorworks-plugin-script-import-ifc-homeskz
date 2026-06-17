@@ -1,6 +1,8 @@
 """grid 命令の描画。GridAxis プラグインオブジェクトを配置する。"""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import vs
 
 from ..document import GridCommand
@@ -40,7 +42,10 @@ def draw_grid(command: GridCommand) -> None:
         vs.SetClass(fallback_line, command['class'])
 
 
-def execute_grids(commands: list[GridCommand]) -> int:
+def execute_grids(
+    commands: list[GridCommand],
+    yield_fn: Callable[[int], None] | None = None,
+) -> int:
     """grid 命令のリストを描画し、描画本数を返す。
 
     配置先レイヤが存在しない場合は作成してアクティブにする。
@@ -54,5 +59,7 @@ def execute_grids(commands: list[GridCommand]) -> int:
 
         draw_grid(command)
         count += 1
+        if yield_fn is not None:
+            yield_fn(1)
 
     return count

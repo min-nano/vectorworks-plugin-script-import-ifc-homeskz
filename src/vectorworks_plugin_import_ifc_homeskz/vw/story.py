@@ -1,6 +1,7 @@
 """story 命令の実行。ストーリ・ストーリレベル・デザインレイヤを生成する。"""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import vs
@@ -36,7 +37,10 @@ def create_story_level_via_template(
         vs.SetName(layer_h, desired_layer_name)
 
 
-def execute_stories(commands: list[StoryCommand]) -> int:
+def execute_stories(
+    commands: list[StoryCommand],
+    yield_fn: Callable[[int], None] | None = None,
+) -> int:
     """story 命令のリストを実行し、作成階数を返す。"""
     if not commands:
         return 0
@@ -71,5 +75,7 @@ def execute_stories(commands: list[StoryCommand]) -> int:
                 story_h, level['type'], level['offset'], level['layer'])
 
         count += 1
+        if yield_fn is not None:
+            yield_fn(1)
 
     return count

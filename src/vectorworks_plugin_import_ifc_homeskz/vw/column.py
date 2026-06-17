@@ -1,6 +1,8 @@
 """column 命令の描画。VectorWorks 木造BIM 柱・間柱ツールで柱を配置する。"""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import vs
 
 from ..document import ColumnCommand, StoryBound
@@ -113,7 +115,10 @@ def draw_column(command: ColumnCommand) -> None:
         vs.LNewObj()
 
 
-def execute_columns(commands: list[ColumnCommand]) -> int:
+def execute_columns(
+    commands: list[ColumnCommand],
+    yield_fn: Callable[[int], None] | None = None,
+) -> int:
     """column 命令のリストを描画し、配置数を返す。
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する。
@@ -123,10 +128,14 @@ def execute_columns(commands: list[ColumnCommand]) -> int:
     for command in commands:
         layer = command['layer']
         if vs.GetObject(layer) == vs.Handle(0):
+            if yield_fn is not None:
+                yield_fn(1)
             continue
         vs.Layer(layer)
 
         draw_column(command)
         count += 1
+        if yield_fn is not None:
+            yield_fn(1)
 
     return count

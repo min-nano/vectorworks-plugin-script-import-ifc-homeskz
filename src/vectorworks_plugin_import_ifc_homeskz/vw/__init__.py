@@ -31,23 +31,33 @@ def execute_document(document: Any) -> dict[str, int]:
     n_grids = len(validated['grids'])
     n_members = len(validated['members'])
     n_columns = len(validated['columns'])
-    total = max(n_stories + n_grids + n_members + n_columns, 1)
 
     # vs.Message() は描画中に呼ぶとプラグインオブジェクトのリセットを誘発するため、
     # 描画専用の ProgressDlg API を使う。
-    vs.ProgressDlgOpen('IFC データを描画中...', False)
+    # ProgressDlgYield() がアイテムごとに UI を更新する（バーを進める + 再描画）。
+    # ProgressDlgStart(pct, loopCount) でフェーズごとの割合を定義し、
+    # ProgressDlgEnd() でそのフェーズの終端まで一気に進める。
+    vs.ProgressDlgOpen('IFC インポート', False)
     try:
-        stories = execute_stories(validated['stories'])
-        vs.ProgressDlgSetMeter(int(n_stories * 100 / total))
+        vs.ProgressDlgSetTopMsg(f'ストーリ・レイヤを生成中... (計 {n_stories} 階)')
+        vs.ProgressDlgStart(25.0, max(n_stories, 1))
+        stories = execute_stories(validated['stories'], vs.ProgressDlgYield)
+        vs.ProgressDlgEnd()
 
-        grids = execute_grids(validated['grids'])
-        vs.ProgressDlgSetMeter(int((n_stories + n_grids) * 100 / total))
+        vs.ProgressDlgSetTopMsg(f'通り芯を配置中... (計 {n_grids} 本)')
+        vs.ProgressDlgStart(25.0, max(n_grids, 1))
+        grids = execute_grids(validated['grids'], vs.ProgressDlgYield)
+        vs.ProgressDlgEnd()
 
-        members = execute_members(validated['members'])
-        vs.ProgressDlgSetMeter(int((n_stories + n_grids + n_members) * 100 / total))
+        vs.ProgressDlgSetTopMsg(f'横架材を配置中... (計 {n_members} 本)')
+        vs.ProgressDlgStart(25.0, max(n_members, 1))
+        members = execute_members(validated['members'], vs.ProgressDlgYield)
+        vs.ProgressDlgEnd()
 
-        columns = execute_columns(validated['columns'])
-        vs.ProgressDlgSetMeter(100)
+        vs.ProgressDlgSetTopMsg(f'柱を配置中... (計 {n_columns} 本)')
+        vs.ProgressDlgStart(25.0, max(n_columns, 1))
+        columns = execute_columns(validated['columns'], vs.ProgressDlgYield)
+        vs.ProgressDlgEnd()
     finally:
         vs.ProgressDlgClose()
 
