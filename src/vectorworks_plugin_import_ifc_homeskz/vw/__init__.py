@@ -27,16 +27,28 @@ def execute_document(document: Any) -> dict[str, int]:
 
     validated = validate_document(document)
 
-    vs.Message(f'ストーリ・レイヤを生成中... (1/4, 計 {len(validated["stories"])} 階)')
-    stories = execute_stories(validated['stories'])
+    n_stories = len(validated['stories'])
+    n_grids = len(validated['grids'])
+    n_members = len(validated['members'])
+    n_columns = len(validated['columns'])
+    total = max(n_stories + n_grids + n_members + n_columns, 1)
 
-    vs.Message(f'通り芯を配置中... (2/4, 計 {len(validated["grids"])} 本)')
-    grids = execute_grids(validated['grids'])
+    # vs.Message() は描画中に呼ぶとプラグインオブジェクトのリセットを誘発するため、
+    # 描画専用の ProgressDlg API を使う。
+    vs.ProgressDlgOpen('IFC データを描画中...', False)
+    try:
+        stories = execute_stories(validated['stories'])
+        vs.ProgressDlgSetMeter(int(n_stories * 100 / total))
 
-    vs.Message(f'横架材を配置中... (3/4, 計 {len(validated["members"])} 本)')
-    members = execute_members(validated['members'])
+        grids = execute_grids(validated['grids'])
+        vs.ProgressDlgSetMeter(int((n_stories + n_grids) * 100 / total))
 
-    vs.Message(f'柱を配置中... (4/4, 計 {len(validated["columns"])} 本)')
-    columns = execute_columns(validated['columns'])
+        members = execute_members(validated['members'])
+        vs.ProgressDlgSetMeter(int((n_stories + n_grids + n_members) * 100 / total))
+
+        columns = execute_columns(validated['columns'])
+        vs.ProgressDlgSetMeter(100)
+    finally:
+        vs.ProgressDlgClose()
 
     return {'stories': stories, 'grids': grids, 'members': members, 'columns': columns}
