@@ -12,6 +12,7 @@ from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
     build_column_commands,
     make_column_member_id,
     resolve_column_type,
+    resolve_height_bounds,
 )
 
 
@@ -196,6 +197,26 @@ class TestMakeColumnMemberId:
 # build_column_commands
 # ---------------------------------------------------------------------------
 
+class TestResolveHeightBounds:
+    def test_general_story(self) -> None:
+        # 階 0 / 全 3 階 (top=2): 始端=自階横架材天端、終端=上階横架材天端
+        start, end = resolve_height_bounds(0, 2, 2844.0)
+        assert start == {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
+        assert end == {'story_offset': 1, 'level': '横架材天端', 'offset': 0.0}
+
+    def test_story_just_below_top(self) -> None:
+        # 階 1 / top=2: 上階が屋根のため終端=軒高
+        start, end = resolve_height_bounds(1, 2, 2844.0)
+        assert start == {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
+        assert end == {'story_offset': 1, 'level': '軒高', 'offset': 0.0}
+
+    def test_top_story(self) -> None:
+        # 最上階: 始端・終端とも自階軒高、終端は柱高さ分のオフセット
+        start, end = resolve_height_bounds(2, 2, 900.0)
+        assert start == {'story_offset': 0, 'level': '軒高', 'offset': 0.0}
+        assert end == {'story_offset': 0, 'level': '軒高', 'offset': 900.0}
+
+
 class TestBuildColumnCommands:
     def test_empty_ifc_returns_empty_list(self) -> None:
         assert build_column_commands(ifcopenshell.file()) == []
@@ -224,6 +245,46 @@ class TestBuildColumnCommands:
         assert commands[0]['layer'] == 'R-柱'
         # 下端高さ = ストーリ高さ + ローカル Z
         assert commands[0]['elevation'] == pytest.approx(6200.0)
+
+    def test_general_story_binds_to_beam_top_and_upper(self) -> None:
+        """一般階の柱は始端=自階の横架材天端、終端=上階の横架材天端にバインドする。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s1, 0.0, 0.0)
+
+        command = build_column_commands(ifc)[0]
+        assert command['start_bound'] == {
+            'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
+        assert command['end_bound'] == {
+            'story_offset': 1, 'level': '横架材天端', 'offset': 0.0}
+
+    def test_story_below_top_binds_upper_to_eaves(self) -> None:
+        """最上階直下の階は上階が屋根のため終端=軒高にバインドする。"""
+        ifc = ifcopenshell.file()
+        make_storey(ifc, '1FL', 600.0)
+        s2 = make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s2, 0.0, 0.0)
+
+        command = build_column_commands(ifc)[0]
+        assert command['start_bound'] == {
+            'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
+        assert command['end_bound'] == {
+            'story_offset': 1, 'level': '軒高', 'offset': 0.0}
+
+    def test_top_story_binds_both_ends_to_eaves(self) -> None:
+        """最上階の柱は始端・終端とも自階の軒高基準で、終端は柱高さ分のオフセット。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, height=900.0)
+
+        command = build_column_commands(ifc)[0]
+        assert command['start_bound'] == {
+            'story_offset': 0, 'level': '軒高', 'offset': 0.0}
+        assert command['end_bound'] == {
+            'story_offset': 0, 'level': '軒高', 'offset': pytest.approx(900.0)}
 
     def test_assigns_layer_per_story(self) -> None:
         ifc = ifcopenshell.file()

@@ -2,9 +2,11 @@
 
 IFC の IfcColumn を走査し、各階の柱レイヤ(``n-柱``)に配置する column 命令を
 生成する。柱は梁と同じ構造材ツール (StructuralMember) で鉛直材として描くため、
-断面寸法(幅・成)と柱高さを押し出しソリッドから取得し、下端 Z はストーリ高さに
-柱のローカル配置 Z を加えた絶対値を使う(上端 = 下端 + 高さ)。構造材ツールは
-ストーリレベルへの高さバインドを使わず、絶対 Z の固定パスで描く。
+断面寸法(幅・成)と柱高さを押し出しソリッドから取得する。高さ基準は
+ストーリレベルにバインドする(構造用途は柱):始端は自階の横架材天端、終端は
+上階の横架材天端(最上階直下の階では上階=屋根のため軒高)。最上階(屋根)の柱は
+上階が無いため始端・終端とも自階の軒高を基準にし、終端は柱高さ分持ち上げる。
+下端 Z(ストーリ高さ + ローカル配置 Z の絶対値)と柱高さはパスのジオメトリに使う。
 
 構造材 ID (member_id) は ``{幅}×{成} - {種別}`` に柱頭・柱脚金物の仕様を連結
 した文字列にする。構造材ツールには金物専用フィールドが無いため、金物仕様は
@@ -22,11 +24,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..document import ColumnCommand
+from ..document import ColumnCommand, StoryBoundCommand
 from .grid import resolve_lines
 from .member import _get_profile_dims
 from .story import (
+    LEVEL_BEAM_TOP,
     LEVEL_COLUMN,
+    LEVEL_EAVES,
     get_local_placement_z,
     layer_prefix_for,
 )
@@ -112,6 +116,43 @@ def _collect_column_hardware(
                 continue
             target.setdefault(_position_key(*position), spec)
     return heads, bases
+
+
+def _beam_top_level_name(is_top: bool) -> str:
+    """ストーリの横架材天端に相当するレベル名を返す。
+
+    一般階は ``横架材天端``、最上階(屋根)は ``軒高``。
+    """
+    return LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
+
+
+def resolve_height_bounds(
+    index: int, top_index: int, height: float,
+) -> tuple[StoryBoundCommand, StoryBoundCommand]:
+    """柱の高さ基準(ストーリレベルへのバインド)を求める。
+
+    構造用途は柱とし、柱頭/柱脚をストーリレベルにバインドする。
+
+    - 一般階: 始端=自階の横架材天端、終端=上階の横架材天端。最上階の直下の階は
+      上階が屋根(横架材天端が無く軒高のみ)のため終端=軒高になる。
+    - 最上階(屋根): 上階が無いため始端・終端とも自階の軒高を基準にし、終端は
+      軒高から柱高さ分(``height``)持ち上げる。
+
+    Returns: (start_bound, end_bound)
+    """
+    is_top = index == top_index
+    if is_top:
+        start_bound: StoryBoundCommand = {
+            'story_offset': 0, 'level': LEVEL_EAVES, 'offset': 0.0}
+        end_bound: StoryBoundCommand = {
+            'story_offset': 0, 'level': LEVEL_EAVES, 'offset': height}
+        return start_bound, end_bound
+    upper_is_top = (index + 1) == top_index
+    start_bound = {'story_offset': 0, 'level': LEVEL_BEAM_TOP, 'offset': 0.0}
+    end_bound = {
+        'story_offset': 1, 'level': _beam_top_level_name(upper_is_top),
+        'offset': 0.0}
+    return start_bound, end_bound
 
 
 def resolve_column_type(object_type: str | None) -> str:
@@ -239,6 +280,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 member_id = make_column_member_id(
                     width, depth, column_type, top_hardware, bottom_hardware)
 
+                start_bound, end_bound = resolve_height_bounds(
+                    i, top_idx, height)
+
                 commands.append({
                     'layer': layer_name,
                     'member_id': member_id,
@@ -247,6 +291,8 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                     'depth': depth,
                     'height': height,
                     'elevation': bottom_abs,
+                    'start_bound': start_bound,
+                    'end_bound': end_bound,
                     'top_hardware': top_hardware,
                     'bottom_hardware': bottom_hardware,
                 })

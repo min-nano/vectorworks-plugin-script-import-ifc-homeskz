@@ -53,6 +53,8 @@ def make_valid_document() -> dict[str, Any]:
                 'member_id': '105×105 - 管柱 / 柱頭金物:(ろ) / 柱脚金物:(ろ)',
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
+                'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+                'end_bound': {'story_offset': 1, 'level': '軒高', 'offset': 0.0},
                 'top_hardware': '柱頭金物:(ろ)', 'bottom_hardware': '柱脚金物:(ろ)',
             },
         ],
@@ -167,6 +169,24 @@ class TestValidateDocument:
         document = make_valid_document()
         document['columns'][0]['top_hardware'] = 123
         with pytest.raises(DocumentValidationError, match='top_hardware'):
+            validate_document(document)
+
+    def test_rejects_column_without_start_bound(self) -> None:
+        document = make_valid_document()
+        del document['columns'][0]['start_bound']
+        with pytest.raises(DocumentValidationError, match='start_bound'):
+            validate_document(document)
+
+    def test_rejects_column_with_bad_story_bound_level(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['end_bound']['level'] = ''
+        with pytest.raises(DocumentValidationError, match='end_bound.level'):
+            validate_document(document)
+
+    def test_rejects_column_with_non_int_story_offset(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['start_bound']['story_offset'] = 1.5
+        with pytest.raises(DocumentValidationError, match='story_offset'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:

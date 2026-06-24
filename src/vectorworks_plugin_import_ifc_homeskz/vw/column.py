@@ -3,8 +3,8 @@
 柱は梁と同じ構造材ツール (StructuralMember) で描く。拡張パッケージの
 柱・間柱ツールはスクリプト操作に対して不安定なため、安定して扱える標準の
 構造材ツールに置き換えている。鉛直パス(下端→上端)に断面 width×depth の
-プロファイルを与え、絶対 Z の固定パスとして描画する(ストーリレベルへの
-高さバインドは使わない)。
+プロファイルを与えて配置し、構造用途を柱 (StructuralUse=4) として、高さ基準
+(柱頭/柱脚)を SetObjectStoryBound でストーリレベルにバインドする。
 """
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ def draw_column(command: ColumnCommand) -> None:
 
     パスはローカル原点 (0,0,0) から鉛直方向(高さ分)に定義し、
     CreateCustomObjectPath 後に Move3D で下端の絶対位置 (XY + 下端 Z) へ移動する。
+    続いて構造用途を柱 (StructuralUse=4) とし、SetObjectStoryBound で始端・終端の
+    高さ基準をストーリレベル (start_bound / end_bound) にバインドする。
     断面は width×depth の矩形プロファイル。member_id(柱頭・柱脚金物の仕様を
     含む構造材 ID)を MemberID フィールドに格納する。プラグインが利用できない
     場合は断面の矩形にフォールバックする。
@@ -46,6 +48,13 @@ def draw_column(command: ColumnCommand) -> None:
         # ローカル原点から実際の配置位置(柱下端・断面中心の絶対位置)へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x, y, z_bottom)
+        # 高さ基準をストーリレベルにバインドする(始端=0/下端、終端=1/上端)。
+        start = command['start_bound']
+        end = command['end_bound']
+        vs.SetObjectStoryBound(
+            obj, 0, 2, start['story_offset'], start['level'], start['offset'])
+        vs.SetObjectStoryBound(
+            obj, 1, 2, end['story_offset'], end['level'], end['offset'])
         vs.SetRField(obj, PLUGIN_NAME, 'MemberID', command['member_id'])
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
         vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
@@ -53,7 +62,7 @@ def draw_column(command: ColumnCommand) -> None:
         vs.SetRField(obj, PLUGIN_NAME, 'B', str(w))
         vs.SetRField(obj, PLUGIN_NAME, 'D', str(d))
         vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
-        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '1')
+        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '4')  # 4=柱
         vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '4')  # 4=中央(上部中央=1から3×3グリッド0始まり)
         vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
         vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')

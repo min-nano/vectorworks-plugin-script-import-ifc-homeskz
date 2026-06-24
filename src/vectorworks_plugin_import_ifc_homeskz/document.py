@@ -61,6 +61,15 @@
                 "depth": 105.0,           # 断面成 (mm)
                 "height": 2844.0,         # 柱高さ (mm, 鉛直パス長 = 上端 − 下端)
                 "elevation": 426.0,       # 柱下端の Z 高さ (mm, 絶対値)
+                # 高さ基準(ストーリレベルへのバインド)。柱は構造用途を柱
+                # (StructuralUse=4) とし、柱頭/柱脚をストーリレベルに結び付ける。
+                # story_offset は柱が乗るストーリ(=レイヤのストーリ)からの相対階数、
+                # level はそのストーリのレベル名、offset はレベルからの距離 (mm)。
+                # 一般階: 始端=自階の横架材天端、終端=上階の横架材天端 (最上階直下の
+                # 階では上階=屋根のため軒高)。最上階(屋根): 始端=自階の軒高(offset 0)、
+                # 終端=自階の軒高 + 柱高さ(上階が無いため自階の軒高を基準に高さ分上げる)。
+                "start_bound": {"story_offset": 0, "level": "横架材天端", "offset": 0.0},
+                "end_bound": {"story_offset": 1, "level": "軒高", "offset": 0.0},
                 # 柱頭・柱脚金物の仕様文字列(該当金物が無ければ "")。member_id
                 # にも連結されるが、構造化された記録として個別にも保持する。
                 "top_hardware": "柱頭金物:(ろ)",    # 柱頭金物の仕様
@@ -74,7 +83,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 5
+DOCUMENT_VERSION = 6
 
 
 class LevelCommand(TypedDict):
@@ -123,12 +132,27 @@ class MemberCommand(TypedDict):
     end_elevation: float
 
 
+class StoryBoundCommand(TypedDict):
+    """柱の高さ基準(ストーリレベルへのバインド)1 端分。
+
+    story_offset は柱が乗るストーリ(=レイヤのストーリ)からの相対階数
+    (0=自階、1=上階)、level はそのストーリのレベル名(横架材天端 / 軒高)、
+    offset はレベルからの距離 (mm)。SetObjectStoryBound に渡す。
+    """
+
+    story_offset: int
+    level: str
+    offset: float
+
+
 class ColumnCommand(TypedDict):
     """柱 (StructuralMember オブジェクト) を鉛直材として描画する命令。
 
     柱は梁と同じ構造材ツールで描く。下端 (elevation) から高さ (height) 分の
     鉛直パスを持ち、断面は width×depth。member_id は構造材 ID で、柱頭・柱脚
     金物の仕様も連結して保持する(構造材ツールに金物専用フィールドが無いため)。
+    高さ基準は start_bound / end_bound でストーリレベルにバインドする(構造用途は
+    柱)。position・elevation・height はパスのジオメトリ(XY と初期 Z・長さ)に使う。
     """
 
     layer: str
@@ -138,6 +162,8 @@ class ColumnCommand(TypedDict):
     depth: float
     height: float
     elevation: float
+    start_bound: StoryBoundCommand
+    end_bound: StoryBoundCommand
     top_hardware: str
     bottom_hardware: str
 
@@ -242,9 +268,23 @@ def _validate_column(index: int, command: Any) -> None:
     for key in ('width', 'depth', 'height', 'elevation'):
         _require(_is_number(command.get(key)),
                  f'{where}.{key} は数値である必要があります')
+    for key in ('start_bound', 'end_bound'):
+        _validate_story_bound(where, key, command.get(key))
     for key in ('top_hardware', 'bottom_hardware'):
         _require(isinstance(command.get(key), str),
                  f'{where}.{key} は文字列である必要があります')
+
+
+def _validate_story_bound(where: str, key: str, bound: Any) -> None:
+    field = f'{where}.{key}'
+    _require(isinstance(bound, dict), f'{field} は dict である必要があります')
+    _require(isinstance(bound.get('story_offset'), int)
+             and not isinstance(bound.get('story_offset'), bool),
+             f'{field}.story_offset は整数である必要があります')
+    _require(isinstance(bound.get('level'), str) and bound['level'],
+             f'{field}.level は非空文字列である必要があります')
+    _require(_is_number(bound.get('offset')),
+             f'{field}.offset は数値である必要があります')
 
 
 def validate_document(document: Any) -> Document:
