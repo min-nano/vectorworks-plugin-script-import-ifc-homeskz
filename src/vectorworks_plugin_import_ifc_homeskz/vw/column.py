@@ -54,7 +54,7 @@ def draw_column(command: ColumnCommand) -> None:
         vs.SetRField(obj, PLUGIN_NAME, 'D', str(d))
         vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
         vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '1')
-        vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '1')
+        vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '4')  # 4=中央(上部中央=1から3×3グリッド0始まり)
         vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
         vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileSeries', 'AISC (Inch)')

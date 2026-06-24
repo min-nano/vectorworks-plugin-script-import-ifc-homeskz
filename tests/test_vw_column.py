@@ -146,6 +146,8 @@ class TestExecuteColumns:
         assert fields['MajorDepth'] == '120'
         assert fields['B'] == '105'
         assert fields['D'] == '120'
+        # 配置基準は中央(4)。上部中央(1)にすると柱の断面が軸から上方向にずれる
+        assert fields['AxisAlign'] == '4'
 
     def test_member_id_carries_hardware_spec(self) -> None:
         """柱頭・柱脚金物の仕様は member_id 経由で MemberID に格納される。"""
