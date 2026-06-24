@@ -166,9 +166,9 @@ class TestExecuteColumns:
         (w/2, d/2) とすることでパス軸が断面の上下左右中心を通るようにする。
         """
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})
-        poly_calls: list[tuple[object, ...]] = []
+        poly_calls: list[tuple[float, ...]] = []
 
-        def capture_poly(*args: object) -> None:
+        def capture_poly(*args: float) -> None:
             poly_calls.append(args)
 
         vs_mock.Poly.side_effect = capture_poly
