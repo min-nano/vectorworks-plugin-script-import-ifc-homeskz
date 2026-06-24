@@ -34,16 +34,16 @@ def draw_column(command: ColumnCommand) -> None:
     path_h = vs.CreateNurbsCurve(0, 0, 0, False, 1)
     vs.AddVertex3D(path_h, 0, 0, h)
 
-    # 断面プロファイル(width×depth の矩形)
+    # 断面プロファイル(width×depth の矩形、パス軸が断面中心を通るよう原点中心で定義)
     vs.BeginGroup()
     vs.ClosePoly()
-    vs.Poly(0, 0, 0, d, w, d, w, 0)
+    vs.Poly(-w / 2, -d / 2, -w / 2, d / 2, w / 2, d / 2, w / 2, -d / 2)
     vs.EndGroup()
     profile_h = vs.LNewObj()
 
     obj = vs.CreateCustomObjectPath(PLUGIN_NAME, path_h, profile_h)
     if obj != vs.Handle(0):
-        # ローカル原点から実際の配置位置(下端の絶対位置)へ移動
+        # ローカル原点から実際の配置位置(柱下端・断面中心の絶対位置)へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x, y, z_bottom)
         vs.SetRField(obj, PLUGIN_NAME, 'MemberID', command['member_id'])

@@ -159,6 +159,34 @@ class TestExecuteColumns:
         fields = {field: value for _, _, field, value in set_rfield_args}
         assert fields['MemberID'] == '105×105 - 管柱 / 柱頭金物:(ろ) / 柱脚金物:(い)'
 
+    def test_profile_polygon_is_centered_on_axis(self) -> None:
+        """断面プロファイルの矩形がパス軸(原点)を中心とした座標で定義される。
+
+        IFC 配置座標は断面中心なので、プロファイル多角形も原点中心 (-w/2, -d/2)〜
+        (w/2, d/2) とすることでパス軸が断面の上下左右中心を通るようにする。
+        """
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        poly_calls: list[tuple[object, ...]] = []
+
+        def capture_poly(*args: object) -> None:
+            poly_calls.append(args)
+
+        vs_mock.Poly.side_effect = capture_poly
+
+        _run_execute_columns(vs_mock, [
+            make_column_command(width=105.0, depth=120.0),
+        ])
+
+        assert len(poly_calls) == 1
+        coords = poly_calls[0]
+        # 4頂点 (x1,y1, x2,y2, x3,y3, x4,y4) の X 座標は ±w/2、Y 座標は ±d/2
+        xs = [coords[i] for i in range(0, 8, 2)]
+        ys = [coords[i] for i in range(1, 8, 2)]
+        assert pytest.approx(min(xs)) == -105 / 2
+        assert pytest.approx(max(xs)) == 105 / 2
+        assert pytest.approx(min(ys)) == -120 / 2
+        assert pytest.approx(max(ys)) == 120 / 2
+
     def test_fallback_to_rect_when_plugin_unavailable(self) -> None:
         """構造材プラグインが利用できない場合に断面の矩形にフォールバックする。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})
