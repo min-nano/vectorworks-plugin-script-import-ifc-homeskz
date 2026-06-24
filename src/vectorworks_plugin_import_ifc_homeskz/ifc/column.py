@@ -33,6 +33,7 @@ from .story import (
     LEVEL_EAVES,
     get_local_placement_z,
     layer_prefix_for,
+    resolve_beam_top_offset,
 )
 
 if TYPE_CHECKING:
@@ -126,32 +127,61 @@ def _beam_top_level_name(is_top: bool) -> str:
     return LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
 
 
+def beam_top_abs_z(elevation: float, beam_offset: float, is_top: bool) -> float:
+    """ストーリの横架材天端(最上階は軒高)の絶対 Z を返す。
+
+    一般階は ``ストーリ高さ + 横架材天端オフセット(負値)``、最上階は軒高
+    (オフセット 0)のため ``ストーリ高さ`` そのもの。
+    """
+    return elevation if is_top else elevation + beam_offset
+
+
 def resolve_height_bounds(
-    index: int, top_index: int, height: float,
+    index: int, top_index: int,
+    bottom_abs: float, top_abs: float,
+    current_level_z: float, upper_level_z: float | None,
 ) -> tuple[StoryBoundCommand, StoryBoundCommand]:
     """柱の高さ基準(ストーリレベルへのバインド)を求める。
 
-    構造用途は柱とし、柱頭/柱脚をストーリレベルにバインドする。
+    構造用途は柱とし、柱頭/柱脚をストーリレベルにバインドする。各端の
+    ``offset`` は**バインド先レベルの絶対 Z から柱端(絶対 Z)までの距離**で、
+    柱の実ジオメトリ(IFC の下端 ``bottom_abs`` と上端 ``top_abs``)から決まる。
+    こうすることで、ストーリ高さを VW 側で変更しても柱端はレベルから一定距離を
+    保ち、かつインポート時点では IFC 通りの長さで描かれる。
 
     - 一般階: 始端=自階の横架材天端、終端=上階の横架材天端。最上階の直下の階は
-      上階が屋根(横架材天端が無く軒高のみ)のため終端=軒高になる。
+      上階が屋根(横架材天端が無く軒高のみ)のため終端=軒高になる。標準的な柱
+      では始端は横架材天端に一致し ``offset≈0``、終端は上階梁の下端(=上階
+      横架材天端から梁背分下)になるため ``offset≈ -梁背`` になる。
     - 最上階(屋根): 上階が無いため始端・終端とも自階の軒高を基準にし、終端は
-      軒高から柱高さ分(``height``)持ち上げる。
+      軒高から柱高さ分(``top_abs - 軒高``)持ち上げる。
+
+    Parameters
+    ----------
+    bottom_abs, top_abs : 柱下端・上端の絶対 Z(``top_abs = bottom_abs + 柱高さ``)。
+    current_level_z     : 自階の横架材天端(最上階は軒高)の絶対 Z。
+    upper_level_z       : 上階の横架材天端(屋根直下なら軒高)の絶対 Z。
+                          最上階では上階が無いため None を渡す。
 
     Returns: (start_bound, end_bound)
     """
     is_top = index == top_index
     if is_top:
         start_bound: StoryBoundCommand = {
-            'story_offset': 0, 'level': LEVEL_EAVES, 'offset': 0.0}
+            'story_offset': 0, 'level': LEVEL_EAVES,
+            'offset': bottom_abs - current_level_z}
         end_bound: StoryBoundCommand = {
-            'story_offset': 0, 'level': LEVEL_EAVES, 'offset': height}
+            'story_offset': 0, 'level': LEVEL_EAVES,
+            'offset': top_abs - current_level_z}
         return start_bound, end_bound
     upper_is_top = (index + 1) == top_index
-    start_bound = {'story_offset': 0, 'level': LEVEL_BEAM_TOP, 'offset': 0.0}
+    assert upper_level_z is not None
+    start_bound = {
+        'story_offset': 0, 'level': LEVEL_BEAM_TOP,
+        'offset': bottom_abs - current_level_z}
     end_bound = {
         'story_offset': 1, 'level': _beam_top_level_name(upper_is_top),
-        'offset': 0.0}
+        'offset': top_abs - upper_level_z}
     return start_bound, end_bound
 
 
@@ -238,6 +268,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
 
     top_idx = len(storeys) - 1
     elevations = [float(s.Elevation or 0.0) for s in storeys]
+    # 各階の横架材天端オフセット(story.py のレベル定義と同じ算出方法)。
+    # 高さバインドの offset を実ジオメトリから求めるため絶対 Z 換算に使う。
+    beam_offsets = [resolve_beam_top_offset(s) for s in storeys]
 
     commands: list[ColumnCommand] = []
 
@@ -275,13 +308,24 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
 
                 local_z = get_local_placement_z(element) or 0.0
                 bottom_abs = storey_elevation + local_z
+                top_abs = bottom_abs + height
 
                 column_type = resolve_column_type(element.ObjectType)
                 member_id = make_column_member_id(
                     width, depth, column_type, top_hardware, bottom_hardware)
 
+                # 高さバインドの基準となるレベルの絶対 Z(自階・上階)。
+                current_level_z = beam_top_abs_z(
+                    storey_elevation, beam_offsets[i], is_top)
+                if is_top:
+                    upper_level_z: float | None = None
+                else:
+                    upper_is_top = (i + 1) == top_idx
+                    upper_level_z = beam_top_abs_z(
+                        elevations[i + 1], beam_offsets[i + 1], upper_is_top)
                 start_bound, end_bound = resolve_height_bounds(
-                    i, top_idx, height)
+                    i, top_idx, bottom_abs, top_abs,
+                    current_level_z, upper_level_z)
 
                 commands.append({
                     'layer': layer_name,
