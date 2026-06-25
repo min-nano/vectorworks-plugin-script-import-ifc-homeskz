@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib
 import os
 import tempfile
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import ifcopenshell
@@ -20,6 +21,9 @@ def _make_vs_mock() -> MagicMock:
     vs_mock.Handle.return_value = null_handle
 
     created: set[str] = set()
+    # デザインレイヤを作成順(下→上)で保持し、FLayer/NextLayer/HMoveForward を
+    # モデル化する。これがないと reorder_story_layers の走査が終端しない。
+    layers: list[str] = []
 
     def get_obj(name: str) -> object:
         if name in created:
@@ -32,6 +36,8 @@ def _make_vs_mock() -> MagicMock:
 
     def create_layer(name: str, layer_type: int) -> str:
         created.add(name)
+        if name not in layers:
+            layers.append(name)
         return 'HANDLE_' + name
 
     template_counter = [0]
@@ -41,12 +47,37 @@ def _make_vs_mock() -> MagicMock:
         idx = template_counter[0]
         template_counter[0] += 1
         created.add(layer_name)
+        if layer_name not in layers:
+            layers.append(layer_name)
         return (True, idx)
+
+    def f_layer() -> object:
+        return layers[0] if layers else null_handle
+
+    def next_layer(layer_h: Any) -> object:
+        if layer_h in layers:
+            i = layers.index(layer_h)
+            if i + 1 < len(layers):
+                return layers[i + 1]
+        return null_handle
+
+    def get_layer_by_name(name: str) -> object:
+        return name if name in layers else null_handle
+
+    def h_move_forward(layer_h: Any, to_front: bool) -> None:
+        if layer_h in layers:
+            i = layers.index(layer_h)
+            if not to_front and i + 1 < len(layers):
+                layers[i], layers[i + 1] = layers[i + 1], layers[i]
 
     vs_mock.GetObject.side_effect = get_obj
     vs_mock.CreateStory.side_effect = create_story
     vs_mock.CreateLayer.side_effect = create_layer
     vs_mock.CreateLevelTemplateN.side_effect = create_level_template
+    vs_mock.FLayer.side_effect = f_layer
+    vs_mock.NextLayer.side_effect = next_layer
+    vs_mock.GetLayerByName.side_effect = get_layer_by_name
+    vs_mock.HMoveForward.side_effect = h_move_forward
     vs_mock.AddLevelFromTemplate.return_value = True
     vs_mock.GetLayerForStory.return_value = 'HANDLE_template_layer'
     vs_mock.LNewObj.return_value = None

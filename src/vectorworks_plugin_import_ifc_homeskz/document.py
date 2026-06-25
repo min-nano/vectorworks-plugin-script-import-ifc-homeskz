@@ -104,8 +104,9 @@ class StoryCommand(TypedDict):
     name: str
     suffix: str
     elevation: float
-    # levels の並び順がデザインレイヤのスタック順(ナビゲーション表示順)になる。
-    # 柱レイヤを FL(最上階は軒高)レイヤの直上に置くため柱レベルを先頭にする。
+    # levels の並び順は希望するデザインレイヤのスタック順(上→下)。柱レイヤを
+    # FL(最上階は軒高)レイヤの直上に置くため柱レベルを先頭にする。描画フェーズが
+    # HMoveForward でこの順序どおりにレイヤを並べ替える(レベルの高さには依存しない)。
     levels: list[LevelCommand]
 
 
