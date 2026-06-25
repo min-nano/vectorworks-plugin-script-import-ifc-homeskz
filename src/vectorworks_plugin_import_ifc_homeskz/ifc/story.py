@@ -126,7 +126,10 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
                  'layer': f'{prefix}-{LEVEL_BEAM_TOP}'},
             ]
         # 柱を配置するレイヤ。高さは横架材天端(最上階は軒高)に揃える。
-        levels.append(
+        # レベルの並び順がデザインレイヤのスタック順(ナビゲーション表示順)になるため、
+        # 柱レイヤが FL(最上階は軒高)レイヤの直上に来るよう先頭に挿入する。
+        levels.insert(
+            0,
             {'type': LEVEL_COLUMN, 'offset': column_offset,
              'layer': f'{prefix}-{LEVEL_COLUMN}'})
         commands.append({

@@ -201,13 +201,14 @@ class TestSampleIfcAnalysis:
         assert [s['suffix'] for s in stories] == exp.story_suffixes
         assert [s['elevation'] for s in stories] == exp.story_elevations
         # 最上階は常に「屋根」、構造レベルは「軒高」＋柱配置用の柱
+        # 柱レベルはレイヤを軒高の直上に積むため先頭に置く
         roof = stories[-1]
         assert roof['name'] == '屋根'
-        assert [lv['type'] for lv in roof['levels']] == ['軒高', '柱']
-        # 一般階は FL + 横架材天端 ＋柱配置用の柱
+        assert [lv['type'] for lv in roof['levels']] == ['柱', '軒高']
+        # 一般階は FL + 横架材天端 ＋柱配置用の柱（柱レベルは FL の直上に積むため先頭）
         for story in stories[:-1]:
             assert [lv['type'] for lv in story['levels']] == [
-                'FL', '横架材天端', '柱']
+                '柱', 'FL', '横架材天端']
 
     def test_grid_and_member_counts_match_expected(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)
