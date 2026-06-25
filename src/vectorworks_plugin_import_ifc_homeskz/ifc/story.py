@@ -101,8 +101,13 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     """IFC のストーリから story 命令のリストを組み立てる。
 
     一般階は FL(0) と 横架材天端(負オフセット)、最上階は 軒高(0) を構造レベルとし、
-    さらに各階に柱配置用の 柱 レベル(オフセットは横架材天端と同じ=最上階は軒高)
-    を加える。柱は 柱 レイヤに梁と同じ構造材ツールで配置する。
+    さらに各階に柱配置用の 柱 レベル(高さは横架材天端=最上階は軒高に揃える)を加える。
+    柱は 柱 レイヤに梁と同じ構造材ツールで配置する。
+
+    ``levels`` の並び順は**デザインレイヤの希望スタック順(上→下)**を表す。柱レイヤを
+    FL(最上階は軒高)レイヤの直上に積むため 柱 レベルを先頭に置く。実際のレイヤ並びは
+    描画フェーズ(vw.story)が HMoveForward で命令の順序どおりに揃える(レイヤの高さ
+    オフセットに依存しない)。
     """
     stories = collect_stories(ifc_file)
 
@@ -126,8 +131,7 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
                  'layer': f'{prefix}-{LEVEL_BEAM_TOP}'},
             ]
         # 柱を配置するレイヤ。高さは横架材天端(最上階は軒高)に揃える。
-        # レベルの並び順がデザインレイヤのスタック順(ナビゲーション表示順)になるため、
-        # 柱レイヤが FL(最上階は軒高)レイヤの直上に来るよう先頭に挿入する。
+        # levels の先頭=スタック最上段とし、FL(最上階は軒高)レイヤの直上に来るようにする。
         levels.insert(
             0,
             {'type': LEVEL_COLUMN, 'offset': column_offset,

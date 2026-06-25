@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from vectorworks_plugin_import_ifc_homeskz.document import StoryCommand
@@ -69,6 +70,10 @@ def _make_stateful_vs_mock() -> MagicMock:
     vs_mock.GetLayerForStory.return_value = 'HANDLE_template_layer'
     vs_mock.GetStoryElevationN.return_value = 0.0
     vs_mock.GetLayerElevationN.return_value = (0.0, 0.0)
+    # レイヤ並べ替えは別テストで検証する。ここでは空のレイヤリスト
+    # (FLayer=NIL) として並べ替えを無効化し、無限ループを避ける。
+    vs_mock.FLayer.return_value = null_handle
+    vs_mock.GetLayerByName.return_value = null_handle
     return vs_mock
 
 
@@ -181,3 +186,125 @@ class TestExecuteStories:
         assert count == 1
         vs_mock.CreateStory.assert_not_called()
         vs_mock.SetStoryElevationN.assert_called_once_with('HANDLE_1階', 473.0)
+
+
+class _LayerListVS:
+    """FLayer/NextLayer/GetLayerByName/HMoveForward でレイヤ並びをモデル化する vs モック。
+
+    layers は下→上(FLayer→NextLayer 走査順)で保持する。HMoveForward(h, False) は
+    レイヤを 1 段ずつ前方(=ナビゲーション上で上=走査上は後方)へ送る。
+    """
+
+    def __init__(self, layers: list[str]) -> None:
+        self.layers: list[str] = list(layers)
+        self.NULL = object()
+
+    def Handle(self, value: int) -> Any:
+        return self.NULL
+
+    def FLayer(self) -> Any:
+        return self.layers[0] if self.layers else self.NULL
+
+    def NextLayer(self, layer_h: Any) -> Any:
+        if layer_h in self.layers:
+            i = self.layers.index(layer_h)
+            if i + 1 < len(self.layers):
+                return self.layers[i + 1]
+        return self.NULL
+
+    def GetLayerByName(self, name: str) -> Any:
+        return name if name in self.layers else self.NULL
+
+    def HMoveForward(self, layer_h: Any, to_front: bool) -> None:
+        # toFront=True はレイヤを削除するため使ってはならない
+        assert to_front is False
+        i = self.layers.index(layer_h)
+        if i + 1 < len(self.layers):
+            self.layers[i], self.layers[i + 1] = self.layers[i + 1], self.layers[i]
+
+
+def _run_reorder(vs_mock: Any, commands: list[StoryCommand]) -> None:
+    with patch.dict('sys.modules', {'vs': vs_mock}):
+        import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
+        importlib.reload(vw_story)
+        vw_story.reorder_story_layers(commands)
+
+
+class TestReorderStoryLayers:
+    def test_moves_column_layer_directly_above_fl_and_eaves(self) -> None:
+        # 高さ順挿入直後の並び(下→上)。柱レイヤは FL/軒高 の下にある。
+        vs_mock = _LayerListVS(
+            ['共通', '1-柱', '1-横架材天端', '1-FL', 'R-柱', 'R-軒高'])
+        commands: list[StoryCommand] = [
+            {
+                'name': '1階', 'suffix': '1', 'elevation': 473.0,
+                'levels': [
+                    {'type': '柱', 'offset': -48.0, 'layer': '1-柱'},
+                    {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
+                    {'type': '横架材天端', 'offset': -48.0, 'layer': '1-横架材天端'},
+                ],
+            },
+            {
+                'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
+                'levels': [
+                    {'type': '柱', 'offset': 0.0, 'layer': 'R-柱'},
+                    {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
+                ],
+            },
+        ]
+
+        _run_reorder(vs_mock, commands)
+
+        # 下→上の最終並び。各階で柱が FL/軒高 の直上(走査上は次)に来る。
+        assert vs_mock.layers == [
+            '共通', '1-横架材天端', '1-FL', '1-柱', 'R-軒高', 'R-柱']
+
+    def test_noop_when_already_ordered(self) -> None:
+        # すでに柱が FL の直上にある並びでは何も動かさない(冪等)。
+        vs_mock = _LayerListVS(['共通', '1-横架材天端', '1-FL', '1-柱'])
+        commands: list[StoryCommand] = [
+            {
+                'name': '1階', 'suffix': '1', 'elevation': 473.0,
+                'levels': [
+                    {'type': '柱', 'offset': -48.0, 'layer': '1-柱'},
+                    {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
+                    {'type': '横架材天端', 'offset': -48.0, 'layer': '1-横架材天端'},
+                ],
+            },
+        ]
+
+        _run_reorder(vs_mock, commands)
+
+        assert vs_mock.layers == ['共通', '1-横架材天端', '1-FL', '1-柱']
+
+    def test_move_stops_when_layer_cannot_advance(self) -> None:
+        # target が既に最前(最上段)で anchor の直上でない場合、HMoveForward が
+        # 効かなくなる。送り続けず打ち切ること(レイヤ消失バグの回避)を確認する。
+        vs_mock = _LayerListVS(['共通', '1-FL', '1-横架材天端', '1-柱'])
+        with patch.dict('sys.modules', {'vs': vs_mock}):
+            import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
+            importlib.reload(vw_story)
+            target = vs_mock.GetLayerByName('1-柱')
+            anchor = vs_mock.GetLayerByName('1-FL')
+            vw_story.move_layer_directly_above(
+                target, anchor, vw_story.count_layers())
+
+        # 端に到達しているため並びは変わらない。
+        assert vs_mock.layers == ['共通', '1-FL', '1-横架材天端', '1-柱']
+
+    def test_missing_layers_are_skipped(self) -> None:
+        # 生成されなかったレイヤ(GetLayerByName が NIL)は触らない。
+        vs_mock = _LayerListVS(['共通'])
+        commands: list[StoryCommand] = [
+            {
+                'name': '1階', 'suffix': '1', 'elevation': 473.0,
+                'levels': [
+                    {'type': '柱', 'offset': -48.0, 'layer': '1-柱'},
+                    {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
+                ],
+            },
+        ]
+
+        _run_reorder(vs_mock, commands)
+
+        assert vs_mock.layers == ['共通']
