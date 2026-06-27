@@ -42,6 +42,7 @@ def make_valid_document() -> dict[str, Any]:
         'members': [
             {
                 'layer': '1-横架材天端', 'member_id': '120×180 - 杉',
+                'class': '04 構造-02 木造-01 土台-01 土台',
                 'start': [0.0, 0.0], 'end': [3000.0, 0.0],
                 'width': 120.0, 'height': 180.0,
                 'elevation': 425.0, 'end_elevation': 425.0,
@@ -53,6 +54,7 @@ def make_valid_document() -> dict[str, Any]:
             {
                 'layer': '1-柱',
                 'member_id': '105×105 - 管柱 / 柱頭金物:(ろ) / 柱脚金物:(ろ)',
+                'class': '04 構造-02 木造-03 柱-02 管柱',
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
                 'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
@@ -149,6 +151,12 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError, match='member_id'):
             validate_document(document)
 
+    def test_rejects_member_without_class(self) -> None:
+        document = make_valid_document()
+        del document['members'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
     def test_rejects_member_without_start_bound(self) -> None:
         document = make_valid_document()
         del document['members'][0]['start_bound']
@@ -171,6 +179,12 @@ class TestValidateDocument:
         document = make_valid_document()
         document['columns'][0]['member_id'] = 105
         with pytest.raises(DocumentValidationError, match='member_id'):
+            validate_document(document)
+
+    def test_rejects_column_without_class(self) -> None:
+        document = make_valid_document()
+        del document['columns'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
             validate_document(document)
 
     def test_rejects_column_with_bad_position(self) -> None:

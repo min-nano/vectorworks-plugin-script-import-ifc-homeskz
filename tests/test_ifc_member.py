@@ -32,7 +32,7 @@ def make_beam(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
               ox: float, oy: float, dx: float = 1.0, dy: float = 0.0,
               width: float = 120.0, height: float = 180.0, length: float = 3000.0,
               material_name: str = '', oz: float = 0.0,
-              dz: float = 0.0) -> ifcopenshell.entity_instance:
+              dz: float = 0.0, name: str | None = None) -> ifcopenshell.entity_instance:
     """テスト用 IfcBeam を生成して storey に追加する。
 
     Parameters
@@ -76,7 +76,7 @@ def make_beam(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
     prod_def = ifc.create_entity('IfcProductDefinitionShape', Representations=[shape_rep])
 
     beam = ifc.create_entity(
-        'IfcBeam', ObjectPlacement=local_placement, Representation=prod_def
+        'IfcBeam', Name=name, ObjectPlacement=local_placement, Representation=prod_def
     )
 
     # 材料関連付け
@@ -568,6 +568,38 @@ class TestBuildMemberCommands:
         assert commands[0]['width'] == pytest.approx(120.0)
         assert commands[0]['height'] == pytest.approx(180.0)
 
+    def test_assigns_class_from_ifc_name(self) -> None:
+        """IFC Name の種別でクラスを割り当てる(階に依らず信用する)。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        make_beam(ifc, storey, 0.0, 0.0, name='木梁:胴差:1_2')
+
+        commands = build_member_commands(ifc)
+        assert commands[0]['class'] == '04 構造-02 木造-04 梁桁-04 胴差'
+
+    def test_unnamed_lowest_story_beam_falls_back_to_dodai(self) -> None:
+        """名前で判別できない最下階の横架材は土台クラスにフォールバックする。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, '2FL', 3273.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        make_beam(ifc, storey, 0.0, 0.0, name='火打:0_1')
+
+        commands = build_member_commands(ifc)
+        assert commands[0]['class'] == '04 構造-02 木造-01 土台-01 土台'
+
+    def test_unnamed_top_story_high_beam_falls_back_to_moya(self) -> None:
+        """名前で判別できない最上階の軒高超えの横架材は母屋にフォールバックする。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 5973.0)
+        # 軒高 5973 を大きく超える傾斜材(隅木相当・無名)
+        make_beam(ifc, storey, 0.0, 0.0, dx=0.6, dy=0.0, dz=0.8,
+                  height=180.0, length=1000.0, name='木梁:隅木・谷木:1_2')
+
+        commands = build_member_commands(ifc)
+        assert commands[0]['class'] == '04 構造-02 木造-05 小屋組-03 母屋'
+
     def test_skips_beam_without_placement(self) -> None:
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, '1FL', 473.0)
@@ -619,10 +651,12 @@ class TestBuildMemberCommands:
 def _member(start: list[float], end: list[float], width: float = 120.0,
             height: float = 180.0, elevation: float = 473.0,
             layer: str = '1-横架材天端', member_id: str = 'm',
-            end_elevation: float | None = None) -> MemberCommand:
+            end_elevation: float | None = None,
+            member_class: str = '04 構造-02 木造-01 土台-01 土台',
+            ) -> MemberCommand:
     end_elev = elevation if end_elevation is None else end_elevation
     return {
-        'layer': layer, 'member_id': member_id,
+        'layer': layer, 'member_id': member_id, 'class': member_class,
         'start': start, 'end': end,
         'width': width, 'height': height, 'elevation': elevation,
         'end_elevation': end_elev,

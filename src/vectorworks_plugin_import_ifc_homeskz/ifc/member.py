@@ -27,6 +27,7 @@ from .story import (
     layer_prefix_for,
     resolve_beam_top_offset,
 )
+from .structural_class import resolve_member_class
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -273,6 +274,7 @@ def resolve_member_interferences(
         result.append({
             'layer': command['layer'],
             'member_id': command['member_id'],
+            'class': command['class'],
             'start': new_start,
             'end': new_end,
             'width': command['width'],
@@ -371,6 +373,12 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                 material = _get_material_name(element)
                 member_id = make_member_id(width, height, material)
 
+                # クラスは IFC 名の種別で判別する。判別できない部材は階・高さで
+                # 推定する(最上階は天端が軒高を超える材を母屋、軒高付近を小屋梁)。
+                above_eaves = max(elevation, end_elevation) > layer_elevation + _SLOPE_TOL
+                member_class = resolve_member_class(
+                    element.Name, i, top_idx, above_eaves)
+
                 # 高さ基準を配置先レイヤのストーリレベル(横架材天端、最上階は
                 # 軒高)にバインドする。offset はレベルの絶対 Z(layer_elevation)
                 # から天端 Z までの距離。平らな梁は ≈0、段差梁は一定値、傾斜梁は
@@ -385,6 +393,7 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                 commands.append({
                     'layer': layer_name,
                     'member_id': member_id,
+                    'class': member_class,
                     'start': [x1, y1],
                     'end': [x2, y2],
                     'width': width,

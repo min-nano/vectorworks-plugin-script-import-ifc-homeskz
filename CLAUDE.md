@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ストーリ・ストーリレベル・デザインレイヤの自動生成
 - 横架材（土台・梁・桁）のインポート
 - 柱（管柱・小屋束等）のインポート
+- 柱・横架材への構造クラス（`04 構造-02 木造-…`）の自動割り当て
 
 今後以下の要素のインポートも追加する予定です。
 
@@ -39,6 +40,7 @@ src/
             story.py          # ストーリ (IfcBuildingStorey) → story 命令
             member.py         # 横架材 (IfcBeam/IfcMember) → member 命令
             column.py         # 柱 (IfcColumn) → column 命令
+            structural_class.py  # 柱・横架材の構造クラス判定 (クラス名定義・割り当てロジック)
         vw/                   # フェーズ2: VectorWorks 描画 (vs 依存)
             __init__.py       # execute_document(document) -> 実行数 dict
             grid.py           # grid 命令 → GridAxis オブジェクト
@@ -57,7 +59,7 @@ pyproject.toml               # パッケージメタデータ
 すべての関数・メソッド（テストコード・モック用クロージャ含む）に引数と戻り値の型注釈を付ける。型検査は mypy で行い、CI で `mypy` を実行する（設定は `pyproject.toml` の `[tool.mypy]`、`disallow_untyped_defs` 有効）。
 
 - 各モジュール先頭に `from __future__ import annotations` を置く。Python 3.9 互換を保ちつつ `list[str]` / `X | None` 構文を使うため。
-- 命令セットの型は `document.py` の `TypedDict`（`Document` / `StoryCommand` / `GridCommand` / `MemberCommand` / `ColumnCommand` / `LevelCommand`）を使う。`GridCommand` は `class` キーが予約語のため functional 構文で定義している。スキーマ変更時は `TypedDict` 定義・docstring・`validate_document()` を同時に更新すること。
+- 命令セットの型は `document.py` の `TypedDict`（`Document` / `StoryCommand` / `GridCommand` / `MemberCommand` / `ColumnCommand` / `LevelCommand`）を使う。`GridCommand` / `MemberCommand` / `ColumnCommand` は `class` キー（構造クラス名）が予約語のため functional 構文で定義している。スキーマ変更時は `TypedDict` 定義・docstring・`validate_document()` を同時に更新すること。
 - `ifc` サブパッケージでは ifcopenshell の型（`ifcopenshell.file` / `ifcopenshell.entity_instance`）を注釈にのみ使う場合 `if TYPE_CHECKING:` ブロックで import する。
 - `vs` モジュールは型スタブが存在しないため `ignore_missing_imports` で許容し、vs ハンドルは `Any` で扱う。VectorWorks 公式 `vs.py` スタブ（`tests/vs.py`）は型検査対象から除外している。
 - 検証前の命令セット（JSON 由来の信頼できない入力）を受ける関数（`validate_document()` / `execute_document()`）の引数は `Any` とし、検証済みの値だけを `Document` 型として扱う。
@@ -147,6 +149,10 @@ VW 2026 でレイヤをストーリレベルに正しくバインドするには
   - 名前が `Y` で始まる（大文字小文字不問）→ クラス `01作図-01線-01基準線-01通り芯-Y通り`
   - それ以外: `|Δx| < |Δy|` の線（垂直に近い）を X 通り、それ以外を Y 通りとして扱う
 - **GridAxis レコードフィールド**: `Label`（IFC から取得した軸名）、`ShowBubbleAt` = `"Start Point"`
+- **構造材（柱・横架材）のクラス**（`ifc/structural_class.py`）: `04 構造-02 木造-…` 階層の葉クラス（番号 + 半角スペース + 名称を `-` で連結。例 `04 構造-02 木造-01 土台-01 土台`）を割り当てる。命令の `class` に格納し、描画フェーズ（`vw/member.py`・`vw/column.py`）が構造材オブジェクトに `vs.SetClass` で設定する（存在しないクラスは VW が自動生成）。判定方針:
+  - **IFC 記録を信用する**: ホームズ君 IFC の `Name` には種別が埋め込まれる（`木梁:{種別}:{連番}` / `小屋束:…`、`STANDCOLUMN`）。横架材は `Name` 中央の種別トークンを `_MEMBER_CLASS_BY_TYPE` で直接クラスに対応付ける（`土台`→土台、`大引`→大引、`根太`→根太、`軒桁`→軒桁、`胴差`→胴差、`床小梁`/`床大梁`/`甲乙梁`→床梁、`小屋梁`→小屋梁、`母屋`→母屋、`棟木`→棟木）。柱は `ObjectType=STANDCOLUMN` または `Name` が `小屋束` 始まりなら小屋束。
+  - **判別できないときは状況で推定する**（火打・隅木谷木・無名等）。横架材: 最下階=土台、中間階=床梁、最上階の軒高付近=小屋梁、軒高より高い（`above_eaves`＝天端が配置レイヤ高さを超える）=母屋。柱: 最上階の柱=小屋束、一般階は上下端の高さで判断し**上階の床（次階 FL）を貫けば通し柱、1 階分で止まれば管柱**（`is_through_column`、貫通判定の許容値 `THROUGH_COLUMN_TOL`）。
+  - クラスは構造種別のみを表し、`member_id` の種別表記（柱の `管柱`/`小屋束` 等）とは独立。`member_id` は従来どおり `resolve_column_type`（通し柱を区別しない）で組み立てる。
 
 ## 開発プロセス: PR 作成と監視
 

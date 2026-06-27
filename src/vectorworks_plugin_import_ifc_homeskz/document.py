@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 7):
+スキーマ (version 8):
 
     {
-        "version": 7,
+        "version": 8,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -35,6 +35,7 @@
             {
                 "layer": "1-横架材天端",   # 配置先デザインレイヤ名(既存のみ・なければスキップ)
                 "member_id": "120×180 - 杉...",  # 構造材 ID
+                "class": "04 構造-...-土台",  # 割り当てるクラス名(構造種別)
                 # start/end・elevation/end_elevation は断面の基準点
                 # (左右中央・上端 = 天端中央)が通る線を表す。構造材ツールの
                 # 断面基準点(左右中央・上端)にそのまま渡せる座標。
@@ -67,6 +68,7 @@
                 # 構造材ツールには金物専用フィールドが無いため、金物仕様は
                 # MemberID に含めて保持する)。
                 "member_id": "105×105 - 管柱 / 柱頭金物:(ろ) / 柱脚金物:(ろ)",
+                "class": "04 構造-...-管柱",  # 割り当てるクラス名(柱種別)
                 "position": [x, y],       # 配置 XY (mm, センタリング済み)
                 "width": 105.0,           # 断面幅 (mm)
                 "depth": 105.0,           # 断面成 (mm)
@@ -98,7 +100,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 7
+DOCUMENT_VERSION = 8
 
 
 class LevelCommand(TypedDict):
@@ -146,48 +148,52 @@ class StoryBoundCommand(TypedDict):
     offset: float
 
 
-class MemberCommand(TypedDict):
-    """構造材 (StructuralMember オブジェクト) を描画する命令。
+# 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
+MemberCommand = TypedDict('MemberCommand', {
+    'layer': str,
+    'member_id': str,
+    'class': str,
+    'start': list[float],
+    'end': list[float],
+    'width': float,
+    'height': float,
+    'elevation': float,
+    'end_elevation': float,
+    'start_bound': StoryBoundCommand,
+    'end_bound': StoryBoundCommand,
+})
+"""構造材 (StructuralMember オブジェクト) を描画する命令。
 
-    start/end と elevation/end_elevation は断面の基準点(左右中央・上端 =
-    天端中央)が通る線を表す。elevation と end_elevation が異なる場合は
-    傾斜梁(登り梁・隅木等)。start_bound / end_bound は始端/終端の高さ基準を
-    配置先レイヤのストーリレベル(横架材天端、最上階は軒高)にバインドする。
-    """
-
-    layer: str
-    member_id: str
-    start: list[float]
-    end: list[float]
-    width: float
-    height: float
-    elevation: float
-    end_elevation: float
-    start_bound: StoryBoundCommand
-    end_bound: StoryBoundCommand
+start/end と elevation/end_elevation は断面の基準点(左右中央・上端 = 天端中央)が
+通る線を表す。elevation と end_elevation が異なる場合は傾斜梁(登り梁・隅木等)。
+start_bound / end_bound は始端/終端の高さ基準を配置先レイヤのストーリレベル
+(横架材天端、最上階は軒高)にバインドする。class は割り当てる構造種別クラス名。
+"""
 
 
-class ColumnCommand(TypedDict):
-    """柱 (StructuralMember オブジェクト) を鉛直材として描画する命令。
+# 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
+ColumnCommand = TypedDict('ColumnCommand', {
+    'layer': str,
+    'member_id': str,
+    'class': str,
+    'position': list[float],
+    'width': float,
+    'depth': float,
+    'height': float,
+    'elevation': float,
+    'start_bound': StoryBoundCommand,
+    'end_bound': StoryBoundCommand,
+    'top_hardware': str,
+    'bottom_hardware': str,
+})
+"""柱 (StructuralMember オブジェクト) を鉛直材として描画する命令。
 
-    柱は梁と同じ構造材ツールで描く。下端 (elevation) から高さ (height) 分の
-    鉛直パスを持ち、断面は width×depth。member_id は構造材 ID で、柱頭・柱脚
-    金物の仕様も連結して保持する(構造材ツールに金物専用フィールドが無いため)。
-    高さ基準は start_bound / end_bound でストーリレベルにバインドする(構造用途は
-    柱)。position・elevation・height はパスのジオメトリ(XY と初期 Z・長さ)に使う。
-    """
-
-    layer: str
-    member_id: str
-    position: list[float]
-    width: float
-    depth: float
-    height: float
-    elevation: float
-    start_bound: StoryBoundCommand
-    end_bound: StoryBoundCommand
-    top_hardware: str
-    bottom_hardware: str
+柱は梁と同じ構造材ツールで描く。下端 (elevation) から高さ (height) 分の鉛直パスを
+持ち、断面は width×depth。member_id は構造材 ID で、柱頭・柱脚金物の仕様も連結して
+保持する(構造材ツールに金物専用フィールドが無いため)。高さ基準は start_bound /
+end_bound でストーリレベルにバインドする(構造用途は柱)。class は割り当てる柱種別
+クラス名。position・elevation・height はパスのジオメトリ(XY と初期 Z・長さ)に使う。
+"""
 
 
 class Document(TypedDict):
@@ -269,6 +275,8 @@ def _validate_member(index: int, command: Any) -> None:
              f'{where}.layer は非空文字列である必要があります')
     _require(isinstance(command.get('member_id'), str),
              f'{where}.member_id は文字列である必要があります')
+    _require(isinstance(command.get('class'), str) and command['class'],
+             f'{where}.class は非空文字列である必要があります')
     _require(_is_point(command.get('start')),
              f'{where}.start は [x, y] の数値ペアである必要があります')
     _require(_is_point(command.get('end')),
@@ -287,6 +295,8 @@ def _validate_column(index: int, command: Any) -> None:
              f'{where}.layer は非空文字列である必要があります')
     _require(isinstance(command.get('member_id'), str),
              f'{where}.member_id は文字列である必要があります')
+    _require(isinstance(command.get('class'), str) and command['class'],
+             f'{where}.class は非空文字列である必要があります')
     _require(_is_point(command.get('position')),
              f'{where}.position は [x, y] の数値ペアである必要があります')
     for key in ('width', 'depth', 'height', 'elevation'):

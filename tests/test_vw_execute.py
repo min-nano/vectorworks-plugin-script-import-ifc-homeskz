@@ -124,7 +124,8 @@ def make_document() -> dict[str, Any]:
              'start': [0.0, -1000.0], 'end': [0.0, 1000.0]},
         ],
         'members': [
-            {'layer': '1-横架材天端', 'member_id': '120×180', 'start': [0.0, 0.0],
+            {'layer': '1-横架材天端', 'member_id': '120×180',
+             'class': '04 構造-02 木造-01 土台-01 土台', 'start': [0.0, 0.0],
              'end': [3000.0, 0.0], 'width': 120.0, 'height': 180.0,
              'elevation': 425.0, 'end_elevation': 425.0,
              'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
@@ -132,6 +133,7 @@ def make_document() -> dict[str, Any]:
         ],
         'columns': [
             {'layer': '1-柱', 'member_id': '105×105 - 管柱',
+             'class': '04 構造-02 木造-03 柱-02 管柱',
              'position': [0.0, 0.0],
              'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
              'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},

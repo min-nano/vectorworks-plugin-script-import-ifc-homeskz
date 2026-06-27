@@ -44,6 +44,7 @@ def draw_member(command: MemberCommand) -> None:
         # ローカル原点から実際の配置位置へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x1, y1, z1)
+        vs.SetClass(obj, command['class'])
         # 高さ基準をストーリレベルにバインドする(始端=0、終端=1。boundType=2=Story)。
         # これで構造材ツールの高さ基準が "レイヤの高さ"・offset 0 のまま実ジオメトリ
         # と矛盾せず、編集時に高さがリセットされない。
@@ -70,7 +71,8 @@ def draw_member(command: MemberCommand) -> None:
         # フォールバック: 通常の直線
         vs.MoveTo(x1, y1)
         vs.LineTo(x2, y2)
-        vs.LNewObj()
+        fallback_line = vs.LNewObj()
+        vs.SetClass(fallback_line, command['class'])
 
 
 def execute_members(commands: list[MemberCommand]) -> int:

@@ -48,6 +48,7 @@ def draw_column(command: ColumnCommand) -> None:
         # ローカル原点から実際の配置位置(柱下端・断面中心の絶対位置)へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x, y, z_bottom)
+        vs.SetClass(obj, command['class'])
         # 高さ基準をストーリレベルにバインドする(始端=0/下端、終端=1/上端)。
         start = command['start_bound']
         end = command['end_bound']
@@ -71,7 +72,8 @@ def draw_column(command: ColumnCommand) -> None:
     else:
         # フォールバック: 断面の矩形
         vs.Rect(x - w / 2, y + d / 2, x + w / 2, y - d / 2)
-        vs.LNewObj()
+        fallback_rect = vs.LNewObj()
+        vs.SetClass(fallback_rect, command['class'])
 
 
 def execute_columns(commands: list[ColumnCommand]) -> int:

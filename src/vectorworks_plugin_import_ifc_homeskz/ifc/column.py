@@ -35,6 +35,22 @@ from .story import (
     layer_prefix_for,
     resolve_beam_top_offset,
 )
+from .structural_class import resolve_column_class
+
+# 柱が上階の床(次階 FL)を貫いていれば通し柱とみなす許容値 (mm)。管柱の上端は
+# 次階の横架材天端(=次階 FL より梁背分下)で止まるため、次階 FL をわずかに超えた
+# だけで通し柱と判定する。通し柱は実際にはほぼ 1 階分高いので余裕は小さくてよい。
+THROUGH_COLUMN_TOL = 100.0
+
+
+def is_through_column(top_abs: float, next_floor_elevation: float | None) -> bool:
+    """柱の上端が上階の床(次階 FL)を貫いていれば通し柱(True)とみなす。
+
+    next_floor_elevation が None(上階が無い最上階)のときは常に False。
+    """
+    if next_floor_elevation is None:
+        return False
+    return top_abs > next_floor_elevation + THROUGH_COLUMN_TOL
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -314,6 +330,13 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 member_id = make_column_member_id(
                     width, depth, column_type, top_hardware, bottom_hardware)
 
+                # クラスは小屋束(IFC 記録)/通し柱・管柱(上下端の高さ)で判別する。
+                next_floor_elevation = (
+                    None if is_top else elevations[i + 1])
+                through = is_through_column(top_abs, next_floor_elevation)
+                column_class = resolve_column_class(
+                    element.ObjectType, element.Name, i, top_idx, through)
+
                 # 高さバインドの基準となるレベルの絶対 Z(自階・上階)。
                 current_level_z = beam_top_abs_z(
                     storey_elevation, beam_offsets[i], is_top)
@@ -330,6 +353,7 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 commands.append({
                     'layer': layer_name,
                     'member_id': member_id,
+                    'class': column_class,
                     'position': [ox - center_x, oy - center_y],
                     'width': width,
                     'depth': depth,

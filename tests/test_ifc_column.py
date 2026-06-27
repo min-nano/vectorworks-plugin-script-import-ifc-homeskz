@@ -28,7 +28,8 @@ def make_storey(ifc: ifcopenshell.file, name: str, elevation: float) -> ifcopens
 def make_column(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
                 ox: float, oy: float, oz: float = 0.0,
                 width: float = 105.0, depth: float = 105.0, height: float = 2844.0,
-                object_type: str | None = None) -> ifcopenshell.entity_instance:
+                object_type: str | None = None,
+                name: str | None = None) -> ifcopenshell.entity_instance:
     """テスト用 IfcColumn を生成して storey に追加する。
 
     Parameters
@@ -67,7 +68,7 @@ def make_column(ifc: ifcopenshell.file, storey: ifcopenshell.entity_instance,
     prod_def = ifc.create_entity('IfcProductDefinitionShape', Representations=[shape_rep])
 
     column = ifc.create_entity(
-        'IfcColumn', ObjectPlacement=local_placement, Representation=prod_def,
+        'IfcColumn', Name=name, ObjectPlacement=local_placement, Representation=prod_def,
         ObjectType=object_type,
     )
 
@@ -360,6 +361,39 @@ class TestBuildColumnCommands:
 
         commands = build_column_commands(ifc)
         assert commands[0]['member_id'] == '105×105 - 小屋束'
+
+    def test_standcolumn_class_is_koyazuka(self) -> None:
+        """ObjectType=STANDCOLUMN の柱は小屋束クラスになる。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, object_type='STANDCOLUMN')
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['class'] == '04 構造-02 木造-05 小屋組-02 小屋束'
+
+    def test_single_story_column_class_is_kudabashira(self) -> None:
+        """1 階分で止まる一般階の柱は管柱クラスになる。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # 上端 ≈ 600 + 2844 = 3444 < 2FL(3500) → 管柱
+        make_column(ifc, s1, 0.0, 0.0, height=2844.0)
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['class'] == '04 構造-02 木造-03 柱-02 管柱'
+
+    def test_through_column_class_is_toshibashira(self) -> None:
+        """上階の床を貫く(複数階を通す)柱は通し柱クラスになる。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # 上端 ≈ 600 + 5700 = 6300 で 2FL(3500) を貫く → 通し柱
+        make_column(ifc, s1, 0.0, 0.0, height=5700.0)
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['class'] == '04 構造-02 木造-03 柱-01 通し柱'
 
     def test_skips_column_without_placement(self) -> None:
         ifc = ifcopenshell.file()
