@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 5):
+スキーマ (version 7):
 
     {
-        "version": 5,
+        "version": 7,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -43,8 +43,19 @@
                 "width": 120.0,           # 断面幅 (mm)
                 "height": 180.0,          # 断面背 (mm)
                 "elevation": 425.0,       # 始点の天端 Z 高さ (mm, 絶対値)
-                "end_elevation": 425.0    # 終点の天端 Z 高さ (mm, 絶対値)。
+                "end_elevation": 425.0,   # 終点の天端 Z 高さ (mm, 絶対値)。
                                           # 始点と異なる場合は傾斜梁(登り梁・隅木等)
+                # 高さ基準(ストーリレベルへのバインド)。柱と同じ仕組みで、
+                # 構造材ツールの始端/終端の高さ基準を配置先レイヤのストーリレベル
+                # (横架材天端、最上階は軒高)にバインドする。これにより高さ基準が
+                # "レイヤの高さ" のまま offset 0 で実ジオメトリと矛盾する状態を避け、
+                # 再描画/編集時に高さがリセットされないようにする。
+                # story_offset は配置先ストーリからの相対階数(横架材は常に 0=自階)、
+                # level はレベル名、offset はレベル絶対 Z から天端 Z までの距離 (mm)。
+                # 平らな梁は offset≈0、段差梁は一定の offset、傾斜梁は始端/終端で
+                # 異なる offset になる(elevation/end_elevation から算出)。
+                "start_bound": {"story_offset": 0, "level": "横架材天端", "offset": 0.0},
+                "end_bound": {"story_offset": 0, "level": "横架材天端", "offset": 0.0}
             }
         ],
         "columns": [
@@ -87,7 +98,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 6
+DOCUMENT_VERSION = 7
 
 
 class LevelCommand(TypedDict):
@@ -121,12 +132,27 @@ GridCommand = TypedDict('GridCommand', {
 """通り芯 (GridAxis オブジェクト) を描画する命令。"""
 
 
+class StoryBoundCommand(TypedDict):
+    """高さ基準(ストーリレベルへのバインド)1 端分。
+
+    柱・横架材の構造材ツールの始端/終端の高さ基準に使う。story_offset は
+    構造材が乗るストーリ(=レイヤのストーリ)からの相対階数(0=自階、1=上階)、
+    level はそのストーリのレベル名(横架材天端 / 軒高)、offset はレベルからの
+    距離 (mm)。SetObjectStoryBound に渡す。
+    """
+
+    story_offset: int
+    level: str
+    offset: float
+
+
 class MemberCommand(TypedDict):
     """構造材 (StructuralMember オブジェクト) を描画する命令。
 
     start/end と elevation/end_elevation は断面の基準点(左右中央・上端 =
     天端中央)が通る線を表す。elevation と end_elevation が異なる場合は
-    傾斜梁(登り梁・隅木等)。
+    傾斜梁(登り梁・隅木等)。start_bound / end_bound は始端/終端の高さ基準を
+    配置先レイヤのストーリレベル(横架材天端、最上階は軒高)にバインドする。
     """
 
     layer: str
@@ -137,19 +163,8 @@ class MemberCommand(TypedDict):
     height: float
     elevation: float
     end_elevation: float
-
-
-class StoryBoundCommand(TypedDict):
-    """柱の高さ基準(ストーリレベルへのバインド)1 端分。
-
-    story_offset は柱が乗るストーリ(=レイヤのストーリ)からの相対階数
-    (0=自階、1=上階)、level はそのストーリのレベル名(横架材天端 / 軒高)、
-    offset はレベルからの距離 (mm)。SetObjectStoryBound に渡す。
-    """
-
-    story_offset: int
-    level: str
-    offset: float
+    start_bound: StoryBoundCommand
+    end_bound: StoryBoundCommand
 
 
 class ColumnCommand(TypedDict):
@@ -261,6 +276,8 @@ def _validate_member(index: int, command: Any) -> None:
     for key in ('width', 'height', 'elevation', 'end_elevation'):
         _require(_is_number(command.get(key)),
                  f'{where}.{key} は数値である必要があります')
+    for key in ('start_bound', 'end_bound'):
+        _validate_story_bound(where, key, command.get(key))
 
 
 def _validate_column(index: int, command: Any) -> None:

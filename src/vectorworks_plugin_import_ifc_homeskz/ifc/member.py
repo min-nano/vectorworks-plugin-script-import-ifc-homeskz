@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from ..document import MemberCommand
+from ..document import MemberCommand, StoryBoundCommand
 from .grid import resolve_lines
 from .story import (
     LEVEL_BEAM_TOP,
@@ -279,6 +279,9 @@ def resolve_member_interferences(
             'height': command['height'],
             'elevation': command['elevation'],
             'end_elevation': command['end_elevation'],
+            # 端部の詰めは平面座標 (XY) のみ変えるため高さバインドはそのまま
+            'start_bound': command['start_bound'],
+            'end_bound': command['end_bound'],
         })
 
     return result
@@ -368,6 +371,17 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                 material = _get_material_name(element)
                 member_id = make_member_id(width, height, material)
 
+                # 高さ基準を配置先レイヤのストーリレベル(横架材天端、最上階は
+                # 軒高)にバインドする。offset はレベルの絶対 Z(layer_elevation)
+                # から天端 Z までの距離。平らな梁は ≈0、段差梁は一定値、傾斜梁は
+                # 始端/終端で異なる値になる。
+                start_bound: StoryBoundCommand = {
+                    'story_offset': 0, 'level': layer_suffix,
+                    'offset': elevation - layer_elevation}
+                end_bound: StoryBoundCommand = {
+                    'story_offset': 0, 'level': layer_suffix,
+                    'offset': end_elevation - layer_elevation}
+
                 commands.append({
                     'layer': layer_name,
                     'member_id': member_id,
@@ -377,6 +391,8 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                     'height': height,
                     'elevation': elevation,
                     'end_elevation': end_elevation,
+                    'start_bound': start_bound,
+                    'end_bound': end_bound,
                 })
 
     # 横架材同士が食い込んでいる箇所は端部の長さを詰めて干渉を解消する

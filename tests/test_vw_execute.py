@@ -126,7 +126,9 @@ def make_document() -> dict[str, Any]:
         'members': [
             {'layer': '1-横架材天端', 'member_id': '120×180', 'start': [0.0, 0.0],
              'end': [3000.0, 0.0], 'width': 120.0, 'height': 180.0,
-             'elevation': 425.0, 'end_elevation': 425.0},
+             'elevation': 425.0, 'end_elevation': 425.0,
+             'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+             'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}},
         ],
         'columns': [
             {'layer': '1-柱', 'member_id': '105×105 - 管柱',

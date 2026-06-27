@@ -16,6 +16,10 @@ def draw_member(command: MemberCommand) -> None:
     これは VW 構造材ツールの期待する配置パターンと一致する。
     始端と終端の天端 Z(elevation/end_elevation)が異なる傾斜梁
     (登り梁・隅木等)は Z 成分を持つ 3D パスとして描画する。
+    配置後、始端/終端の高さ基準を SetObjectStoryBound でストーリレベル
+    (横架材天端、最上階は軒高)にバインドする。これにより構造材ツールの
+    高さ基準が "レイヤの高さ" のまま offset 0 で実ジオメトリと矛盾し、
+    再描画/編集時に高さがリセットされる問題を防ぐ。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
     x1, y1 = command['start']
@@ -40,6 +44,15 @@ def draw_member(command: MemberCommand) -> None:
         # ローカル原点から実際の配置位置へ移動
         vs.ResetOrientation3D()
         vs.Move3D(x1, y1, z1)
+        # 高さ基準をストーリレベルにバインドする(始端=0、終端=1。boundType=2=Story)。
+        # これで構造材ツールの高さ基準が "レイヤの高さ"・offset 0 のまま実ジオメトリ
+        # と矛盾せず、編集時に高さがリセットされない。
+        start = command['start_bound']
+        end = command['end_bound']
+        vs.SetObjectStoryBound(
+            obj, 0, 2, start['story_offset'], start['level'], start['offset'])
+        vs.SetObjectStoryBound(
+            obj, 1, 2, end['story_offset'], end['level'], end['offset'])
         vs.SetRField(obj, PLUGIN_NAME, 'MemberID', command['member_id'])
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
         vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
