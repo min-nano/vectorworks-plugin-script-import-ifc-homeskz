@@ -7,6 +7,11 @@ import vs
 
 from ..document import StoryCommand
 
+# 通り芯 (grid) を配置するレイヤ名。グリッド描画フェーズ (ifc/grid.py の
+# TARGET_LAYER) と一致させる。vw は ifc に依存しないため定数を再掲する。
+# レイヤスタックの最上段に積むため並べ替え対象に含める。
+GRID_LAYER = '共通'
+
 
 def create_story_level_via_template(
     story_handle: Any, level_type: str, elevation: float, desired_layer_name: str,
@@ -86,23 +91,42 @@ def move_layer_directly_above(target: Any, anchor: Any, max_steps: int) -> None:
         prev_index = cur_index
 
 
+def desired_layer_order(commands: list[StoryCommand]) -> list[str]:
+    """希望するデザインレイヤのスタック順(ナビゲーション上→下)を返す。
+
+    最上段に通り芯レイヤ (``共通``)、続いて**最上階→最下階**の順に各ストーリの
+    レイヤを並べる(命令は Elevation 昇順=最下階→最上階なので逆順に辿る)。各ストーリ
+    内のレイヤ順は命令の ``levels`` の並び(柱 → FL/軒高 → 横架材天端)に従う。
+
+    例 (1階・2階・屋根):
+        共通, R-柱, R-軒高, 2-柱, 2-FL, 2-横架材天端,
+        1-柱, 1-FL, 1-横架材天端
+    """
+    order: list[str] = [GRID_LAYER]
+    for command in reversed(commands):
+        for level in command['levels']:
+            order.append(level['layer'])
+    return order
+
+
 def reorder_story_layers(commands: list[StoryCommand]) -> None:
-    """各 story 命令の levels 順(上→下)どおりにデザインレイヤを並べ替える。
+    """デザインレイヤを希望スタック順(``desired_layer_order``)どおりに並べ替える。
 
     AddLevelFromTemplate はレイヤをレベルの高さ順に挿入するため、柱レイヤが
-    FL(最上階は軒高)レイヤの下に入ってしまう。命令の levels の並びを希望スタック順
-    (上→下)とみなし、各隣接ペアについて上側レイヤを下側レイヤの直上へ移動して揃える。
-    下のペアから順に処理することで、上のペアを直す際に確定済みの下のペアを崩さない。
+    FL(最上階は軒高)レイヤの下に入り、さらにストーリ間の並びも崩れる。希望順の
+    全レイヤを 1 本の並びとみなし、隣接ペアごとに上側レイヤを下側レイヤの直上へ
+    移動して揃える。下のペアから順(末尾→先頭)に処理することで、上のペアを直す際に
+    確定済みの下のペアを崩さない。生成されていないレイヤ(通り芯描画前の ``共通`` 等)は
+    ``move_layer_directly_above`` が NIL を検出してスキップする。
     """
     max_steps = count_layers()
     if max_steps == 0:
         return
-    for command in commands:
-        levels = command['levels']
-        for i in range(len(levels) - 2, -1, -1):
-            upper = vs.GetLayerByName(levels[i]['layer'])
-            lower = vs.GetLayerByName(levels[i + 1]['layer'])
-            move_layer_directly_above(upper, lower, max_steps)
+    order = desired_layer_order(commands)
+    for i in range(len(order) - 2, -1, -1):
+        upper = vs.GetLayerByName(order[i])
+        lower = vs.GetLayerByName(order[i + 1])
+        move_layer_directly_above(upper, lower, max_steps)
 
 
 def execute_stories(commands: list[StoryCommand]) -> int:
@@ -141,7 +165,6 @@ def execute_stories(commands: list[StoryCommand]) -> int:
 
         count += 1
 
-    # 全レイヤ生成後にスタック順を命令どおり(柱を FL/軒高 の直上)へ揃える。
-    reorder_story_layers(commands)
-
+    # スタック順の並べ替え(reorder_story_layers)は通り芯レイヤ(共通)生成後に
+    # 行う必要があるため、ここでは行わず execute_document が全描画後に呼ぶ。
     return count

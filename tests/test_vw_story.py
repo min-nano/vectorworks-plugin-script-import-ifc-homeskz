@@ -231,8 +231,9 @@ def _run_reorder(vs_mock: Any, commands: list[StoryCommand]) -> None:
 
 
 class TestReorderStoryLayers:
-    def test_moves_column_layer_directly_above_fl_and_eaves(self) -> None:
-        # 高さ順挿入直後の並び(下→上)。柱レイヤは FL/軒高 の下にある。
+    def test_orders_layers_across_stories_with_grid_on_top(self) -> None:
+        # 高さ順挿入直後の崩れた並び(下→上)。柱レイヤは FL/軒高 の下にあり、
+        # ストーリ間も入り乱れ、通り芯 (共通) は最下段にある。
         vs_mock = _LayerListVS(
             ['共通', '1-柱', '1-横架材天端', '1-FL', 'R-柱', 'R-軒高'])
         commands: list[StoryCommand] = [
@@ -255,13 +256,55 @@ class TestReorderStoryLayers:
 
         _run_reorder(vs_mock, commands)
 
-        # 下→上の最終並び。各階で柱が FL/軒高 の直上(走査上は次)に来る。
+        # 下→上の最終並び。ナビゲーション(上→下)では
+        # 共通, R-柱, R-軒高, 1-柱, 1-FL, 1-横架材天端 となる。
         assert vs_mock.layers == [
-            '共通', '1-横架材天端', '1-FL', '1-柱', 'R-軒高', 'R-柱']
+            '1-横架材天端', '1-FL', '1-柱', 'R-軒高', 'R-柱', '共通']
+
+    def test_orders_three_stories(self) -> None:
+        # 1階・2階・屋根。ナビゲーション(上→下)の希望順は
+        # 共通, R-柱, R-軒高, 2-柱, 2-FL, 2-横架材天端, 1-柱, 1-FL, 1-横架材天端。
+        # 下→上の崩れた初期並びから揃える。
+        vs_mock = _LayerListVS([
+            '1-横架材天端', '2-横架材天端', 'R-軒高', 'R-柱',
+            '1-FL', '1-柱', '2-FL', '2-柱', '共通'])
+        commands: list[StoryCommand] = [
+            {
+                'name': '1階', 'suffix': '1', 'elevation': 473.0,
+                'levels': [
+                    {'type': '柱', 'offset': -48.0, 'layer': '1-柱'},
+                    {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
+                    {'type': '横架材天端', 'offset': -48.0, 'layer': '1-横架材天端'},
+                ],
+            },
+            {
+                'name': '2階', 'suffix': '2', 'elevation': 3273.0,
+                'levels': [
+                    {'type': '柱', 'offset': -36.0, 'layer': '2-柱'},
+                    {'type': 'FL', 'offset': 0.0, 'layer': '2-FL'},
+                    {'type': '横架材天端', 'offset': -36.0, 'layer': '2-横架材天端'},
+                ],
+            },
+            {
+                'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
+                'levels': [
+                    {'type': '柱', 'offset': 0.0, 'layer': 'R-柱'},
+                    {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
+                ],
+            },
+        ]
+
+        _run_reorder(vs_mock, commands)
+
+        # 下→上(FLayer→NextLayer 走査順)。ナビゲーション表示はこの逆。
+        assert vs_mock.layers == [
+            '1-横架材天端', '1-FL', '1-柱',
+            '2-横架材天端', '2-FL', '2-柱',
+            'R-軒高', 'R-柱', '共通']
 
     def test_noop_when_already_ordered(self) -> None:
-        # すでに柱が FL の直上にある並びでは何も動かさない(冪等)。
-        vs_mock = _LayerListVS(['共通', '1-横架材天端', '1-FL', '1-柱'])
+        # すでに希望順(下→上)に並んでいる場合は何も動かさない(冪等)。
+        vs_mock = _LayerListVS(['1-横架材天端', '1-FL', '1-柱', '共通'])
         commands: list[StoryCommand] = [
             {
                 'name': '1階', 'suffix': '1', 'elevation': 473.0,
@@ -275,7 +318,7 @@ class TestReorderStoryLayers:
 
         _run_reorder(vs_mock, commands)
 
-        assert vs_mock.layers == ['共通', '1-横架材天端', '1-FL', '1-柱']
+        assert vs_mock.layers == ['1-横架材天端', '1-FL', '1-柱', '共通']
 
     def test_move_stops_when_layer_cannot_advance(self) -> None:
         # target が既に最前(最上段)で anchor の直上でない場合、HMoveForward が
