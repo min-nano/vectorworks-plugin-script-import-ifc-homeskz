@@ -25,7 +25,7 @@ def make_column_command(layer: str = '1-柱',
                         end_bound: StoryBoundCommand | None = None,
                         top_hardware: str = '',
                         bottom_hardware: str = '',
-                        column_class: str = '04 構造-02 木造-03 柱-02 管柱',
+                        column_class: str = '04構造-02木造-03柱-02管柱',
                         ) -> ColumnCommand:
     if start_bound is None:
         start_bound = {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
@@ -242,10 +242,10 @@ class TestExecuteColumns:
         """柱種別クラスを SetClass で割り当てる。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})
         _run_execute_columns(vs_mock, [
-            make_column_command(column_class='04 構造-02 木造-03 柱-01 通し柱'),
+            make_column_command(column_class='04構造-02木造-03柱-01通し柱'),
         ])
         class_args = [c.args[1] for c in vs_mock.SetClass.call_args_list]
-        assert '04 構造-02 木造-03 柱-01 通し柱' in class_args
+        assert '04構造-02木造-03柱-01通し柱' in class_args
 
     def test_fallback_to_rect_when_plugin_unavailable(self) -> None:
         """構造材プラグインが利用できない場合に断面の矩形にフォールバックする。"""
@@ -254,7 +254,7 @@ class TestExecuteColumns:
         vs_mock.CreateCustomObjectPath.return_value = vs_mock.Handle.return_value
 
         count = _run_execute_columns(vs_mock, [
-            make_column_command(column_class='04 構造-02 木造-05 小屋組-02 小屋束'),
+            make_column_command(column_class='04構造-02木造-05小屋組-02小屋束'),
         ])
 
         # フォールバックでも 1 本描画される
@@ -265,4 +265,4 @@ class TestExecuteColumns:
         vs_mock.Rect.assert_called_once()
         # フォールバックの矩形にもクラスを割り当てる
         class_args = [c.args[1] for c in vs_mock.SetClass.call_args_list]
-        assert '04 構造-02 木造-05 小屋組-02 小屋束' in class_args
+        assert '04構造-02木造-05小屋組-02小屋束' in class_args

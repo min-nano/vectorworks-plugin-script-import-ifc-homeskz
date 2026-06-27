@@ -7,31 +7,32 @@
 
 クラス階層(VW のクラス名は ``-`` 区切りで全パスを連結する):
 
-    04 構造
-      02 木造
-        01 土台 / 01 土台
-        02 床組 / 01 大引・02 根太
-        03 柱   / 01 通し柱・02 管柱
-        04 梁桁 / 01 小屋梁・02 軒桁・03 床梁・04 胴差
-        05 小屋組 / 02 小屋束・03 母屋・04 棟木
+    04構造
+      02木造
+        01土台 / 01土台
+        02床組 / 01大引・02根太
+        03柱   / 01通し柱・02管柱
+        04梁桁 / 01小屋梁・02軒桁・03床梁・04胴差
+        05小屋組 / 02小屋束・03母屋・04棟木
 """
 from __future__ import annotations
 
-# クラス階層の共通接頭辞(04 構造 > 02 木造)
-_WOOD = '04 構造-02 木造'
+# クラス階層の共通接頭辞(04構造 > 02木造)。VW のクラス名は通り芯クラスと同じく
+# 番号と名称の間にスペースを入れず、全パスを - で連結する。
+_WOOD = '04構造-02木造'
 
-CLASS_DODAI = f'{_WOOD}-01 土台-01 土台'
-CLASS_OOBIKI = f'{_WOOD}-02 床組-01 大引'
-CLASS_NEDA = f'{_WOOD}-02 床組-02 根太'
-CLASS_TOSHIBASHIRA = f'{_WOOD}-03 柱-01 通し柱'
-CLASS_KUDABASHIRA = f'{_WOOD}-03 柱-02 管柱'
-CLASS_KOYABARI = f'{_WOOD}-04 梁桁-01 小屋梁'
-CLASS_NOKIGETA = f'{_WOOD}-04 梁桁-02 軒桁'
-CLASS_YUKABARI = f'{_WOOD}-04 梁桁-03 床梁'
-CLASS_DOUSASHI = f'{_WOOD}-04 梁桁-04 胴差'
-CLASS_KOYAZUKA = f'{_WOOD}-05 小屋組-02 小屋束'
-CLASS_MOYA = f'{_WOOD}-05 小屋組-03 母屋'
-CLASS_MUNAGI = f'{_WOOD}-05 小屋組-04 棟木'
+CLASS_DODAI = f'{_WOOD}-01土台-01土台'
+CLASS_OOBIKI = f'{_WOOD}-02床組-01大引'
+CLASS_NEDA = f'{_WOOD}-02床組-02根太'
+CLASS_TOSHIBASHIRA = f'{_WOOD}-03柱-01通し柱'
+CLASS_KUDABASHIRA = f'{_WOOD}-03柱-02管柱'
+CLASS_KOYABARI = f'{_WOOD}-04梁桁-01小屋梁'
+CLASS_NOKIGETA = f'{_WOOD}-04梁桁-02軒桁'
+CLASS_YUKABARI = f'{_WOOD}-04梁桁-03床梁'
+CLASS_DOUSASHI = f'{_WOOD}-04梁桁-04胴差'
+CLASS_KOYAZUKA = f'{_WOOD}-05小屋組-02小屋束'
+CLASS_MOYA = f'{_WOOD}-05小屋組-03母屋'
+CLASS_MUNAGI = f'{_WOOD}-05小屋組-04棟木'
 
 # IFC Name の種別トークン → 横架材クラス(ホームズ君 IFC の記録を信用する直接対応)。
 # 床小梁・床大梁・甲乙梁はいずれも床組の梁なので床梁クラスにまとめる。

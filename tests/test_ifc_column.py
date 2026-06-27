@@ -369,7 +369,7 @@ class TestBuildColumnCommands:
         make_column(ifc, storey, 0.0, 0.0, object_type='STANDCOLUMN')
 
         commands = build_column_commands(ifc)
-        assert commands[0]['class'] == '04 構造-02 木造-05 小屋組-02 小屋束'
+        assert commands[0]['class'] == '04構造-02木造-05小屋組-02小屋束'
 
     def test_single_story_column_class_is_kudabashira(self) -> None:
         """1 階分で止まる一般階の柱は管柱クラスになる。"""
@@ -381,7 +381,7 @@ class TestBuildColumnCommands:
         make_column(ifc, s1, 0.0, 0.0, height=2844.0)
 
         commands = build_column_commands(ifc)
-        assert commands[0]['class'] == '04 構造-02 木造-03 柱-02 管柱'
+        assert commands[0]['class'] == '04構造-02木造-03柱-02管柱'
 
     def test_through_column_class_is_toshibashira(self) -> None:
         """上階の床を貫く(複数階を通す)柱は通し柱クラスになる。"""
@@ -393,7 +393,7 @@ class TestBuildColumnCommands:
         make_column(ifc, s1, 0.0, 0.0, height=5700.0)
 
         commands = build_column_commands(ifc)
-        assert commands[0]['class'] == '04 構造-02 木造-03 柱-01 通し柱'
+        assert commands[0]['class'] == '04構造-02木造-03柱-01通し柱'
 
     def test_skips_column_without_placement(self) -> None:
         ifc = ifcopenshell.file()
