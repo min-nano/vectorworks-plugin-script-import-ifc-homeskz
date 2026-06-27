@@ -137,9 +137,14 @@ class TestRun:
                 import vectorworks_plugin_import_ifc_homeskz as pkg
                 pkg.run()
 
-            completion = vs_mock.AlrtDialog.call_args[0][0]
+            # 取り込み結果はステータスバー (Message) に表示する
+            completion = vs_mock.Message.call_args[0][0]
             assert '1 本' in completion  # 通り芯 1 本
             assert '2 階' in completion  # 1階 + 屋根
+            # 結果表示はブロッキングなアラートを使わない
+            assert not any(
+                '読込完了' in c.args[0] for c in vs_mock.AlrtDialog.call_args_list
+            )
             # 通り芯描画用「共通」レイヤは直接 CreateLayer で作る
             created_layers = [c.args[0] for c in vs_mock.CreateLayer.call_args_list]
             assert '共通' in created_layers

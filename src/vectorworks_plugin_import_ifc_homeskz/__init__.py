@@ -48,8 +48,9 @@ def run() -> None:
         # フェーズ2: 命令セットに従って描画
         counts = execute_document(document)
 
-        vs.ClrMessage()
-        vs.AlrtDialog(
+        # 取り込み結果はモーダルアラートではなくステータスバーに表示する
+        # (処理をブロックせず、ユーザーが続けて操作できるようにするため)
+        vs.Message(
             f'読込完了: {counts["stories"]} 階のストーリ・ストーリレベル・デザインレイヤを設定し、'
             f'「{TARGET_LAYER}」レイヤに {counts["grids"]} 本の通り芯を配置しました。'
             f' 横架材天端レイヤに {counts["members"]} 本の構造材、'
