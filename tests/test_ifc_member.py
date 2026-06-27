@@ -455,6 +455,65 @@ class TestBuildMemberCommands:
         assert command['elevation'] == pytest.approx(527.0)
         assert command['end_elevation'] == pytest.approx(1327.0)
 
+    def test_binds_flat_beam_to_beam_top_level_with_zero_offset(self) -> None:
+        """基準高さにある平らな梁は横架材天端レベルに offset 0 でバインドする。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        # 床版 (Z=-90) を置きレイヤ基準高さ(横架材天端)を 473-90=383 にする。
+        # 背 180・中心 Z=-180 の梁は天端 = 473-180+90 = 383 でレベルに一致する。
+        slab_pt = ifc.create_entity('IfcCartesianPoint', Coordinates=[0.0, 0.0, -90.0])
+        slab_ap = ifc.create_entity('IfcAxis2Placement3D', Location=slab_pt)
+        slab_lp = ifc.create_entity('IfcLocalPlacement', RelativePlacement=slab_ap)
+        slab = ifc.create_entity('IfcSlab', ObjectPlacement=slab_lp)
+        ifc.create_entity(
+            'IfcRelContainedInSpatialStructure',
+            RelatingStructure=storey, RelatedElements=[slab])
+        make_beam(ifc, storey, 0.0, 0.0, height=180.0, oz=-180.0)
+
+        command = build_member_commands(ifc)[0]
+        assert command['start_bound'] == {
+            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(0.0)}
+        assert command['end_bound'] == {
+            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(0.0)}
+
+    def test_binds_offset_beam_to_level_distance(self) -> None:
+        """基準高さにない梁は天端とレベルの差を offset に持つ。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        # 横架材天端オフセット無し → レベル絶対 Z = 473。天端 = 473-250+90 = 313。
+        make_beam(ifc, storey, 0.0, 0.0, oz=-250.0)
+
+        command = build_member_commands(ifc)[0]
+        assert command['start_bound']['level'] == '横架材天端'
+        assert command['start_bound']['offset'] == pytest.approx(313.0 - 473.0)
+        assert command['end_bound']['offset'] == pytest.approx(313.0 - 473.0)
+
+    def test_binds_top_story_beam_to_eaves_level(self) -> None:
+        """最上階の梁は軒高レベルにバインドする。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 5973.0)
+        make_beam(ifc, storey, 0.0, 0.0)
+
+        command = build_member_commands(ifc)[0]
+        # レベル絶対 Z = 5973、天端 = 5973+90
+        assert command['start_bound'] == {
+            'story_offset': 0, 'level': '軒高', 'offset': pytest.approx(90.0)}
+
+    def test_binds_sloped_beam_with_distinct_offsets(self) -> None:
+        """傾斜梁は始端/終端で異なる offset(天端差)を持つ。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        make_beam(ifc, storey, 0.0, 0.0, dx=0.6, dy=0.0, dz=0.8,
+                  height=180.0, length=1000.0)
+
+        command = build_member_commands(ifc)[0]
+        # 始端天端 527・終端天端 1327、レベル絶対 Z = 473
+        assert command['start_bound']['offset'] == pytest.approx(527.0 - 473.0)
+        assert command['end_bound']['offset'] == pytest.approx(1327.0 - 473.0)
+
     def test_skips_vertical_axis_member(self) -> None:
         """軸が鉛直な材(横架材でない)は命令を生成しない。"""
         ifc = ifcopenshell.file()
@@ -561,11 +620,14 @@ def _member(start: list[float], end: list[float], width: float = 120.0,
             height: float = 180.0, elevation: float = 473.0,
             layer: str = '1-横架材天端', member_id: str = 'm',
             end_elevation: float | None = None) -> MemberCommand:
+    end_elev = elevation if end_elevation is None else end_elevation
     return {
         'layer': layer, 'member_id': member_id,
         'start': start, 'end': end,
         'width': width, 'height': height, 'elevation': elevation,
-        'end_elevation': elevation if end_elevation is None else end_elevation,
+        'end_elevation': end_elev,
+        'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+        'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
     }
 
 

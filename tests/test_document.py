@@ -45,6 +45,8 @@ def make_valid_document() -> dict[str, Any]:
                 'start': [0.0, 0.0], 'end': [3000.0, 0.0],
                 'width': 120.0, 'height': 180.0,
                 'elevation': 425.0, 'end_elevation': 425.0,
+                'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+                'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
             },
         ],
         'columns': [
@@ -145,6 +147,18 @@ class TestValidateDocument:
         document = make_valid_document()
         document['members'][0]['member_id'] = 120
         with pytest.raises(DocumentValidationError, match='member_id'):
+            validate_document(document)
+
+    def test_rejects_member_without_start_bound(self) -> None:
+        document = make_valid_document()
+        del document['members'][0]['start_bound']
+        with pytest.raises(DocumentValidationError, match='start_bound'):
+            validate_document(document)
+
+    def test_rejects_member_with_empty_bound_level(self) -> None:
+        document = make_valid_document()
+        document['members'][0]['end_bound']['level'] = ''
+        with pytest.raises(DocumentValidationError, match='end_bound.level'):
             validate_document(document)
 
     def test_rejects_column_without_dimension(self) -> None:
