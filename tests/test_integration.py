@@ -26,7 +26,7 @@ import ifcopenshell
 import pytest
 
 from vectorworks_plugin_import_ifc_homeskz.document import Document, validate_document
-from vectorworks_plugin_import_ifc_homeskz.ifc import build_document
+from vectorworks_plugin_import_ifc_homeskz.ifc import build_document, open_ifc
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
 
@@ -127,7 +127,7 @@ def fixture_path(filename: str) -> str:
 
 def build_fixture_document(filename: str) -> Document:
     """フィクスチャ IFC を解析し JSON ラウンドトリップ済みの命令セットを返す。"""
-    ifc = ifcopenshell.open(fixture_path(filename))
+    ifc = open_ifc(fixture_path(filename))
     document = build_document(ifc)
     # run() と同じく JSON を経由させ直列化可能性を保証する
     return json.loads(json.dumps(document))

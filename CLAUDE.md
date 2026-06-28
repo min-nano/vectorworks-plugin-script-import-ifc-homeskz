@@ -37,6 +37,7 @@ src/
         document.py           # 命令セットのスキーマ定義・検証 (vs / ifcopenshell 非依存)
         ifc/                  # フェーズ1: IFC 解析 (vs 非依存)
             __init__.py       # build_document(ifc_file) -> dict
+            loader.py         # open_ifc(path): 解析前にスキーマ非適合エンティティを除去して開く
             grid.py           # 通り芯 (IfcGridAxis) → grid 命令
             story.py          # ストーリ (IfcBuildingStorey) → story 命令
             member.py         # 横架材 (IfcBeam/IfcMember) → member 命令
@@ -86,12 +87,14 @@ Python Externals フォルダのパスは OS・VectorWorks のバージョンに
 
 IFC の解析には **`ifcopenshell`** を利用します。生の STEP テキストの正規表現マッチではなく、エンティティと属性を辿る形でデータを抽出します。
 
+ただし**読み込み時のサニタイズ**は例外的にテキスト処理を行います（`ifc/loader.py` の `open_ifc`）。ホームズ君 EX の IFC2X3 出力には IFC4 でのみ定義される `IfcFootingType`（STEP の `IFCFOOTINGTYPE`）が混入しており、Python 3.9 で唯一解決される `ifcopenshell==0.8.4.post1` はこの不正エンティティにつまずいて周辺の正常な `IfcFooting`・`IfcSlab` まで取りこぼす（基礎が 1 件しか読めない）。`open_ifc` は解析前にスキーマ非適合のエンティティ行を除去してから `ifcopenshell.file.from_string` で開くことで、どの ifcopenshell / Python バージョンでも基礎が正しく読まれるようにする（除去対象は基礎の型エンティティのみで、本スクリプトは `IfcFooting` の型を参照しないため抽出結果に影響しない）。`run()` とテストのフィクスチャ読込はこの `open_ifc` を経由する。
+
 ## スクリプトの処理フロー
 
 `vectorworks_plugin_import_ifc_homeskz.run()` は以下の順で処理を行います。
 
 1. **ファイル選択** — `vs.GetFileN()` でファイルダイアログを開き `.ifc` を選択。
-2. **IFC オープン** — `ifcopenshell.open(filepath)` でファイルを読み込む。
+2. **IFC オープン** — `open_ifc(filepath)`（`ifc/loader.py`）でファイルを読み込む。解析前にスキーマ非適合のエンティティを除去する（基礎の取りこぼし防止、下記「IFC 解析の方針」参照）。
 3. **解析（フェーズ1）** — `ifc.build_document(ifc_file)` で JSON 命令セットを組み立てる。
 4. **JSON 経由の受け渡し** — `json.dumps` → `json.loads` を通し直列化可能性を保証。
 5. **描画（フェーズ2）** — `vw.execute_document(document)` が検証後、ストーリ → 通り芯 → 構造材 → 柱 → 立上り（壁）→ 底盤/地中梁（スラブ）の順で描画し、最後にデザインレイヤのスタック順を `reorder_story_layers` で整えて実行数を返す。

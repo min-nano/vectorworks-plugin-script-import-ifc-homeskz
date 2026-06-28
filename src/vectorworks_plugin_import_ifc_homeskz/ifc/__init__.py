@@ -16,6 +16,7 @@ from .footing import (
     build_wall_commands,
 )
 from .grid import build_grid_commands
+from .loader import open_ifc
 from .member import build_member_commands
 from .story import build_story_commands
 
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 __all__ = ['build_column_commands', 'build_document',
            'build_foundation_story_command', 'build_grid_commands',
            'build_member_commands', 'build_slab_commands',
-           'build_story_commands', 'build_wall_commands']
+           'build_story_commands', 'build_wall_commands', 'open_ifc']
 
 
 def build_document(ifc_file: ifcopenshell.file) -> Document:

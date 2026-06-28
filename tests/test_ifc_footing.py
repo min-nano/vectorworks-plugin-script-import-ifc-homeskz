@@ -10,7 +10,7 @@ import os
 
 import ifcopenshell
 
-from vectorworks_plugin_import_ifc_homeskz.ifc import footing
+from vectorworks_plugin_import_ifc_homeskz.ifc import footing, open_ifc
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
 
@@ -91,7 +91,8 @@ class TestAxisPlacementHelpers:
 
 
 def _open(name: str) -> ifcopenshell.file:
-    return ifcopenshell.open(os.path.join(FIXTURES_DIR, name))
+    # サニタイズ付きで開く(古い ifcopenshell でも基礎を取りこぼさないため)
+    return open_ifc(os.path.join(FIXTURES_DIR, name))
 
 
 class TestBuildFromFixture:

@@ -13,13 +13,11 @@ from __future__ import annotations
 
 import json
 
-import ifcopenshell
-
 from .document import validate_document
-from .ifc import build_document
+from .ifc import build_document, open_ifc
 from .ifc.grid import TARGET_LAYER
 
-__all__ = ['build_document', 'run', 'validate_document']
+__all__ = ['build_document', 'open_ifc', 'run', 'validate_document']
 
 
 def run() -> None:
@@ -37,7 +35,8 @@ def run() -> None:
     try:
         vs.Message('IFCデータを解析中...')
 
-        ifc_file = ifcopenshell.open(filepath)
+        # 解析前にスキーマ非適合のエンティティを除去して開く(基礎の取りこぼし防止)
+        ifc_file = open_ifc(filepath)
 
         # フェーズ1: IFC 解析 → JSON 命令セット
         document = build_document(ifc_file)
