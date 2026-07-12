@@ -113,8 +113,11 @@ class TestBuildFromFixture:
         assert story['name'] == '基礎'
         assert story['suffix'] == 'F'
         assert story['elevation'] == 0.0
+        # 立上りレイヤ(F-立上り)の壁高さは 底盤天端(50.0)から 1階床(1FL=600.0)
+        # までの高さ = 550.0。
         assert story['levels'] == [
-            {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
+            {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り',
+             'wall_height': 550.0},
             {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
         ]
 

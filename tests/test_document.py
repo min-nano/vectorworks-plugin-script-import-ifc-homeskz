@@ -138,6 +138,17 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError, match='layer'):
             validate_document(document)
 
+    def test_accepts_level_with_wall_height(self) -> None:
+        document = make_valid_document()
+        document['stories'][0]['levels'][0]['wall_height'] = 550.0
+        assert validate_document(document) is document
+
+    def test_rejects_level_with_non_numeric_wall_height(self) -> None:
+        document = make_valid_document()
+        document['stories'][0]['levels'][0]['wall_height'] = 'tall'
+        with pytest.raises(DocumentValidationError, match='wall_height'):
+            validate_document(document)
+
     def test_rejects_grid_without_class(self) -> None:
         document = make_valid_document()
         del document['grids'][0]['class']

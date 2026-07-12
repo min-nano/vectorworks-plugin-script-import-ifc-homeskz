@@ -12,9 +12,15 @@ from ..document import StoryCommand
 # レイヤスタックの最上段に積むため並べ替え対象に含める。
 GRID_LAYER = '共通'
 
+# デザインレイヤの既定壁高さ (mm)。level 命令が wall_height を持たない場合に使う。
+# 壁を配置しないレイヤでは影響しないが、壁レイヤ(基礎の立上り等)では
+# level 命令が実際の壁高を wall_height として明示する。
+DEFAULT_WALL_HEIGHT = 2400.0
+
 
 def create_story_level_via_template(
     story_handle: Any, level_type: str, elevation: float, desired_layer_name: str,
+    wall_height: float = DEFAULT_WALL_HEIGHT,
 ) -> None:
     """Story Level Template 経由でストーリレベルとそれに紐づくレイヤを作成する。
 
@@ -22,11 +28,16 @@ def create_story_level_via_template(
     UI 上 <なし> になるため、ドキュメントで明示的にバインドが保証されている
     CreateLevelTemplateN + AddLevelFromTemplate を使う。
 
+    ``wall_height`` は生成されるデザインレイヤの壁高さ (CreateLevelTemplateN の
+    第 5 引数)。壁オブジェクトの既定高さになるため、壁を配置するレイヤ(基礎の
+    立上り等)では実際の壁高に影響する。
+
     なお AddLevelFromTemplate は CreateStory の suffix を末尾に付加した名前で
     レイヤを作る (例: "1-FL-1")。意図した名前 ("1-FL") にするため、
     GetLayerForStory でハンドルを取り直して SetName でリネームする。
     """
-    result = vs.CreateLevelTemplateN(desired_layer_name, 1.0, level_type, elevation, 2400.0)
+    result = vs.CreateLevelTemplateN(
+        desired_layer_name, 1.0, level_type, elevation, wall_height)
     if isinstance(result, tuple):
         ok, template_idx = result
     else:
@@ -161,7 +172,8 @@ def execute_stories(commands: list[StoryCommand]) -> int:
 
         for level in command['levels']:
             create_story_level_via_template(
-                story_h, level['type'], level['offset'], level['layer'])
+                story_h, level['type'], level['offset'], level['layer'],
+                level.get('wall_height', DEFAULT_WALL_HEIGHT))
 
         count += 1
 

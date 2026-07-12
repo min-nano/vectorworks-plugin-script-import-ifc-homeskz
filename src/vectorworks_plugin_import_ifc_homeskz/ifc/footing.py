@@ -330,17 +330,26 @@ def build_foundation_story_command(
     ストーリ高さは GL=0。レベルは GL(0、F-立上りレイヤ)と底盤天端(底盤天端の
     絶対 Z、F-底盤レイヤ)。``levels`` の並びは希望スタック順(上→下)で、
     立上り(GL)を底盤(底盤天端)の上に積むため GL を先頭にする。
+
+    立上りは壁オブジェクトで描くため、その配置先レイヤ(F-立上り)の壁高さが
+    実際の壁高に影響する。壁高さは**底盤天端から 1 階床(1FL の Elevation)まで**
+    の高さ(1FL Elevation − 底盤天端の絶対 Z)を GL レベルの ``wall_height`` に
+    設定する。
     """
     if not has_foundation(ifc_file):
         return None
     slab_top = resolve_slab_top_elevation(ifc_file)
     slab_top_offset = slab_top if slab_top is not None else 0.0
+    storey = _first_fl_storey(ifc_file)
+    fl_elevation = float(storey.Elevation or 0.0) if storey is not None else 0.0
+    wall_height = fl_elevation - slab_top_offset
     return {
         'name': STORY_FOUNDATION,
         'suffix': FOUNDATION_SUFFIX,
         'elevation': 0.0,
         'levels': [
-            {'type': LEVEL_GL, 'offset': 0.0, 'layer': LAYER_FOUNDATION_WALL},
+            {'type': LEVEL_GL, 'offset': 0.0, 'layer': LAYER_FOUNDATION_WALL,
+             'wall_height': wall_height},
             {'type': LEVEL_SLAB_TOP, 'offset': slab_top_offset,
              'layer': LAYER_FOUNDATION_SLAB},
         ],

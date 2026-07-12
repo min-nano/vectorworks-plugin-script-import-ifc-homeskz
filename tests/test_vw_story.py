@@ -139,6 +139,28 @@ class TestExecuteStories:
         assert '2-横架材天端' in renamed_names
         assert 'R-軒高' in renamed_names
 
+    def test_level_wall_height_passed_to_template(self) -> None:
+        # level に wall_height があればその値を、無ければ既定 (2400.0) を
+        # CreateLevelTemplateN の壁高さ引数に渡す。
+        vs_mock = _make_stateful_vs_mock()
+        commands: list[StoryCommand] = [
+            {
+                'name': '基礎', 'suffix': 'F', 'elevation': 0.0,
+                'levels': [
+                    {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り',
+                     'wall_height': 550.0},
+                    {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
+                ],
+            },
+        ]
+
+        _run_execute_stories(vs_mock, commands)
+
+        template_calls = [call.args for call in vs_mock.CreateLevelTemplateN.call_args_list]
+        assert ('F-立上り', 1.0, 'GL', 0.0, 550.0) in template_calls
+        # wall_height 未指定のレベルは既定値 2400.0
+        assert ('F-底盤', 1.0, '底盤天端', 50.0, 2400.0) in template_calls
+
     def test_empty_commands_return_zero(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         count = _run_execute_stories(vs_mock, [])
