@@ -15,8 +15,16 @@ def draw_wall(command: WallCommand) -> None:
     """wall 命令 1 件を壁オブジェクトとして描画する。
 
     壁厚を ``DoubLines`` で設定してから ``Wall`` で壁芯線から壁を生成し、
-    下端(始端=0)・上端(終端=1)の高さ基準をストーリレベルにバインドする
-    (boundType=2=Story)。壁が生成できない場合は壁芯の直線にフォールバックする。
+    下端・上端の高さ基準をストーリレベルにバインドする(boundType=2=Story)。
+    壁が生成できない場合は壁芯の直線にフォールバックする。
+
+    バインドには**壁専用の ``SetWallOverallHeights``** を使う。汎用の
+    ``SetObjectStoryBound`` では壁の高さ基準が確定せず、壁がデザインレイヤの
+    「壁の高さ(レイヤ設定)」(Default Wall Height)に従ってしまう(構造材・
+    スラブでは ``SetObjectStoryBound`` が効くが、壁は専用関数が必要)。
+    ``SetWallOverallHeights`` で下端/上端を直接ストーリレベルにバインドすることで
+    レイヤの壁高さ設定に依存せず実形状どおりの高さになる。story 引数(0=自階・
+    1=上階・2=下階)は ``story_offset`` の 0/1 とそのまま一致する。
     """
     x1, y1 = command['start']
     x2, y2 = command['end']
@@ -28,10 +36,10 @@ def draw_wall(command: WallCommand) -> None:
         vs.SetClass(obj, command['class'])
         bottom = command['bottom_bound']
         top = command['top_bound']
-        vs.SetObjectStoryBound(
-            obj, 0, 2, bottom['story_offset'], bottom['level'], bottom['offset'])
-        vs.SetObjectStoryBound(
-            obj, 1, 2, top['story_offset'], top['level'], top['offset'])
+        vs.SetWallOverallHeights(
+            obj,
+            2, bottom['story_offset'], bottom['level'], bottom['offset'],
+            2, top['story_offset'], top['level'], top['offset'])
         vs.ResetObject(obj)
     else:
         # フォールバック: 壁芯の直線
