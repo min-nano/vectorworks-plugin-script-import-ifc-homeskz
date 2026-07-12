@@ -59,10 +59,15 @@ class TestExecuteWalls:
         wall_args = vs_mock.Wall.call_args.args
         assert wall_args == (0.0, 0.0, 3000.0, 0.0)
         vs_mock.SetClass.assert_called_once()
-        # 下端(0)=GL、上端(1)=横架材天端 にバインド
-        bound_calls = [c.args for c in vs_mock.SetObjectStoryBound.call_args_list]
-        assert any(a[1] == 0 and a[4] == 'GL' for a in bound_calls)
-        assert any(a[1] == 1 and a[4] == '横架材天端' for a in bound_calls)
+        # 壁専用の SetWallOverallHeights で下端=GL(自階=0)、上端=横架材天端
+        # (上階=1)を Story(boundType=2)にバインドする。汎用の
+        # SetObjectStoryBound は壁では効かない(レイヤ壁高さに従ってしまう)ため
+        # 使わない。
+        vs_mock.SetObjectStoryBound.assert_not_called()
+        args = vs_mock.SetWallOverallHeights.call_args.args
+        # (obj, botType, botStory, botLevel, botOffset, topType, topStory,
+        #  topLevel, topOffset)
+        assert args[1:] == (2, 0, 'GL', -100.0, 2, 1, '横架材天端', -190.0)
 
     def test_skips_when_layer_missing(self) -> None:
         vs_mock = _make_vs_mock(set())

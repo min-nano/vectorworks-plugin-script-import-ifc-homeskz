@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 10):
+スキーマ (version 11):
 
     {
-        "version": 10,
+        "version": 11,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -17,12 +17,7 @@
                     {
                         "type": "FL",         # ストーリレベルタイプ名
                         "offset": 0.0,        # ストーリ基準からのオフセット (mm)
-                        "layer": "1-FL",      # 生成するデザインレイヤ名
-                        # デザインレイヤの壁高さ (mm, 任意)。壁オブジェクトの
-                        # 既定高さになるため、壁を配置するレイヤ(基礎の立上り=
-                        # F-立上り 等)ではこの値が実際の壁高に影響する。省略時は
-                        # DEFAULT_WALL_HEIGHT (2400.0)。
-                        "wall_height": 2400.0
+                        "layer": "1-FL"       # 生成するデザインレイヤ名
                     }
                 ]
             }
@@ -109,6 +104,9 @@
                 # 高さ基準(ストーリレベルへのバインド)。下端は基礎(自階)の GL、
                 # 上端は 1 階(上階)の横架材天端にバインドする。offset は IFC 実形状
                 # (壁の下端/上端の絶対 Z)とバインド先レベルの絶対 Z の差。
+                # 描画フェーズは壁専用の SetWallOverallHeights でこれをバインドする
+                # (汎用の SetObjectStoryBound では壁がレイヤの Default Wall Height に
+                # 従ってしまうため)。
                 "bottom_bound": {"story_offset": 0, "level": "GL", "offset": -100.0},
                 "top_bound": {"story_offset": 1, "level": "横架材天端", "offset": -190.0}
             }
@@ -134,26 +132,15 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 10
+DOCUMENT_VERSION = 11
 
 
-class _LevelCommandBase(TypedDict):
-    """story 命令内の 1 ストーリレベル(必須キー)。"""
+class LevelCommand(TypedDict):
+    """story 命令内の 1 ストーリレベル。"""
 
     type: str
     offset: float
     layer: str
-
-
-class LevelCommand(_LevelCommandBase, total=False):
-    """story 命令内の 1 ストーリレベル。
-
-    ``wall_height`` は任意キーで、生成するデザインレイヤの壁高さ (mm)。壁を配置する
-    レイヤ(基礎の立上り=F-立上り 等)では壁オブジェクトの既定高さになるため実際の
-    壁高に影響する。省略時は描画フェーズの ``DEFAULT_WALL_HEIGHT`` を用いる。
-    """
-
-    wall_height: float
 
 
 class StoryCommand(TypedDict):
@@ -317,9 +304,6 @@ def _validate_level(index: int, level_index: int, level: Any) -> None:
     _require(_is_number(level.get('offset')), f'{where}.offset は数値である必要があります')
     _require(isinstance(level.get('layer'), str) and level['layer'],
              f'{where}.layer は非空文字列である必要があります')
-    if 'wall_height' in level:
-        _require(_is_number(level.get('wall_height')),
-                 f'{where}.wall_height は数値である必要があります')
 
 
 def _validate_story(index: int, command: Any) -> None:
