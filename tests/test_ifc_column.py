@@ -371,6 +371,26 @@ class TestBuildColumnCommands:
         commands = build_column_commands(ifc)
         assert commands[0]['class'] == '04構造-02木造-05小屋組-02小屋束'
 
+    def test_koyazuka_structural_use_is_koyazuka(self) -> None:
+        """小屋束(最上階の柱)の構造用途は小屋束 "5" になる。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, object_type='STANDCOLUMN')
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['structural_use'] == '5'
+
+    def test_general_column_structural_use_is_column(self) -> None:
+        """一般階の柱(管柱・通し柱)の構造用途は柱 "4" になる。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, s1, 0.0, 0.0)
+
+        commands = build_column_commands(ifc)
+        assert commands[0]['structural_use'] == '4'
+
     def test_single_story_column_class_is_kudabashira(self) -> None:
         """1 階分で止まる一般階の柱は管柱クラスになる。"""
         ifc = ifcopenshell.file()

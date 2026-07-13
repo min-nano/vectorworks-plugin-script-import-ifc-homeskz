@@ -54,7 +54,7 @@ def make_valid_document() -> dict[str, Any]:
             {
                 'layer': '1-柱',
                 'member_id': '105×105 - 管柱 / 柱頭金物:(ろ) / 柱脚金物:(ろ)',
-                'class': '04構造-02木造-03柱-02管柱',
+                'class': '04構造-02木造-03柱-02管柱', 'structural_use': '4',
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
                 'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
@@ -202,6 +202,18 @@ class TestValidateDocument:
         document = make_valid_document()
         del document['columns'][0]['class']
         with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_column_without_structural_use(self) -> None:
+        document = make_valid_document()
+        del document['columns'][0]['structural_use']
+        with pytest.raises(DocumentValidationError, match='structural_use'):
+            validate_document(document)
+
+    def test_rejects_column_with_empty_structural_use(self) -> None:
+        document = make_valid_document()
+        document['columns'][0]['structural_use'] = ''
+        with pytest.raises(DocumentValidationError, match='structural_use'):
             validate_document(document)
 
     def test_rejects_column_with_bad_position(self) -> None:

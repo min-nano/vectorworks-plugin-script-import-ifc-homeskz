@@ -3,8 +3,10 @@
 柱は梁と同じ構造材ツール (StructuralMember) で描く。拡張パッケージの
 柱・間柱ツールはスクリプト操作に対して不安定なため、安定して扱える標準の
 構造材ツールに置き換えている。鉛直パス(下端→上端)に断面 width×depth の
-プロファイルを与えて配置し、構造用途を柱 (StructuralUse=4) として、高さ基準
-(柱頭/柱脚)を SetObjectStoryBound でストーリレベルにバインドする。
+プロファイルを与えて配置し、構造用途 (StructuralUse) を命令の structural_use
+(管柱・通し柱="4"=柱、小屋束="5"=小屋束)で設定して、高さ基準(柱頭/柱脚)を
+SetObjectStoryBound でストーリレベルにバインドする。小屋束を柱用途にすると VW の
+柱高さモデルで上端の高さオフセットと部材長が矛盾し上端高さが崩れるため用途を分ける。
 """
 from __future__ import annotations
 
@@ -20,8 +22,9 @@ def draw_column(command: ColumnCommand) -> None:
 
     パスはローカル原点 (0,0,0) から鉛直方向(高さ分)に定義し、
     CreateCustomObjectPath 後に Move3D で下端の絶対位置 (XY + 下端 Z) へ移動する。
-    続いて構造用途を柱 (StructuralUse=4) とし、SetObjectStoryBound で始端・終端の
-    高さ基準をストーリレベル (start_bound / end_bound) にバインドする。
+    続いて構造用途 (StructuralUse) を命令の structural_use (柱="4"/小屋束="5") で
+    設定し、SetObjectStoryBound で始端・終端の高さ基準をストーリレベル
+    (start_bound / end_bound) にバインドする。
     断面は width×depth の矩形プロファイル。member_id(柱頭・柱脚金物の仕様を
     含む構造材 ID)を MemberID フィールドに格納する。プラグインが利用できない
     場合は断面の矩形にフォールバックする。
@@ -63,7 +66,10 @@ def draw_column(command: ColumnCommand) -> None:
         vs.SetRField(obj, PLUGIN_NAME, 'B', str(w))
         vs.SetRField(obj, PLUGIN_NAME, 'D', str(d))
         vs.SetRField(obj, PLUGIN_NAME, 'MemberType', '2')
-        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', '4')  # 4=柱
+        # 構造用途: 管柱・通し柱="4"(柱)、小屋束="5"(小屋束)。小屋束を柱用途に
+        # すると VW の柱高さモデルで上端の高さオフセットと部材長が矛盾し上端高さが
+        # 崩れるため、命令が持つ structural_use をそのまま設定する。
+        vs.SetRField(obj, PLUGIN_NAME, 'StructuralUse', command['structural_use'])
         vs.SetRField(obj, PLUGIN_NAME, 'AxisAlign', '4')  # 4=中央(上部中央=1から3×3グリッド0始まり)
         vs.SetRField(obj, PLUGIN_NAME, 'EndCondition', '3')
         vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
