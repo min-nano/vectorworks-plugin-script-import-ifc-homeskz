@@ -76,6 +76,12 @@ def make_valid_document() -> dict[str, Any]:
                 'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0},
             },
         ],
+        'anchor_bolts': [
+            {
+                'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
+                'position': [0.0, 0.0],
+            },
+        ],
     }
 
 
@@ -90,7 +96,8 @@ class TestValidateDocument:
 
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'slabs': []}
+                    'members': [], 'columns': [], 'walls': [], 'slabs': [],
+                    'anchor_bolts': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -110,7 +117,7 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
-                                     'walls', 'slabs'])
+                                     'walls', 'slabs', 'anchor_bolts'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -290,6 +297,30 @@ class TestValidateDocument:
         document = make_valid_document()
         document['slabs'][0]['bound']['level'] = ''
         with pytest.raises(DocumentValidationError, match='bound.level'):
+            validate_document(document)
+
+    def test_rejects_anchor_bolt_without_symbol(self) -> None:
+        document = make_valid_document()
+        del document['anchor_bolts'][0]['symbol']
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_anchor_bolt_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['anchor_bolts'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_anchor_bolt_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['anchor_bolts'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_anchor_bolt_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['anchor_bolts'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:

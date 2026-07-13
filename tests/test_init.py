@@ -90,6 +90,7 @@ def _make_vs_mock() -> MagicMock:
 def _reload_vw_modules() -> None:
     """vs モックを差し替えた状態で vs 依存モジュール (vw) を再読込する。"""
     import vectorworks_plugin_import_ifc_homeskz.vw as vw
+    import vectorworks_plugin_import_ifc_homeskz.vw.anchor_bolt as vw_anchor
     import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
     import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
     import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
@@ -100,6 +101,7 @@ def _reload_vw_modules() -> None:
     importlib.reload(vw_story)
     importlib.reload(vw_column)
     importlib.reload(vw_footing)
+    importlib.reload(vw_anchor)
     importlib.reload(vw)
 
 

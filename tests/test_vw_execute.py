@@ -88,6 +88,7 @@ def _make_stateful_vs_mock() -> MagicMock:
 def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[str, int]:
     with patch.dict('sys.modules', {'vs': vs_mock}):
         import vectorworks_plugin_import_ifc_homeskz.vw as vw
+        import vectorworks_plugin_import_ifc_homeskz.vw.anchor_bolt as vw_anchor
         import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
@@ -98,6 +99,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         importlib.reload(vw_story)
         importlib.reload(vw_column)
         importlib.reload(vw_footing)
+        importlib.reload(vw_anchor)
         importlib.reload(vw)
         return vw.execute_document(document)
 
@@ -110,6 +112,7 @@ def make_document() -> dict[str, Any]:
             {
                 'name': '基礎', 'suffix': 'F', 'elevation': 0.0,
                 'levels': [
+                    {'type': '基礎天端', 'offset': 400.0, 'layer': 'F-アンカーボルト'},
                     {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
                     {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
                 ],
@@ -160,6 +163,10 @@ def make_document() -> dict[str, Any]:
              'thickness': 150.0,
              'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0}},
         ],
+        'anchor_bolts': [
+            {'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
+             'position': [0.0, 0.0]},
+        ],
     }
 
 
@@ -168,15 +175,16 @@ class TestExecuteDocument:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
-                          'walls': 1, 'slabs': 1}
+                          'walls': 1, 'slabs': 1, 'anchor_bolts': 1}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'slabs': []}
+                    'members': [], 'columns': [], 'walls': [], 'slabs': [],
+                    'anchor_bolts': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
-                          'walls': 0, 'slabs': 0}
+                          'walls': 0, 'slabs': 0, 'anchor_bolts': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

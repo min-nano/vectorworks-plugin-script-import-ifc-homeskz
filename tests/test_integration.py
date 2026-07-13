@@ -45,6 +45,7 @@ class Expected:
         columns: int,
         walls: int,
         slabs: int,
+        anchor_bolts: int,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -55,6 +56,7 @@ class Expected:
         self.columns = columns
         self.walls = walls
         self.slabs = slabs
+        self.anchor_bolts = anchor_bolts
 
 
 # 各フィクスチャの想定値。値は build_document の実出力から取得しており、
@@ -70,6 +72,7 @@ FIXTURES = [
         columns=138,
         walls=38,
         slabs=38,
+        anchor_bolts=96,
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -81,6 +84,7 @@ FIXTURES = [
         columns=197,
         walls=55,
         slabs=51,
+        anchor_bolts=110,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -92,6 +96,7 @@ FIXTURES = [
         columns=141,
         walls=39,
         slabs=36,
+        anchor_bolts=85,
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -103,6 +108,7 @@ FIXTURES = [
         columns=165,
         walls=27,
         slabs=28,
+        anchor_bolts=60,
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -114,6 +120,7 @@ FIXTURES = [
         columns=109,
         walls=19,
         slabs=24,
+        anchor_bolts=30,
     ),
 ]
 
@@ -210,7 +217,9 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
     """vs モックを差し込んで描画フェーズ全体を実行する。"""
     with patch.dict('sys.modules', {'vs': vs_mock}):
         import vectorworks_plugin_import_ifc_homeskz.vw as vw
+        import vectorworks_plugin_import_ifc_homeskz.vw.anchor_bolt as vw_anchor
         import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
+        import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
@@ -218,6 +227,8 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         importlib.reload(vw_member)
         importlib.reload(vw_story)
         importlib.reload(vw_column)
+        importlib.reload(vw_footing)
+        importlib.reload(vw_anchor)
         importlib.reload(vw)
         return vw.execute_document(document)
 
@@ -251,8 +262,11 @@ class TestSampleIfcAnalysis:
         assert foundation['name'] == '基礎'
         assert foundation['suffix'] == 'F'
         assert foundation['elevation'] == 0.0
-        assert [lv['type'] for lv in foundation['levels']] == ['GL', '底盤天端']
-        assert [lv['layer'] for lv in foundation['levels']] == ['F-立上り', 'F-底盤']
+        # 基礎天端(アンカーボルト) → GL(立上り) → 底盤天端(底盤) の順に積む
+        assert [lv['type'] for lv in foundation['levels']] == [
+            '基礎天端', 'GL', '底盤天端']
+        assert [lv['layer'] for lv in foundation['levels']] == [
+            'F-アンカーボルト', 'F-立上り', 'F-底盤']
         # 最上階は常に「屋根」、構造レベルは「軒高」＋柱配置用の柱
         # 柱レベルはレイヤを軒高の直上に積むため先頭に置く
         roof = stories[-1]
@@ -270,6 +284,7 @@ class TestSampleIfcAnalysis:
         assert len(document['columns']) == exp.columns
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
+        assert len(document['anchor_bolts']) == exp.anchor_bolts
 
     def test_wall_and_slab_layers_reference_foundation_layers(
             self, exp: Expected) -> None:
@@ -344,12 +359,14 @@ class TestFullPipeline:
         assert counts['columns'] == len(document['columns'])
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
+        assert counts['anchor_bolts'] == len(document['anchor_bolts'])
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
         assert counts['members'] == exp.members
         assert counts['columns'] == exp.columns
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs
+        assert counts['anchor_bolts'] == exp.anchor_bolts
 
     def test_each_story_is_created(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)

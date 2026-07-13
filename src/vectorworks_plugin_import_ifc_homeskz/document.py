@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 13):
+スキーマ (version 14):
 
     {
-        "version": 13,
+        "version": 14,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -121,6 +121,19 @@
                 # (主たる底盤は ≈0、地中梁は底盤天端より低いため負値)。
                 "bound": {"story_offset": 0, "level": "底盤天端", "offset": 0.0}
             }
+        ],
+        "anchor_bolts": [
+            {
+                # アンカーボルト (IfcMechanicalFastener) をハイブリッドシンボルに
+                # 置換して配置する命令。座金付き (Z1/Z2 等) は アンカーボルト_M12、
+                # 座金なしは アンカーボルト_M16 のシンボルにする。
+                "layer": "F-アンカーボルト",   # 配置先デザインレイヤ名(既存のみ・なければスキップ)
+                "symbol": "アンカーボルト_M12",  # 置換するハイブリッドシンボル名
+                # 2D 基準位置はアンカーボルトの軸芯 (XY, mm・センタリング済み)。
+                # 高さの基準は基礎天端で、配置先レイヤ (F-アンカーボルト) の
+                # ストーリレベル (基礎天端) が担うため命令に高さ情報は持たせない。
+                "position": [x, y]
+            }
         ]
     }
 """
@@ -129,7 +142,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 13
+DOCUMENT_VERSION = 14
 
 
 class LevelCommand(TypedDict):
@@ -263,6 +276,21 @@ class は割り当てる構造クラス名(基礎スラブ)。
 """
 
 
+class AnchorBoltCommand(TypedDict):
+    """アンカーボルトをハイブリッドシンボルに置換して配置する命令。
+
+    layer は配置先デザインレイヤ名(基礎ストーリの F-アンカーボルト)。symbol は
+    置換するハイブリッドシンボル名(座金付き=アンカーボルト_M12、座金なし=
+    アンカーボルト_M16)。position はアンカーボルト軸芯の 2D 座標(センタリング済み)。
+    高さの基準(基礎天端)は配置先レイヤのストーリレベルが担うため、命令には
+    高さ情報を持たせない。
+    """
+
+    layer: str
+    symbol: str
+    position: list[float]
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -273,6 +301,7 @@ class Document(TypedDict):
     columns: list[ColumnCommand]
     walls: list[WallCommand]
     slabs: list[SlabCommand]
+    anchor_bolts: list[AnchorBoltCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -414,6 +443,17 @@ def _validate_slab(index: int, command: Any) -> None:
     _validate_story_bound(where, 'bound', command.get('bound'))
 
 
+def _validate_anchor_bolt(index: int, command: Any) -> None:
+    where = f'anchor_bolts[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('symbol'), str) and command['symbol'],
+             f'{where}.symbol は非空文字列である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+
+
 def _validate_story_bound(where: str, key: str, bound: Any) -> None:
     field = f'{where}.{key}'
     _require(isinstance(bound, dict), f'{field} は dict である必要があります')
@@ -431,7 +471,8 @@ def validate_document(document: Any) -> Document:
     _require(isinstance(document, dict), '命令セットは dict である必要があります')
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
-    for key in ('stories', 'grids', 'members', 'columns', 'walls', 'slabs'):
+    for key in ('stories', 'grids', 'members', 'columns', 'walls', 'slabs',
+                'anchor_bolts'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -446,6 +487,8 @@ def validate_document(document: Any) -> Document:
         _validate_wall(i, command)
     for i, command in enumerate(document['slabs']):
         _validate_slab(i, command)
+    for i, command in enumerate(document['anchor_bolts']):
+        _validate_anchor_bolt(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

@@ -55,7 +55,8 @@ def run() -> None:
             f' 横架材天端レイヤに {counts["members"]} 本の構造材、'
             f'{counts["columns"]} 本の柱を配置しました。'
             f' 基礎に {counts["walls"]} 本の立上り(壁)、'
-            f'{counts["slabs"]} 枚の底盤・地中梁(スラブ)を配置しました。'
+            f'{counts["slabs"]} 枚の底盤・地中梁(スラブ)、'
+            f'{counts["anchor_bolts"]} 本のアンカーボルト(シンボル)を配置しました。'
         )
 
     except Exception as e:

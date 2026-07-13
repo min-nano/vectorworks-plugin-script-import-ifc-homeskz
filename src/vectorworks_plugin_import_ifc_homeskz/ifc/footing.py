@@ -28,9 +28,11 @@ from ..document import SlabCommand, StoryBoundCommand, StoryCommand, WallCommand
 from .grid import resolve_lines
 from .story import (
     FOUNDATION_SUFFIX,
+    LAYER_FOUNDATION_ANCHOR,
     LAYER_FOUNDATION_SLAB,
     LAYER_FOUNDATION_WALL,
     LEVEL_BEAM_TOP,
+    LEVEL_FOUNDATION_TOP,
     LEVEL_GL,
     LEVEL_SLAB_TOP,
     STORY_FOUNDATION,
@@ -313,6 +315,25 @@ def resolve_slab_top_elevation(ifc_file: ifcopenshell.file) -> float | None:
     return best_top
 
 
+def resolve_foundation_top_elevation(ifc_file: ifcopenshell.file) -> float | None:
+    """基礎天端(立上り天端)の絶対 Z を返す。立上りが無ければ None。
+
+    アンカーボルトの高さ基準に使う。立上り(基礎梁)の天端 Z のうち最大値を採る
+    (列挙順に依存しない決定的な高さ)。立上りが 1 つも無い基礎(底盤のみ)は
+    None を返し、呼び出し側が底盤天端等にフォールバックする。
+    """
+    tops: list[float] = []
+    for element in ifc_file.by_type('IfcFooting'):
+        if not _is_wall(element.Name or ''):
+            continue
+        solid = _world_solid(element)
+        if solid is None:
+            continue
+        top, _thickness = _z_top_and_thickness(solid)
+        tops.append(top)
+    return max(tops) if tops else None
+
+
 def has_foundation(ifc_file: ifcopenshell.file) -> bool:
     """基礎(立上り・底盤・地中梁)が 1 つでもあれば True。"""
     for element in _iter_footing_elements(ifc_file):
@@ -327,19 +348,27 @@ def build_foundation_story_command(
 ) -> StoryCommand | None:
     """基礎ストーリの story 命令を返す。基礎要素が無ければ None。
 
-    ストーリ高さは GL=0。レベルは GL(0、F-立上りレイヤ)と底盤天端(底盤天端の
-    絶対 Z、F-底盤レイヤ)。``levels`` の並びは希望スタック順(上→下)で、
-    立上り(GL)を底盤(底盤天端)の上に積むため GL を先頭にする。
+    ストーリ高さは GL=0。レベルは基礎天端(立上り天端の絶対 Z、F-アンカーボルト
+    レイヤ)・GL(0、F-立上りレイヤ)・底盤天端(底盤天端の絶対 Z、F-底盤レイヤ)。
+    ``levels`` の並びは希望スタック順(上→下)で、最上段に基礎天端(アンカーボルト)、
+    続いて立上り(GL)、底盤(底盤天端)を積むため基礎天端 → GL → 底盤天端 の順にする。
+    アンカーボルトの高さ基準は基礎天端レベルが担う。
     """
     if not has_foundation(ifc_file):
         return None
     slab_top = resolve_slab_top_elevation(ifc_file)
     slab_top_offset = slab_top if slab_top is not None else 0.0
+    # 基礎天端は立上り天端。立上りが無い基礎は底盤天端にフォールバックする。
+    foundation_top = resolve_foundation_top_elevation(ifc_file)
+    foundation_top_offset = (
+        foundation_top if foundation_top is not None else slab_top_offset)
     return {
         'name': STORY_FOUNDATION,
         'suffix': FOUNDATION_SUFFIX,
         'elevation': 0.0,
         'levels': [
+            {'type': LEVEL_FOUNDATION_TOP, 'offset': foundation_top_offset,
+             'layer': LAYER_FOUNDATION_ANCHOR},
             {'type': LEVEL_GL, 'offset': 0.0, 'layer': LAYER_FOUNDATION_WALL},
             {'type': LEVEL_SLAB_TOP, 'offset': slab_top_offset,
              'layer': LAYER_FOUNDATION_SLAB},
