@@ -113,10 +113,18 @@ class TestBuildFromFixture:
         assert story['name'] == '基礎'
         assert story['suffix'] == 'F'
         assert story['elevation'] == 0.0
+        # 並びは希望スタック順(上→下): 基礎天端(アンカーボルト) → GL(立上り)
+        # → 底盤天端(底盤)。基礎天端は立上り天端 400.0。
         assert story['levels'] == [
+            {'type': '基礎天端', 'offset': 400.0, 'layer': 'F-アンカーボルト'},
             {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
             {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
         ]
+
+    def test_foundation_top_elevation_is_wall_top(self) -> None:
+        ifc = _open(self.FILENAME)
+        # 基礎天端 = 立上り(基礎梁)天端の最大値
+        assert footing.resolve_foundation_top_elevation(ifc) == 400.0
 
     def test_wall_commands_shape(self) -> None:
         ifc = _open(self.FILENAME)

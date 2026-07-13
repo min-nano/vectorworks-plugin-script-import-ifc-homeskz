@@ -17,13 +17,15 @@ LEVEL_EAVES = '軒高'
 LEVEL_COLUMN = '柱'
 STORY_ROOF = '屋根'
 
-# 基礎(立上り・底盤)用のストーリ・レベル・レイヤ
+# 基礎(立上り・底盤・アンカーボルト)用のストーリ・レベル・レイヤ
 STORY_FOUNDATION = '基礎'
 FOUNDATION_SUFFIX = 'F'
 LEVEL_GL = 'GL'
 LEVEL_SLAB_TOP = '底盤天端'
+LEVEL_FOUNDATION_TOP = '基礎天端'  # アンカーボルトの高さ基準(立上り天端)
 LAYER_FOUNDATION_WALL = f'{FOUNDATION_SUFFIX}-立上り'
 LAYER_FOUNDATION_SLAB = f'{FOUNDATION_SUFFIX}-底盤'
+LAYER_FOUNDATION_ANCHOR = f'{FOUNDATION_SUFFIX}-アンカーボルト'
 
 
 def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None:
