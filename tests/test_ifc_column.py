@@ -12,7 +12,6 @@ from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
     build_column_commands,
     make_column_member_id,
     resolve_column_type,
-    resolve_height_bounds,
 )
 
 
@@ -198,49 +197,6 @@ class TestMakeColumnMemberId:
 # build_column_commands
 # ---------------------------------------------------------------------------
 
-class TestResolveHeightBounds:
-    def test_general_story(self) -> None:
-        # 階 0 / 全 3 階 (top=2): 始端=自階横架材天端、終端=上階横架材天端。
-        # offset は実ジオメトリ(下端=自階天端、上端=上階天端から梁背分下)から決まる。
-        # 下端 426 = 自階天端 → 始端 offset 0、上端 3270 = 上階天端 3452 − 梁背 182。
-        start, end = resolve_height_bounds(
-            0, 2, bottom_abs=426.0, top_abs=3270.0,
-            current_level_z=426.0, upper_level_z=3452.0)
-        assert start == {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
-        assert end == {
-            'story_offset': 1, 'level': '横架材天端', 'offset': pytest.approx(-182.0)}
-
-    def test_story_just_below_top(self) -> None:
-        # 階 1 / top=2: 上階が屋根のため終端=軒高。
-        # 下端 3452 = 自階天端 → 始端 offset 0、上端 6118 = 軒高 6300 − 梁背 182。
-        start, end = resolve_height_bounds(
-            1, 2, bottom_abs=3452.0, top_abs=6118.0,
-            current_level_z=3452.0, upper_level_z=6300.0)
-        assert start == {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
-        assert end == {
-            'story_offset': 1, 'level': '軒高', 'offset': pytest.approx(-182.0)}
-
-    def test_top_story(self) -> None:
-        # 最上階: 始端・終端とも自階軒高。下端=軒高 → 始端 offset 0、終端は柱高さ分。
-        start, end = resolve_height_bounds(
-            2, 2, bottom_abs=6300.0, top_abs=7200.0,
-            current_level_z=6300.0, upper_level_z=None, is_koyazuka=True)
-        assert start == {'story_offset': 0, 'level': '軒高', 'offset': 0.0}
-        assert end == {
-            'story_offset': 0, 'level': '軒高', 'offset': pytest.approx(900.0)}
-
-    def test_koyazuka_on_middle_story(self) -> None:
-        # 中間階の小屋束: 上端も下端と同じ自階の横架材天端を基準にする
-        # (上階の横架材天端に結び付けない)。下端=自階天端 → 始端 offset 0、
-        # 終端は自階天端から柱高さ分(4400 − 3500 = 900)。
-        start, end = resolve_height_bounds(
-            1, 2, bottom_abs=3500.0, top_abs=4400.0,
-            current_level_z=3500.0, upper_level_z=6300.0, is_koyazuka=True)
-        assert start == {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
-        assert end == {
-            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(900.0)}
-
-
 class TestBuildColumnCommands:
     def test_empty_ifc_returns_empty_list(self) -> None:
         assert build_column_commands(ifcopenshell.file()) == []
@@ -270,71 +226,26 @@ class TestBuildColumnCommands:
         # 下端高さ = ストーリ高さ + ローカル Z
         assert commands[0]['elevation'] == pytest.approx(6200.0)
 
-    def test_general_story_binds_to_beam_top_and_upper(self) -> None:
-        """一般階の柱は始端=自階の横架材天端、終端=上階の横架材天端にバインドする。
+    def test_height_comes_from_geometry_not_story_bounds(self) -> None:
+        """柱の上端はパスのジオメトリ(elevation + height)で決まる。
 
-        始端は柱下端が自階天端に一致するため offset 0、終端は柱上端が上階梁の
-        下端(上階天端から梁背分下)になるため offset が負になる。
+        構造材ツールの高さバインドは鉛直材では部材長に加算され上端が二重に
+        なるため使わない。よって命令は start_bound / end_bound を持たず、
+        elevation(下端の絶対 Z)と height(柱高さ)だけで上端が決まる。
         """
         ifc = ifcopenshell.file()
         s1 = make_storey(ifc, '1FL', 600.0)
         make_storey(ifc, '2FL', 3500.0)
         make_storey(ifc, 'RFL', 6300.0)
-        # 下端=600(自階天端)、上端=600+2718=3318=上階天端3500−182(梁背)
         make_column(ifc, s1, 0.0, 0.0, height=2718.0)
 
         command = build_column_commands(ifc)[0]
-        assert command['start_bound'] == {
-            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(0.0)}
-        assert command['end_bound'] == {
-            'story_offset': 1, 'level': '横架材天端',
-            'offset': pytest.approx(-182.0)}
-
-    def test_story_below_top_binds_upper_to_eaves(self) -> None:
-        """最上階直下の階は上階が屋根のため終端=軒高にバインドする。"""
-        ifc = ifcopenshell.file()
-        make_storey(ifc, '1FL', 600.0)
-        s2 = make_storey(ifc, '2FL', 3500.0)
-        make_storey(ifc, 'RFL', 6300.0)
-        # 下端=3500(自階天端)、上端=3500+2618=6118=軒高6300−182(梁背)
-        make_column(ifc, s2, 0.0, 0.0, height=2618.0)
-
-        command = build_column_commands(ifc)[0]
-        assert command['start_bound'] == {
-            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(0.0)}
-        assert command['end_bound'] == {
-            'story_offset': 1, 'level': '軒高', 'offset': pytest.approx(-182.0)}
-
-    def test_top_story_binds_both_ends_to_eaves(self) -> None:
-        """最上階の柱は始端・終端とも自階の軒高基準で、終端は柱高さ分のオフセット。"""
-        ifc = ifcopenshell.file()
-        storey = make_storey(ifc, 'RFL', 6300.0)
-        make_column(ifc, storey, 0.0, 0.0, height=900.0)
-
-        command = build_column_commands(ifc)[0]
-        assert command['start_bound'] == {
-            'story_offset': 0, 'level': '軒高', 'offset': 0.0}
-        assert command['end_bound'] == {
-            'story_offset': 0, 'level': '軒高', 'offset': pytest.approx(900.0)}
-
-    def test_middle_story_koyazuka_binds_both_ends_to_self_beam_top(self) -> None:
-        """中間階の小屋束(STANDCOLUMN)は上端も下端と同じ自階の横架材天端に
-        バインドする。上階の横架材天端(軒高)に結び付けると短い束の上端が上階まで
-        伸びて高さが崩れるため。"""
-        ifc = ifcopenshell.file()
-        make_storey(ifc, '1FL', 600.0)
-        s2 = make_storey(ifc, '2FL', 3500.0)
-        make_storey(ifc, 'RFL', 6300.0)
-        # STANDCOLUMN は小屋束クラス。下端=3500(自階天端)、上端=3500+900=4400。
-        make_column(ifc, s2, 0.0, 0.0, height=900.0, object_type='STANDCOLUMN')
-
-        command = build_column_commands(ifc)[0]
-        assert command['class'] == '04構造-02木造-05小屋組-02小屋束'
-        assert command['structural_use'] == '5'
-        assert command['start_bound'] == {
-            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(0.0)}
-        assert command['end_bound'] == {
-            'story_offset': 0, 'level': '横架材天端', 'offset': pytest.approx(900.0)}
+        # 高さ基準(ストーリバインド)は持たない
+        assert 'start_bound' not in command
+        assert 'end_bound' not in command
+        # 下端=自階高さ+ローカル Z(600+0)、上端は elevation + height で決まる
+        assert command['elevation'] == pytest.approx(600.0)
+        assert command['height'] == pytest.approx(2718.0)
 
     def test_assigns_layer_per_story(self) -> None:
         ifc = ifcopenshell.file()
