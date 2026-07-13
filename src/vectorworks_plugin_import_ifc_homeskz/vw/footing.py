@@ -4,12 +4,12 @@
 ``vs.CreateSlab`` でスラブオブジェクトを生成する。いずれも高さ基準を
 ``SetObjectStoryBound`` でストーリレベルにバインドする(梁・柱と同じ規約)。
 立上りには壁スタイル(``WALL_STYLE_NAME``)を ``SetWallStyle`` で関連付ける
-(オフセットは 0/0 で壁芯に揃える)。ただし**壁スタイルの新規適用では
-マテリアルの 3D テクスチャがバインドされない**(2D ハッチ・塗りは反映されるが
-3D テクスチャが出ない。``UpdateStyledObjects`` によるスタイル更新でも同様)。
-スタイルを一度 ``ConvertToUnstyledWall`` で解除してから ``SetWallStyle`` で
-再適用し直すとテクスチャが確定する(UI で「スタイルを外して再度当てる」操作に
-相当)ため、``draw_wall`` は per-wall でこの解除→再適用を行う(#56/#57)。
+(オフセットは 0/0 で壁芯に揃える)。``SetWallStyle`` はスタイルの関連付けまでで、
+スタイルが決める描画属性(コンポーネントのクラス→テクスチャ等)はプッシュ
+されないため、``execute_walls`` が全配置後に ``UpdateStyledObjects`` でまとめて
+反映する(柱・梁と同じ規約。#56/#57)。テクスチャはスタイルがコンポーネントに
+割り当てるクラスのテクスチャ属性から供給される(マテリアルの 3D テクスチャは
+スクリプトからバインドできないため、スタイル側でクラス割り当てに変更している)。
 """
 from __future__ import annotations
 
@@ -35,12 +35,9 @@ def draw_wall(command: WallCommand) -> None:
     レイヤの壁高さ設定に依存せず実形状どおりの高さになる。story 引数(0=自階・
     1=上階・2=下階)は ``story_offset`` の 0/1 とそのまま一致する。
 
-    壁スタイルは ``SetWallStyle`` → ``ConvertToUnstyledWall`` → ``SetWallStyle`` の
-    順で**解除→再適用**する。新規適用ではマテリアルの 3D テクスチャがバインド
-    されない(2D ハッチは反映されるが 3D テクスチャが出ない)ため、UI での
-    「スタイルを外して再度当てる」操作に相当する解除→再適用でテクスチャを確定
-    させる(#56/#57)。高さバインド(``SetWallOverallHeights``)は再適用後に行い、
-    スタイルの再適用で高さが変わらないようにする。
+    壁スタイルは ``SetWallStyle`` で関連付ける(オフセット 0/0 で壁芯に揃える)。
+    スタイルが決める描画属性(クラス→テクスチャ等)は ``execute_walls`` が
+    全配置後に ``UpdateStyledObjects`` で反映する(柱・梁と同じ規約。#56/#57)。
     """
     x1, y1 = command['start']
     x2, y2 = command['end']
@@ -50,11 +47,6 @@ def draw_wall(command: WallCommand) -> None:
     obj = vs.LNewObj()
     if obj != vs.Handle(0):
         vs.SetClass(obj, command['class'])
-        # スタイルを適用 → 解除 → 再適用。新規適用ではマテリアルの 3D テクスチャが
-        # バインドされないため、一度 ConvertToUnstyledWall で解除して再適用し直す
-        # (UI で「スタイルを外して再度当てる」とテクスチャが当たる挙動に相当)。
-        vs.SetWallStyle(obj, WALL_STYLE_NAME, 0.0, 0.0)
-        vs.ConvertToUnstyledWall(obj)
         vs.SetWallStyle(obj, WALL_STYLE_NAME, 0.0, 0.0)
         bottom = command['bottom_bound']
         top = command['top_bound']
@@ -106,9 +98,10 @@ def execute_walls(commands: list[WallCommand]) -> int:
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
 
-    壁スタイルの描画属性(マテリアルの 3D テクスチャ)は draw_wall が per-wall で
-    スタイル解除→再適用して反映する(#56/#57)。構造材と異なり全配置後の
-    UpdateStyledObjects では 3D テクスチャがバインドされないため使わない。
+    全配置後に UpdateStyledObjects(WALL_STYLE_NAME) を 1 回呼び、当該壁スタイルの
+    全オブジェクトをスタイルから更新して描画属性(クラス→テクスチャ等)を反映する。
+    SetWallStyle はスタイルの関連付けまでで描画属性をプッシュしないため、これを
+    呼ばないとテクスチャ等が反映されない(柱・梁と同じ規約。#56/#57)。
     """
     count = 0
     for command in commands:
@@ -118,6 +111,10 @@ def execute_walls(commands: list[WallCommand]) -> int:
         vs.Layer(layer)
         draw_wall(command)
         count += 1
+
+    if count > 0:
+        vs.UpdateStyledObjects(WALL_STYLE_NAME)
+
     return count
 
 
