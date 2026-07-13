@@ -23,6 +23,12 @@ from ..document import SheetCommand, TagCommand, ViewportCommand
 # データタグの内部プラグイン名(VW の Data Tag ツール)。VW で最終確認する。
 _DATA_TAG_PLUGIN = 'Data Tag'
 
+# データタグの「引出線を表示」パラメータ(オブジェクト情報パレットのチェックボックス)。
+# 既定 ON で、部材に接して置いても引出線が描かれてしまうため per-instance で OFF に
+# する。フィールド名・値(Boolean は 'True'/'False')は VW 上で最終確認する。
+_LEADER_FIELD = 'ShowLeader'
+_LEADER_OFF = 'False'
+
 # レイヤ種別(vs.CreateLayer): 1=デザインレイヤ, 2=プレゼンテーション(シート)レイヤ
 _SHEET_LAYER_TYPE = 2
 
@@ -136,15 +142,19 @@ def draw_tag(tag: TagCommand, member_handle: Any, viewport: Any) -> bool:
     """tag 命令 1 件をビューポート注釈のデータタグとして描画する。
 
     ``vs.CreateCustomObject`` でデータタグ(``断面寸法`` スタイル)を挿入位置・
-    軸方向の角度で作り、対象の横架材(``member_handle``)に関連付けてから、
-    ビューポートの注釈に追加する。関連付け対象が無い(横架材がフォールバック
-    描画等でハンドルを持たない)場合は関連付けを省く。タグが作れなければ False。
+    軸方向の角度で作り、「引出線を表示」を OFF にしてから対象の横架材
+    (``member_handle``)に関連付け、ビューポートの注釈に追加する。関連付け対象が
+    無い(横架材がフォールバック描画等でハンドルを持たない)場合は関連付けを省く。
+    タグが作れなければ False。
     """
     x, y = tag['position']
     obj = vs.CreateCustomObject(_DATA_TAG_PLUGIN, (x, y), tag['angle'])
     if obj == vs.Handle(0):
         return False
     vs.SetPluginStyle(obj, tag['style'])
+    # 引出線を非表示にする(部材に接して置いても既定 ON だと引出線が描かれるため)。
+    vs.SetRField(obj, _DATA_TAG_PLUGIN, _LEADER_FIELD, _LEADER_OFF)
+    vs.ResetObject(obj)
     if member_handle is not None:
         vs.DT_AssociateWithObj(obj, member_handle)
     vs.AddVPAnnotationObject(viewport, obj)

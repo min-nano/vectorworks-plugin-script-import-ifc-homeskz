@@ -201,10 +201,10 @@ VW 2026 でレイヤをストーリレベルに正しくバインドするには
   - **向き**: 文字角度は横架材の軸方向（`start`→`end`）に合わせ、上下反転しないよう `(-90, 90]` に正規化する（`_tag_angle`）。
   - **配置側（上または左）**: 軸に直交する 2 候補（±90 度回転）から「上または左」を向く側を選ぶ（`_offset_side`）。y が大きい（上）方を優先し、y が同等な南北向きの材は x が小さい（左）方を選ぶ。これにより東西材は上辺、南北材は左辺にタグが並ぶ。
   - **位置**: 横架材の軸中央から、選んだ直交方向へ `断面幅/2` だけオフセットした**部材の辺の中央**（左右に伸びる梁は上辺中央、上下に伸びる梁は左辺中央）。ここに**データタグの下端中央**が来る。座標は他要素と同じグリッド中心オフセット済み（member 命令の座標をそのまま使う）。
-  - **引き出し線を出さない**: タグを部材の面から離すと VW が関連付け先の横架材へ引き出し線を描くため、**余白を設けず面ちょうど（`断面幅/2`）に置く**。これによりタグが対象部材に接し、関連付けの引き出し線が長さ 0 になって表示されない。
-- 描画（`vw/sheet.py` の `execute_sheets` / `draw_tag`）: **タグはシート描画と同時に行う**。横架材レイヤは階ごとに固有なので、tag 命令の `layer` がビューポートの表示レイヤ（`viewport.layers`）に含まれる 1 枚の床伏図・小屋伏図にだけタグを載せる（基礎伏図や他階の伏図には載らない）。各タグは `vs.CreateCustomObject('Data Tag', position, angle)` でデータタグを作り、`vs.SetPluginStyle(obj, '断面寸法')` でスタイルを関連付け、`member_index` が指す横架材ハンドル（`execute_members` が記録）に `vs.DT_AssociateWithObj` で関連付けてから、`vs.AddVPAnnotationObject(vp, obj)` でビューポート注釈に追加し `vs.DT_UpdateTaggedTags` で更新する。
+  - **引き出し線を出さない**: タグを部材の面から離すと VW が関連付け先の横架材へ引き出し線を描くため、**余白を設けず面ちょうど（`断面幅/2`）に置く**。加えてデータタグの「引出線を表示」オブジェクトパラメータ（既定 ON）を描画フェーズで OFF にする（下記描画節。面に接して置くだけでは引出線パラメータが残るため）。
+- 描画（`vw/sheet.py` の `execute_sheets` / `draw_tag`）: **タグはシート描画と同時に行う**。横架材レイヤは階ごとに固有なので、tag 命令の `layer` がビューポートの表示レイヤ（`viewport.layers`）に含まれる 1 枚の床伏図・小屋伏図にだけタグを載せる（基礎伏図や他階の伏図には載らない）。各タグは `vs.CreateCustomObject('Data Tag', position, angle)` でデータタグを作り、`vs.SetPluginStyle(obj, '断面寸法')` でスタイルを関連付け、**「引出線を表示」パラメータ（`_LEADER_FIELD`、既定 ON）を `vs.SetRField` で OFF（`_LEADER_OFF`）にして** `vs.ResetObject` で反映し、`member_index` が指す横架材ハンドル（`execute_members` が記録）に `vs.DT_AssociateWithObj` で関連付けてから、`vs.AddVPAnnotationObject(vp, obj)` でビューポート注釈に追加し `vs.DT_UpdateTaggedTags` で更新する。
   - **横架材ハンドルの受け渡し**: タグの関連付け先はモデル空間の横架材オブジェクト。ハンドルは横架材描画時にしか分からないため、`execute_members(commands, handles)` が配置した構造材ハンドルを**命令インデックスをキーに** `handles` dict へ記録し、`execute_document` がそれを `execute_sheets` へ渡す（フェーズ間は命令の並び順で対応付ける。JSON は順序を保つため `member_index` で一意に引ける）。フォールバック描画（プラグイン不可）でハンドルが無い横架材はタグを作るが関連付けは省く。
-  - **データタグの内部プラグイン名**（`vw/sheet.py` の `_DATA_TAG_PLUGIN`、既定 `'Data Tag'`）・関連付けの挙動（注釈内タグがモデルレイヤのオブジェクトに関連付くこと）は **VW 上で最終確認する**（描画フェーズは他の要素と同じく VectorWorks 上で検証する方針）。
+  - **データタグの内部プラグイン名**（`vw/sheet.py` の `_DATA_TAG_PLUGIN`、既定 `'Data Tag'`）・**引出線フィールド名/値**（`_LEADER_FIELD`＝`'ShowLeader'`／`_LEADER_OFF`＝`'False'`）・関連付けの挙動（注釈内タグがモデルレイヤのオブジェクトに関連付くこと）は **VW 上で最終確認する**（描画フェーズは他の要素と同じく VectorWorks 上で検証する方針）。
 
 ## VectorWorks のレイヤとクラスの規則
 
