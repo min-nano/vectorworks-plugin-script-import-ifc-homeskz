@@ -223,6 +223,13 @@ class TestExecuteMembers:
         class_args = [c.args[1] for c in vs_mock.SetClass.call_args_list]
         assert '04構造-02木造-04梁桁-03床梁' in class_args
 
+    def test_applies_plugin_style(self) -> None:
+        """横架材のプラグインスタイル(木質構造材_横架材)を適用する。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
+        _run_execute_members(vs_mock, [make_member_command()])
+        vs_mock.SetPluginStyle.assert_called_once_with(
+            vs_mock.CreateCustomObjectPath.return_value, '木質構造材_横架材')
+
     def test_fallback_to_line_when_plugin_unavailable(self) -> None:
         """構造材プラグインが利用できない場合に通常線にフォールバックする。"""
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})

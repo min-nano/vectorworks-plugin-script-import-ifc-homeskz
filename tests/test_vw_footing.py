@@ -59,6 +59,9 @@ class TestExecuteWalls:
         wall_args = vs_mock.Wall.call_args.args
         assert wall_args == (0.0, 0.0, 3000.0, 0.0)
         vs_mock.SetClass.assert_called_once()
+        # 壁スタイル(基礎 - 木造ベタ基礎150mm)を壁芯に揃えて適用する
+        style_args = vs_mock.SetWallStyle.call_args.args
+        assert style_args[1:] == ('基礎 - 木造ベタ基礎150mm', 0.0, 0.0)
         # 壁専用の SetWallOverallHeights で下端=GL(自階=0)、上端=横架材天端
         # (上階=1)を Story(boundType=2)にバインドする。汎用の
         # SetObjectStoryBound は壁では効かない(レイヤ壁高さに従ってしまう)ため

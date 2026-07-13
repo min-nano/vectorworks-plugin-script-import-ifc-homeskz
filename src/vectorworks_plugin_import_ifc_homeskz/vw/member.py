@@ -6,6 +6,7 @@ import vs
 from ..document import MemberCommand
 
 PLUGIN_NAME = 'StructuralMember'
+STYLE_NAME = '木質構造材_横架材'
 
 
 def draw_member(command: MemberCommand) -> None:
@@ -24,6 +25,8 @@ def draw_member(command: MemberCommand) -> None:
     表す。バインドは同時に、構造材ツールの高さ基準が "レイヤの高さ" のまま
     offset 0 で実ジオメトリと矛盾し再描画/編集時に高さがリセットされる問題も
     防ぐ(横架材天端、最上階は軒高)。
+    配置後にプラグインスタイル(STYLE_NAME)を SetPluginStyle で適用してから
+    個別フィールドを設定するため、スタイルの既定値は本命令の実測値で上書きされる。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
     x1, y1 = command['start']
@@ -50,6 +53,7 @@ def draw_member(command: MemberCommand) -> None:
         vs.ResetOrientation3D()
         vs.Move3D(x1, y1, z1)
         vs.SetClass(obj, command['class'])
+        vs.SetPluginStyle(obj, STYLE_NAME)
         # 高さ基準をストーリレベルにバインドする(始端=0、終端=1。boundType=2=Story)。
         # これで構造材ツールの高さ基準が "レイヤの高さ"・offset 0 のまま実ジオメトリ
         # と矛盾せず、編集時に高さがリセットされない。
