@@ -113,6 +113,14 @@ class TestBuildTagCommands:
         # 幅 300 の方が 100 mm 分だけ上に離れる ((300-100)/2 = 100)
         assert wide['position'][1] - narrow['position'][1] == 100.0
 
+    def test_zero_length_member_uses_default_upward_offset(self) -> None:
+        """始点と終点が同じ(長さ 0)の材でも既定(上)方向へオフセットして落ちない。"""
+        tags = build_tag_commands([
+            make_member(start=(100.0, 200.0), end=(100.0, 200.0), width=120.0),
+        ])
+        # 向きを決められないため既定の上方向 (0, 1) へ 幅/2 + 余白 = 160
+        assert tags[0]['position'] == [100.0, 360.0]
+
     def test_offset_direction_is_perpendicular_to_axis(self) -> None:
         """オフセットは軸に直交している。"""
         member = make_member(start=(0.0, 0.0), end=(1000.0, 500.0))

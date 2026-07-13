@@ -279,3 +279,34 @@ class TestExecuteSheetsWithTags:
 
         assert count == 1
         vs_mock.CreateCustomObject.assert_not_called()
+
+    def test_tag_not_counted_when_creation_fails(self) -> None:
+        # データタグが作れない場合はカウントせず関連付けもしない
+        vs_mock = _make_vs_mock(['1-横架材天端', '共通'])
+        vs_mock.CreateCustomObject.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_floor_command(layers=['1-横架材天端', '共通'])],
+            [make_tag()], {0: 'MEMBER_HANDLE'}, counters)
+
+        assert counters['tags'] == 0
+        vs_mock.DT_AssociateWithObj.assert_not_called()
+
+    def test_no_tag_when_sheet_layer_creation_fails(self) -> None:
+        # シートレイヤ(=ビューポート)が作れない場合はタグを載せない
+        vs_mock = _make_vs_mock(['1-横架材天端', '共通'])
+        vs_mock.CreateLayer.side_effect = None
+        vs_mock.CreateLayer.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        count = vw_sheet.execute_sheets(
+            [make_floor_command(layers=['1-横架材天端', '共通'])],
+            [make_tag()], {0: 'MEMBER_HANDLE'}, counters)
+
+        # シートは作成扱いだがタグは配置されない
+        assert count == 1
+        assert counters['tags'] == 0
+        vs_mock.CreateCustomObject.assert_not_called()
