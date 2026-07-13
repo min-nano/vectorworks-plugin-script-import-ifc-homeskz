@@ -3,12 +3,16 @@
 立上りは ``vs.Wall`` で壁オブジェクトを、底盤・地中梁は外形ポリゴンから
 ``vs.CreateSlab`` でスラブオブジェクトを生成する。いずれも高さ基準を
 ``SetObjectStoryBound`` でストーリレベルにバインドする(梁・柱と同じ規約)。
+立上りには壁スタイル(``WALL_STYLE_NAME``)を ``SetWallStyle`` で適用する
+(オフセットは 0/0 で壁芯に揃える)。
 """
 from __future__ import annotations
 
 import vs
 
 from ..document import SlabCommand, WallCommand
+
+WALL_STYLE_NAME = '基礎 - 木造ベタ基礎150mm'
 
 
 def draw_wall(command: WallCommand) -> None:
@@ -34,6 +38,7 @@ def draw_wall(command: WallCommand) -> None:
     obj = vs.LNewObj()
     if obj != vs.Handle(0):
         vs.SetClass(obj, command['class'])
+        vs.SetWallStyle(obj, WALL_STYLE_NAME, 0.0, 0.0)
         bottom = command['bottom_bound']
         top = command['top_bound']
         vs.SetWallOverallHeights(

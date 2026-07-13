@@ -242,6 +242,13 @@ class TestExecuteColumns:
         assert pytest.approx(min(ys)) == -120 / 2
         assert pytest.approx(max(ys)) == 120 / 2
 
+    def test_applies_plugin_style(self) -> None:
+        """柱・小屋束のプラグインスタイル(木質構造材_柱・束)を適用する。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        _run_execute_columns(vs_mock, [make_column_command()])
+        vs_mock.SetPluginStyle.assert_called_once_with(
+            vs_mock.CreateCustomObjectPath.return_value, '木質構造材_柱・束')
+
     def test_sets_class(self) -> None:
         """柱種別クラスを SetClass で割り当てる。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})

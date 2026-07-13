@@ -21,6 +21,7 @@ import vs
 from ..document import ColumnCommand
 
 PLUGIN_NAME = 'StructuralMember'
+STYLE_NAME = '木質構造材_柱・束'
 
 
 def draw_column(command: ColumnCommand) -> None:
@@ -33,7 +34,9 @@ def draw_column(command: ColumnCommand) -> None:
     (鉛直材ではバインドの高さがパス由来の部材長に加算され上端が二重になるため。
     モジュール docstring 参照)。
     断面は width×depth の矩形プロファイル。member_id(柱頭・柱脚金物の仕様を
-    含む構造材 ID)を MemberID フィールドに格納する。プラグインが利用できない
+    含む構造材 ID)を MemberID フィールドに格納する。プラグインスタイル
+    (STYLE_NAME)を SetPluginStyle で適用してから個別フィールドを設定するため、
+    スタイルの既定値は本命令の実測値で上書きされる。プラグインが利用できない
     場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
@@ -59,6 +62,7 @@ def draw_column(command: ColumnCommand) -> None:
         vs.ResetOrientation3D()
         vs.Move3D(x, y, z_bottom)
         vs.SetClass(obj, command['class'])
+        vs.SetPluginStyle(obj, STYLE_NAME)
         vs.SetRField(obj, PLUGIN_NAME, 'MemberID', command['member_id'])
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
         vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))
