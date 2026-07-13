@@ -218,6 +218,10 @@ class TestExecuteSheetsWithTags:
             vw_sheet._DATA_TAG_PLUGIN, (1000.0, 160.0), 0.0)
         # スタイルを関連付け、対象横架材に関連付け、ビューポート注釈に追加する
         vs_mock.SetPluginStyle.assert_called_once_with('TAG_HANDLE', '断面寸法')
+        # 引出線を表示するパラメータを OFF にする
+        vs_mock.SetRField.assert_called_once_with(
+            'TAG_HANDLE', vw_sheet._DATA_TAG_PLUGIN,
+            vw_sheet._LEADER_FIELD, vw_sheet._LEADER_OFF)
         vs_mock.DT_AssociateWithObj.assert_called_once_with(
             'TAG_HANDLE', 'MEMBER_HANDLE')
         vs_mock.AddVPAnnotationObject.assert_called_once_with(
