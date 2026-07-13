@@ -72,27 +72,30 @@ class TestExecuteWalls:
         #  topLevel, topOffset)
         assert args[1:] == (2, 0, 'GL', -100.0, 2, 1, '横架材天端', -190.0)
 
-    def test_updates_styled_objects_after_placing(self) -> None:
-        """全配置後に UpdateStyledObjects で壁スタイルの描画属性(マテリアル/
-        テクスチャ等)を反映する。SetWallStyle は関連付けまでで描画属性を
-        プッシュしないため、これを呼ばないとテクスチャ等が反映されない
-        (構造材と同じ規約。#56/#57)。壁を何枚配置してもスタイル単位で 1 回。
+    def test_reapplies_wall_style_to_bind_material_texture(self) -> None:
+        """スタイル解除→再適用でマテリアルの 3D テクスチャをバインドする。
+
+        壁スタイルの新規適用ではマテリアルの 3D テクスチャがバインドされない
+        (2D ハッチは反映されるが 3D テクスチャが出ない)ため、
+        SetWallStyle → ConvertToUnstyledWall → SetWallStyle の順で解除→再適用し
+        テクスチャを確定させる(UI で「スタイルを外して再度当てる」に相当。#56/#57)。
         """
         vs_mock = _make_vs_mock({'F-立上り'})
         vw_footing = _load(vs_mock)
 
-        vw_footing.execute_walls([make_wall_command(), make_wall_command()])
-
-        vs_mock.UpdateStyledObjects.assert_called_once_with('基礎 - 木造ベタ基礎150mm')
-
-    def test_no_style_update_when_nothing_placed(self) -> None:
-        """1 枚も配置しなければ UpdateStyledObjects を呼ばない。"""
-        vs_mock = _make_vs_mock(set())
-        vw_footing = _load(vs_mock)
-
         vw_footing.execute_walls([make_wall_command()])
 
-        vs_mock.UpdateStyledObjects.assert_not_called()
+        # スタイルを 2 回適用し、その間で ConvertToUnstyledWall を呼ぶ
+        style_calls = [c for c in vs_mock.SetWallStyle.call_args_list
+                       if c.args[1:] == ('基礎 - 木造ベタ基礎150mm', 0.0, 0.0)]
+        assert len(style_calls) == 2
+        vs_mock.ConvertToUnstyledWall.assert_called_once()
+        methods = [c[0] for c in vs_mock.mock_calls]
+        style_idx = [i for i, m in enumerate(methods) if m == 'SetWallStyle']
+        unstyle_idx = methods.index('ConvertToUnstyledWall')
+        assert style_idx[0] < unstyle_idx < style_idx[1]
+        # 高さバインドは再適用後(スタイルで高さが変わらないように)
+        assert methods.index('SetWallOverallHeights') > style_idx[1]
 
     def test_skips_when_layer_missing(self) -> None:
         vs_mock = _make_vs_mock(set())
