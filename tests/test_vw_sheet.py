@@ -5,7 +5,7 @@ import importlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from vectorworks_plugin_import_ifc_homeskz.document import SheetCommand
+from vectorworks_plugin_import_ifc_homeskz.document import SheetCommand, TagCommand
 
 _NUMBER = '1'
 _TITLE = '基礎伏図'
@@ -21,6 +21,31 @@ def make_command() -> SheetCommand:
             'drawing_number': '1',
             'layers': list(_TARGET_LAYERS),
         },
+    }
+
+
+def make_floor_command(
+    number: str = '2', title: str = '1階床伏図',
+    layers: list[str] | None = None,
+) -> SheetCommand:
+    return {
+        'number': number,
+        'title': title,
+        'viewport': {
+            'drawing_title': title,
+            'drawing_number': number,
+            'layers': layers or ['1-横架材天端', '1-柱', '共通'],
+        },
+    }
+
+
+def make_tag(layer: str = '1-横架材天端', member_index: int = 0) -> TagCommand:
+    return {
+        'style': '断面寸法',
+        'layer': layer,
+        'member_index': member_index,
+        'position': [1000.0, 160.0],
+        'angle': 0.0,
     }
 
 
@@ -74,6 +99,7 @@ def _make_vs_mock(
     vs_mock.GetObject.side_effect = get_obj
     vs_mock.CreateLayer.side_effect = create_layer
     vs_mock.CreateVP.return_value = 'VP_HANDLE'
+    vs_mock.CreateCustomObject.return_value = 'TAG_HANDLE'
     # デザインレイヤの縮尺(1:50 相当)
     vs_mock.GetLScale.return_value = 50.0
     return vs_mock
@@ -175,3 +201,112 @@ class TestExecuteSheets:
         # シート自体は作成扱い、ビューポート設定は行わない
         assert count == 1
         vs_mock.UpdateVP.assert_not_called()
+
+
+class TestExecuteSheetsWithTags:
+    def test_places_tag_on_matching_floor_viewport(self) -> None:
+        vs_mock = _make_vs_mock(['1-横架材天端', '1-柱', '共通'])
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_floor_command()], [make_tag()],
+            {0: 'MEMBER_HANDLE'}, counters)
+
+        # データタグを挿入位置・角度で作成する
+        vs_mock.CreateCustomObject.assert_called_once_with(
+            vw_sheet._DATA_TAG_PLUGIN, (1000.0, 160.0), 0.0)
+        # スタイルを関連付け、対象横架材に関連付け、ビューポート注釈に追加する
+        vs_mock.SetPluginStyle.assert_called_once_with('TAG_HANDLE', '断面寸法')
+        vs_mock.DT_AssociateWithObj.assert_called_once_with(
+            'TAG_HANDLE', 'MEMBER_HANDLE')
+        vs_mock.AddVPAnnotationObject.assert_called_once_with(
+            'VP_HANDLE', 'TAG_HANDLE')
+        assert counters['tags'] == 1
+
+    def test_tag_not_placed_on_non_matching_viewport(self) -> None:
+        # 基礎伏図(横架材レイヤを表示しない)には横架材タグを置かない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], [make_tag()], {0: 'MEMBER_HANDLE'}, counters)
+
+        vs_mock.CreateCustomObject.assert_not_called()
+        assert counters['tags'] == 0
+
+    def test_tag_routed_to_its_own_floor_only(self) -> None:
+        # 2 枚の伏図があるとき、タグはレイヤが一致するビューポートにのみ載る
+        vs_mock = _make_vs_mock(['1-横架材天端', '2-横架材天端', '共通'])
+        vw_sheet = _load(vs_mock)
+
+        sheets = [
+            make_floor_command('2', '1階床伏図', ['1-横架材天端', '共通']),
+            make_floor_command('3', '2階床伏図', ['2-横架材天端', '共通']),
+        ]
+        tags = [make_tag('1-横架材天端', 0), make_tag('2-横架材天端', 1)]
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            sheets, tags, {0: 'M0', 1: 'M1'}, counters)
+
+        # タグ 2 つがそれぞれ 1 回ずつ配置される
+        assert counters['tags'] == 2
+        assoc = [c.args for c in vs_mock.DT_AssociateWithObj.call_args_list]
+        assert ('TAG_HANDLE', 'M0') in assoc
+        assert ('TAG_HANDLE', 'M1') in assoc
+
+    def test_tag_placed_without_member_handle_skips_association(self) -> None:
+        # 対象横架材のハンドルが無い(フォールバック描画等)場合は関連付けを省く
+        vs_mock = _make_vs_mock(['1-横架材天端', '共通'])
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_floor_command(layers=['1-横架材天端', '共通'])],
+            [make_tag()], {}, counters)
+
+        # タグ自体は配置するが、関連付けは行わない
+        vs_mock.CreateCustomObject.assert_called_once()
+        vs_mock.DT_AssociateWithObj.assert_not_called()
+        assert counters['tags'] == 1
+
+    def test_no_tags_when_tag_list_empty(self) -> None:
+        vs_mock = _make_vs_mock(['1-横架材天端', '共通'])
+        vw_sheet = _load(vs_mock)
+
+        count = vw_sheet.execute_sheets([make_floor_command()])
+
+        assert count == 1
+        vs_mock.CreateCustomObject.assert_not_called()
+
+    def test_tag_not_counted_when_creation_fails(self) -> None:
+        # データタグが作れない場合はカウントせず関連付けもしない
+        vs_mock = _make_vs_mock(['1-横架材天端', '共通'])
+        vs_mock.CreateCustomObject.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_floor_command(layers=['1-横架材天端', '共通'])],
+            [make_tag()], {0: 'MEMBER_HANDLE'}, counters)
+
+        assert counters['tags'] == 0
+        vs_mock.DT_AssociateWithObj.assert_not_called()
+
+    def test_no_tag_when_sheet_layer_creation_fails(self) -> None:
+        # シートレイヤ(=ビューポート)が作れない場合はタグを載せない
+        vs_mock = _make_vs_mock(['1-横架材天端', '共通'])
+        vs_mock.CreateLayer.side_effect = None
+        vs_mock.CreateLayer.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        count = vw_sheet.execute_sheets(
+            [make_floor_command(layers=['1-横架材天端', '共通'])],
+            [make_tag()], {0: 'MEMBER_HANDLE'}, counters)
+
+        # シートは作成扱いだがタグは配置されない
+        assert count == 1
+        assert counters['tags'] == 0
+        vs_mock.CreateCustomObject.assert_not_called()

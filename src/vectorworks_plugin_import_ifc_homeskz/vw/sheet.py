@@ -18,7 +18,10 @@ from typing import Any
 
 import vs
 
-from ..document import SheetCommand, ViewportCommand
+from ..document import SheetCommand, TagCommand, ViewportCommand
+
+# データタグの内部プラグイン名(VW の Data Tag ツール)。VW で最終確認する。
+_DATA_TAG_PLUGIN = 'Data Tag'
 
 # レイヤ種別(vs.CreateLayer): 1=デザインレイヤ, 2=プレゼンテーション(シート)レイヤ
 _SHEET_LAYER_TYPE = 2
@@ -91,16 +94,16 @@ def configure_viewport_scale(viewport: Any, target_layers: list[str]) -> None:
 
 def draw_viewport(
     viewport: ViewportCommand, sheet_layer: Any,
-) -> None:
-    """シートレイヤ上にビューポートを 1 つ生成し、表示レイヤ・図面タイトル・図番を設定する。
+) -> Any:
+    """シートレイヤ上にビューポートを 1 つ生成し、生成したビューポートハンドルを返す。
 
     ``vs.CreateVP`` でシートレイヤ上にビューポートを作り、表示レイヤを絞り込み、
     図面タイトル・図番を設定してから ``vs.UpdateVP`` で描画を更新する。
-    ビューポートが生成できない場合は何もしない。
+    ビューポートが生成できない場合は None を返す。
     """
     obj = vs.CreateVP(sheet_layer)
     if obj == vs.Handle(0):
-        return
+        return None
     vs.SetName(obj, viewport['drawing_title'])
     configure_viewport_layers(obj, viewport['layers'], sheet_layer)
     configure_viewport_classes(obj)
@@ -108,30 +111,77 @@ def draw_viewport(
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_TITLE, viewport['drawing_title'])
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_NUMBER, viewport['drawing_number'])
     vs.UpdateVP(obj)
+    return obj
 
 
-def draw_sheet(command: SheetCommand) -> None:
-    """sheet 命令 1 件をシートレイヤ + ビューポートとして描画する。
+def draw_sheet(command: SheetCommand) -> Any:
+    """sheet 命令 1 件をシートレイヤ + ビューポートとして描画し、ビューポートを返す。
 
     シートレイヤ(プレゼンテーションレイヤ)を **シートレイヤ番号を名前として**
     作成し(VW ではシートレイヤ番号はレイヤ名が担う)、シートレイヤタイトルを
     設定してから、その上にビューポートを配置する。同じ番号のシートレイヤが既にある
-    場合は再利用する。
+    場合は再利用する。ビューポート(またはシートレイヤ)が作れない場合は None を返す。
     """
     number = command['number']
     sheet_layer = vs.GetObject(number)
     if sheet_layer == vs.Handle(0):
         sheet_layer = vs.CreateLayer(number, _SHEET_LAYER_TYPE)
     if sheet_layer == vs.Handle(0):
-        return
+        return None
     vs.SetObjectVariableString(sheet_layer, _OV_SHEET_TITLE, command['title'])
-    draw_viewport(command['viewport'], sheet_layer)
+    return draw_viewport(command['viewport'], sheet_layer)
 
 
-def execute_sheets(commands: list[SheetCommand]) -> int:
-    """sheet 命令のリストを実行し、作成シート数を返す。"""
+def draw_tag(tag: TagCommand, member_handle: Any, viewport: Any) -> bool:
+    """tag 命令 1 件をビューポート注釈のデータタグとして描画する。
+
+    ``vs.CreateCustomObject`` でデータタグ(``断面寸法`` スタイル)を挿入位置・
+    軸方向の角度で作り、対象の横架材(``member_handle``)に関連付けてから、
+    ビューポートの注釈に追加する。関連付け対象が無い(横架材がフォールバック
+    描画等でハンドルを持たない)場合は関連付けを省く。タグが作れなければ False。
+    """
+    x, y = tag['position']
+    obj = vs.CreateCustomObject(_DATA_TAG_PLUGIN, (x, y), tag['angle'])
+    if obj == vs.Handle(0):
+        return False
+    vs.SetPluginStyle(obj, tag['style'])
+    if member_handle is not None:
+        vs.DT_AssociateWithObj(obj, member_handle)
+    vs.AddVPAnnotationObject(viewport, obj)
+    vs.DT_UpdateTaggedTags(obj)
+    return True
+
+
+def execute_sheets(
+    commands: list[SheetCommand],
+    tags: list[TagCommand] | None = None,
+    member_handles: dict[int, Any] | None = None,
+    counters: dict[str, int] | None = None,
+) -> int:
+    """sheet 命令のリストを実行し、作成シート数を返す。
+
+    ``tags`` を渡すと、各シートのビューポートに **その表示レイヤに乗る横架材**
+    (タグの ``layer`` がビューポートの ``layers`` に含まれるもの)のデータタグを
+    注釈として配置する。横架材レイヤは階ごとに固有なので、タグは対応する 1 枚の
+    床伏図・小屋伏図にのみ載る。``member_handles`` は横架材命令のインデックス →
+    構造材ハンドルの対応で、タグを対象横架材に関連付けるのに使う。``counters`` を
+    渡すと配置したタグ数を ``counters['tags']`` に記録する。
+    """
+    tags = tags or []
+    member_handles = member_handles or {}
     count = 0
+    tag_count = 0
     for command in commands:
-        draw_sheet(command)
+        viewport = draw_sheet(command)
+        if viewport is not None and viewport != vs.Handle(0):
+            vp_layers = set(command['viewport']['layers'])
+            for tag in tags:
+                if tag['layer'] not in vp_layers:
+                    continue
+                handle = member_handles.get(tag['member_index'])
+                if draw_tag(tag, handle, viewport):
+                    tag_count += 1
         count += 1
+    if counters is not None:
+        counters['tags'] = tag_count
     return count

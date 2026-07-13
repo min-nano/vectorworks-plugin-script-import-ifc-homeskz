@@ -255,6 +255,35 @@ class TestExecuteMembers:
         _run_execute_members(vs_mock, [make_member_command()])
         vs_mock.UpdateStyledObjects.assert_not_called()
 
+    def test_records_handles_by_command_index(self) -> None:
+        """handles に構造材ハンドルを命令インデックス付きで記録する。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
+        handles: dict[int, object] = {}
+        with patch.dict('sys.modules', {'vs': vs_mock}):
+            import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+            importlib.reload(vw_member)
+            vw_member.execute_members([
+                make_member_command(start=(0.0, 0.0)),
+                make_member_command(start=(0.0, 1000.0)),
+            ], handles)
+
+        assert handles == {
+            0: vs_mock.CreateCustomObjectPath.return_value,
+            1: vs_mock.CreateCustomObjectPath.return_value,
+        }
+
+    def test_does_not_record_handle_on_fallback(self) -> None:
+        """フォールバック描画(プラグイン不可)の命令はハンドルを記録しない。"""
+        vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
+        vs_mock.CreateCustomObjectPath.return_value = vs_mock.Handle.return_value
+        handles: dict[int, object] = {}
+        with patch.dict('sys.modules', {'vs': vs_mock}):
+            import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+            importlib.reload(vw_member)
+            vw_member.execute_members([make_member_command()], handles)
+
+        assert handles == {}
+
     def test_fallback_to_line_when_plugin_unavailable(self) -> None:
         """構造材プラグインが利用できない場合に通常線にフォールバックする。"""
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})

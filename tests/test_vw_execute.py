@@ -176,6 +176,7 @@ def make_document() -> dict[str, Any]:
              'viewport': {'drawing_title': '基礎伏図', 'drawing_number': '1',
                           'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']}},
         ],
+        'tags': [],
     }
 
 
@@ -184,16 +185,18 @@ class TestExecuteDocument:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
-                          'walls': 1, 'slabs': 1, 'anchor_bolts': 1, 'sheets': 1}
+                          'walls': 1, 'slabs': 1, 'anchor_bolts': 1, 'sheets': 1,
+                          'tags': 0}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'slabs': [],
-                    'anchor_bolts': [], 'sheets': []}
+                    'anchor_bolts': [], 'sheets': [], 'tags': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
-                          'walls': 0, 'slabs': 0, 'anchor_bolts': 0, 'sheets': 0}
+                          'walls': 0, 'slabs': 0, 'anchor_bolts': 0, 'sheets': 0,
+                          'tags': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

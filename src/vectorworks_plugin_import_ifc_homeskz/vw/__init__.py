@@ -32,18 +32,24 @@ def execute_document(document: Any) -> dict[str, int]:
     (並べ替え後)に描画する。
 
     Returns: {'stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-        'anchor_bolts', 'sheets'} 各命令の実行数。
+        'anchor_bolts', 'sheets', 'tags'} 各命令の実行数。tags は伏図
+        ビューポートに配置した断面寸法データタグ数。
     """
     validated = validate_document(document)
+    # 横架材のハンドルを記録し、断面寸法データタグ(シートフェーズ)の関連付けに使う
+    member_handles: dict[int, Any] = {}
     counts = {
         'stories': execute_stories(validated['stories']),
         'grids': execute_grids(validated['grids']),
-        'members': execute_members(validated['members']),
+        'members': execute_members(validated['members'], member_handles),
         'columns': execute_columns(validated['columns']),
         'walls': execute_walls(validated['walls']),
         'slabs': execute_slabs(validated['slabs']),
         'anchor_bolts': execute_anchor_bolts(validated['anchor_bolts']),
     }
     reorder_story_layers(validated['stories'])
-    counts['sheets'] = execute_sheets(validated['sheets'])
+    counters: dict[str, int] = {}
+    counts['sheets'] = execute_sheets(
+        validated['sheets'], validated['tags'], member_handles, counters)
+    counts['tags'] = counters.get('tags', 0)
     return counts

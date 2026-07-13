@@ -1,6 +1,8 @@
 """member 命令の描画。VectorWorks 構造材ツールで部材を配置する。"""
 from __future__ import annotations
 
+from typing import Any
+
 import vs
 
 from ..document import MemberCommand
@@ -9,8 +11,11 @@ PLUGIN_NAME = 'StructuralMember'
 STYLE_NAME = '木質構造材_横架材'
 
 
-def draw_member(command: MemberCommand) -> None:
-    """member 命令 1 件を構造材ツールで描画する。
+def draw_member(command: MemberCommand) -> Any:
+    """member 命令 1 件を構造材ツールで描画し、配置した構造材ハンドルを返す。
+
+    プラグインが利用できずフォールバック(通常線)で描画した場合は None を返す
+    (断面寸法データタグの関連付け対象にならないため)。
 
     パスは平面(プラン)投影でローカル原点 (0,0,0) から作成し、
     CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
@@ -80,19 +85,27 @@ def draw_member(command: MemberCommand) -> None:
         vs.SetRField(obj, PLUGIN_NAME, 'StartCondition', '3')
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileSeries', 'AISC (Inch)')
         vs.ResetObject(obj)
-    else:
-        # フォールバック: 通常の直線
-        vs.MoveTo(x1, y1)
-        vs.LineTo(x2, y2)
-        fallback_line = vs.LNewObj()
-        vs.SetClass(fallback_line, command['class'])
+        return obj
+    # フォールバック: 通常の直線
+    vs.MoveTo(x1, y1)
+    vs.LineTo(x2, y2)
+    fallback_line = vs.LNewObj()
+    vs.SetClass(fallback_line, command['class'])
+    return None
 
 
-def execute_members(commands: list[MemberCommand]) -> int:
+def execute_members(
+    commands: list[MemberCommand], handles: dict[int, Any] | None = None,
+) -> int:
     """member 命令のリストを描画し、配置数を返す。
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する。
     未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない)。
+
+    ``handles`` に dict を渡すと、命令のインデックス(commands 内の位置)を
+    キーに配置した構造材ハンドルを記録する(断面寸法データタグの関連付けに使う)。
+    フォールバック描画(プラグイン不可)やレイヤ未生成でスキップした命令は
+    記録しない。
 
     全配置後に UpdateStyledObjects(STYLE_NAME) を 1 回呼び、当該スタイルの全
     オブジェクトをスタイルから更新して描画属性(テクスチャ等)を反映する。
@@ -102,13 +115,15 @@ def execute_members(commands: list[MemberCommand]) -> int:
     フィールド(寸法・MemberID 等)は保持したまま by-style の描画属性のみ更新する。
     """
     count = 0
-    for command in commands:
+    for index, command in enumerate(commands):
         layer = command['layer']
         if vs.GetObject(layer) == vs.Handle(0):
             continue
         vs.Layer(layer)
 
-        draw_member(command)
+        obj = draw_member(command)
+        if handles is not None and obj is not None:
+            handles[index] = obj
         count += 1
 
     if count > 0:

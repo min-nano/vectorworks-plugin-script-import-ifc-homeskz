@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 15):
+スキーマ (version 16):
 
     {
-        "version": 15,
+        "version": 16,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -149,6 +149,23 @@
                     "layers": ["F-底盤", "F-立上り", "F-アンカーボルト", "共通"]
                 }
             }
+        ],
+        "tags": [
+            {
+                # 横架材の断面寸法を表示するデータタグを、床伏図・小屋伏図の
+                # ビューポート注釈として配置する命令。VW の「断面寸法」データタグ
+                # スタイルを関連付け、対象の横架材(members[member_index])に
+                # 関連付けて断面寸法(120×180 等)を表示する。
+                "style": "断面寸法",     # 適用するデータタグスタイル名
+                "layer": "1-横架材天端",  # 関連付け先横架材の配置レイヤ。この
+                                          # レイヤを表示するビューポート(=その階の
+                                          # 床/小屋伏図)の注釈にタグを置く。
+                "member_index": 0,        # 関連付け先横架材の members 内インデックス
+                # タグの挿入位置(mm・センタリング済み)。横架材の中央から軸に
+                # 直交する「上または左」方向へ断面幅/2 + 余白だけオフセットした点。
+                "position": [1500.0, 160.0],
+                "angle": 0.0              # 横架材の軸方向に沿った文字角度 (度)
+            }
         ]
     }
 """
@@ -157,7 +174,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 15
+DOCUMENT_VERSION = 16
 
 
 class LevelCommand(TypedDict):
@@ -331,6 +348,24 @@ class SheetCommand(TypedDict):
     viewport: ViewportCommand
 
 
+class TagCommand(TypedDict):
+    """横架材の断面寸法データタグを配置する命令。
+
+    style は適用するデータタグスタイル名(VW 側で設定した「断面寸法」)。
+    layer は関連付け先の横架材が配置されるデザインレイヤ名で、このレイヤを
+    表示するビューポート(=その階の床伏図・小屋伏図)の注釈にタグを置く。
+    member_index は関連付け先の横架材の members 内インデックス。position は
+    タグの挿入位置(横架材の中央から軸直交方向の「上または左」へオフセットした
+    点、mm・センタリング済み)。angle は横架材の軸方向に沿った文字角度 (度)。
+    """
+
+    style: str
+    layer: str
+    member_index: int
+    position: list[float]
+    angle: float
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -343,6 +378,7 @@ class Document(TypedDict):
     slabs: list[SlabCommand]
     anchor_bolts: list[AnchorBoltCommand]
     sheets: list[SheetCommand]
+    tags: list[TagCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -520,6 +556,23 @@ def _validate_sheet(index: int, command: Any) -> None:
     _validate_viewport(where, command.get('viewport'))
 
 
+def _validate_tag(index: int, command: Any) -> None:
+    where = f'tags[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('style'), str) and command['style'],
+             f'{where}.style は非空文字列である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('member_index'), int)
+             and not isinstance(command.get('member_index'), bool)
+             and command['member_index'] >= 0,
+             f'{where}.member_index は 0 以上の整数である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+    _require(_is_number(command.get('angle')),
+             f'{where}.angle は数値である必要があります')
+
+
 def _validate_story_bound(where: str, key: str, bound: Any) -> None:
     field = f'{where}.{key}'
     _require(isinstance(bound, dict), f'{field} は dict である必要があります')
@@ -538,7 +591,7 @@ def validate_document(document: Any) -> Document:
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-                'anchor_bolts', 'sheets'):
+                'anchor_bolts', 'sheets', 'tags'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -557,6 +610,8 @@ def validate_document(document: Any) -> Document:
         _validate_anchor_bolt(i, command)
     for i, command in enumerate(document['sheets']):
         _validate_sheet(i, command)
+    for i, command in enumerate(document['tags']):
+        _validate_tag(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

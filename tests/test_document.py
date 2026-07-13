@@ -91,6 +91,12 @@ def make_valid_document() -> dict[str, Any]:
                 },
             },
         ],
+        'tags': [
+            {
+                'style': '断面寸法', 'layer': '1-横架材天端', 'member_index': 0,
+                'position': [1500.0, 160.0], 'angle': 0.0,
+            },
+        ],
     }
 
 
@@ -106,7 +112,7 @@ class TestValidateDocument:
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'slabs': [],
-                    'anchor_bolts': [], 'sheets': []}
+                    'anchor_bolts': [], 'sheets': [], 'tags': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -126,7 +132,8 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
-                                     'walls', 'slabs', 'anchor_bolts', 'sheets'])
+                                     'walls', 'slabs', 'anchor_bolts', 'sheets',
+                                     'tags'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -366,6 +373,42 @@ class TestValidateDocument:
         document = make_valid_document()
         document['sheets'][0]['viewport']['layers'] = ['F-底盤', '']
         with pytest.raises(DocumentValidationError, match='layers'):
+            validate_document(document)
+
+    def test_rejects_tag_without_style(self) -> None:
+        document = make_valid_document()
+        del document['tags'][0]['style']
+        with pytest.raises(DocumentValidationError, match='style'):
+            validate_document(document)
+
+    def test_rejects_tag_with_empty_layer(self) -> None:
+        document = make_valid_document()
+        document['tags'][0]['layer'] = ''
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_tag_with_negative_member_index(self) -> None:
+        document = make_valid_document()
+        document['tags'][0]['member_index'] = -1
+        with pytest.raises(DocumentValidationError, match='member_index'):
+            validate_document(document)
+
+    def test_rejects_tag_with_non_int_member_index(self) -> None:
+        document = make_valid_document()
+        document['tags'][0]['member_index'] = 0.5
+        with pytest.raises(DocumentValidationError, match='member_index'):
+            validate_document(document)
+
+    def test_rejects_tag_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['tags'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_tag_with_non_numeric_angle(self) -> None:
+        document = make_valid_document()
+        document['tags'][0]['angle'] = '0'
+        with pytest.raises(DocumentValidationError, match='angle'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:
