@@ -132,8 +132,13 @@ class TestExecuteMembers:
             for x, y, z in move3d_calls
         )
 
-    def test_draws_sloped_member_with_3d_path(self) -> None:
-        """傾斜梁(elevation ≠ end_elevation)は Z 成分を持つ 3D パスで描画する。"""
+    def test_draws_sloped_member_with_planar_path(self) -> None:
+        """傾斜梁(elevation ≠ end_elevation)でもパスは水平(Z 成分 0)にする。
+
+        傾斜は始端/終端の高さバインド(start_bound/end_bound)だけで表す。
+        パスにも Z 成分を持たせると構造材ツールの高さバインドが加算されて傾斜が
+        二重になり終端が 2 倍の高さに描画されるため(柱の二重加算(#54)と同種)。
+        """
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
         vertex_calls: list[tuple[float, float, float]] = []
         move3d_calls: list[tuple[float, float, float]] = []
@@ -152,9 +157,9 @@ class TestExecuteMembers:
                                 elevation=527.0, end_elevation=1327.0),
         ])
 
-        # 方向ベクトルは (600, 600, 800)(Z は天端 Z の差分)
+        # 方向ベクトルは平面投影 (600, 600, 0)(Z は 0。傾斜はバインドで表す)
         assert vertex_calls == [
-            (pytest.approx(600.0), pytest.approx(600.0), pytest.approx(800.0)),
+            (pytest.approx(600.0), pytest.approx(600.0), pytest.approx(0.0)),
         ]
         # Move3D で始端天端 (0, 0, 527) へ移動
         assert any(

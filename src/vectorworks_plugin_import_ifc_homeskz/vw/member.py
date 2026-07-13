@@ -11,25 +11,30 @@ PLUGIN_NAME = 'StructuralMember'
 def draw_member(command: MemberCommand) -> None:
     """member 命令 1 件を構造材ツールで描画する。
 
-    パスはローカル原点 (0,0,0) から方向ベクトルで定義し、
+    パスは平面(プラン)投影でローカル原点 (0,0,0) から作成し、
     CreateCustomObjectPath 後に Move3D で絶対位置へ移動する。
     これは VW 構造材ツールの期待する配置パターンと一致する。
-    始端と終端の天端 Z(elevation/end_elevation)が異なる傾斜梁
-    (登り梁・隅木等)は Z 成分を持つ 3D パスとして描画する。
-    配置後、始端/終端の高さ基準を SetObjectStoryBound でストーリレベル
-    (横架材天端、最上階は軒高)にバインドする。これにより構造材ツールの
-    高さ基準が "レイヤの高さ" のまま offset 0 で実ジオメトリと矛盾し、
-    再描画/編集時に高さがリセットされる問題を防ぐ。
+    始端/終端の高さ(傾斜梁=登り梁・隅木等の天端 Z の差を含む)は
+    配置後の SetObjectStoryBound(start_bound/end_bound)で与える。
+    **パスに Z 成分(傾斜)を持たせてはならない。** 構造材ツールの高さ
+    バインドは指定した高さ差をパス由来の部材長に**加算**するため、
+    パスにも傾斜を持たせると傾斜が二重に適用され終端が実際の 2 倍の高さに
+    描画される(柱の二重加算(#54)と同種の問題。水平梁は差が 0 なので影響
+    しなかった)。よってパスは水平にし、傾斜は始端/終端の高さバインドだけで
+    表す。バインドは同時に、構造材ツールの高さ基準が "レイヤの高さ" のまま
+    offset 0 で実ジオメトリと矛盾し再描画/編集時に高さがリセットされる問題も
+    防ぐ(横架材天端、最上階は軒高)。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
     x1, y1 = command['start']
     x2, y2 = command['end']
     z1 = command['elevation']
-    z2 = command['end_elevation']
 
-    # パスをローカル座標で作成 (始点=原点、終点=方向×長さ)
+    # パスをローカル座標の平面投影で作成 (始点=原点、終点=XY 方向ベクトル)。
+    # Z(傾斜)はパスに持たせず start_bound/end_bound の高さバインドで与える
+    # (パスにも持たせると傾斜が二重加算される。docstring 参照)。
     path_h = vs.CreateNurbsCurve(0, 0, 0, False, 1)
-    vs.AddVertex3D(path_h, x2 - x1, y2 - y1, z2 - z1)
+    vs.AddVertex3D(path_h, x2 - x1, y2 - y1, 0)
 
     w = int(round(command['width']))
     h = int(round(command['height']))
