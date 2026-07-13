@@ -25,8 +25,12 @@ def draw_member(command: MemberCommand) -> None:
     表す。バインドは同時に、構造材ツールの高さ基準が "レイヤの高さ" のまま
     offset 0 で実ジオメトリと矛盾し再描画/編集時に高さがリセットされる問題も
     防ぐ(横架材天端、最上階は軒高)。
-    配置後にプラグインスタイル(STYLE_NAME)を SetPluginStyle で適用してから
-    個別フィールドを設定するため、スタイルの既定値は本命令の実測値で上書きされる。
+    配置後にプラグインスタイル(STYLE_NAME)を SetPluginStyle で関連付ける。
+    SetPluginStyle はスタイルの関連付け(パラメータ)までで、スタイルが決める
+    描画属性(コンポーネントのクラス/マテリアル=テクスチャ等)はオブジェクトへ
+    プッシュされない。描画属性は execute_members が全配置後に UpdateStyledObjects
+    でまとめて反映する(下記参照。#56 の不具合)。個別フィールドはスタイル関連付けの
+    後に設定するため、スタイル既定のパラメータは本命令の実測値で上書きされる。
     プラグインが利用できない場合は通常の直線にフォールバックする。
     """
     x1, y1 = command['start']
@@ -89,6 +93,13 @@ def execute_members(commands: list[MemberCommand]) -> int:
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する。
     未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない)。
+
+    全配置後に UpdateStyledObjects(STYLE_NAME) を 1 回呼び、当該スタイルの全
+    オブジェクトをスタイルから更新して描画属性(テクスチャ等)を反映する。
+    SetPluginStyle はスタイルの関連付け(パラメータ)までで描画属性をプッシュ
+    しないため、これを呼ばないとテクスチャ等が反映されない(#56。OIP での手動適用は
+    リンク+この更新の両方を行う)。UpdateStyledObjects は by-instance の個別
+    フィールド(寸法・MemberID 等)は保持したまま by-style の描画属性のみ更新する。
     """
     count = 0
     for command in commands:
@@ -99,5 +110,8 @@ def execute_members(commands: list[MemberCommand]) -> int:
 
         draw_member(command)
         count += 1
+
+    if count > 0:
+        vs.UpdateStyledObjects(STYLE_NAME)
 
     return count
