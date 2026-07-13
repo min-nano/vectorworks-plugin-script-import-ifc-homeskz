@@ -14,21 +14,25 @@ from .column import execute_columns
 from .footing import execute_slabs, execute_walls
 from .grid import execute_grids
 from .member import execute_members
+from .sheet import execute_sheets
 from .story import execute_stories, reorder_story_layers
 
 __all__ = ['execute_anchor_bolts', 'execute_columns', 'execute_document',
-           'execute_grids', 'execute_members', 'execute_slabs',
-           'execute_stories', 'execute_walls', 'reorder_story_layers']
+           'execute_grids', 'execute_members', 'execute_sheets',
+           'execute_slabs', 'execute_stories', 'execute_walls',
+           'reorder_story_layers']
 
 
 def execute_document(document: Any) -> dict[str, int]:
-    """命令セットを検証し、ストーリ → 通り芯 → 構造材 → 柱 → 立上り → 底盤 → アンカーボルトの順で描画する。
+    """命令セットを検証し、ストーリ → 通り芯 → 構造材 → 柱 → 立上り → 底盤 → アンカーボルト → シートの順で描画する。
 
-    全描画後に reorder_story_layers でデザインレイヤのスタック順を整える。通り芯
-    レイヤ(共通)を最上段に積むため、その生成(通り芯描画)後に並べ替える必要がある。
+    構造材などの描画後に reorder_story_layers でデザインレイヤのスタック順を整える。
+    通り芯レイヤ(共通)を最上段に積むため、その生成(通り芯描画)後に並べ替える
+    必要がある。シート(ビューポート)はデザインレイヤを参照するため、それらの生成後
+    (並べ替え後)に描画する。
 
     Returns: {'stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-        'anchor_bolts'} 各命令の実行数。
+        'anchor_bolts', 'sheets'} 各命令の実行数。
     """
     validated = validate_document(document)
     counts = {
@@ -41,4 +45,5 @@ def execute_document(document: Any) -> dict[str, int]:
         'anchor_bolts': execute_anchor_bolts(validated['anchor_bolts']),
     }
     reorder_story_layers(validated['stories'])
+    counts['sheets'] = execute_sheets(validated['sheets'])
     return counts

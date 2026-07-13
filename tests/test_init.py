@@ -95,6 +95,7 @@ def _reload_vw_modules() -> None:
     import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
     import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
     import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+    import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
     import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
     importlib.reload(vw_grid)
     importlib.reload(vw_member)
@@ -102,6 +103,7 @@ def _reload_vw_modules() -> None:
     importlib.reload(vw_column)
     importlib.reload(vw_footing)
     importlib.reload(vw_anchor)
+    importlib.reload(vw_sheet)
     importlib.reload(vw)
 
 

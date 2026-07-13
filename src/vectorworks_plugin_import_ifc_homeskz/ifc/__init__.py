@@ -19,6 +19,7 @@ from .footing import (
 from .grid import build_grid_commands
 from .loader import open_ifc
 from .member import build_member_commands
+from .sheet import build_sheet_commands
 from .story import build_story_commands
 
 if TYPE_CHECKING:
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
 __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_document', 'build_foundation_story_command',
            'build_grid_commands', 'build_member_commands',
-           'build_slab_commands', 'build_story_commands',
-           'build_wall_commands', 'open_ifc']
+           'build_sheet_commands', 'build_slab_commands',
+           'build_story_commands', 'build_wall_commands', 'open_ifc']
 
 
 def build_document(ifc_file: ifcopenshell.file) -> Document:
@@ -51,4 +52,5 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'walls': build_wall_commands(ifc_file),
         'slabs': build_slab_commands(ifc_file),
         'anchor_bolts': build_anchor_bolt_commands(ifc_file),
+        'sheets': build_sheet_commands(ifc_file),
     }

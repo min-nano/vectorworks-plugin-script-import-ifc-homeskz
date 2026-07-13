@@ -46,6 +46,7 @@ class Expected:
         walls: int,
         slabs: int,
         anchor_bolts: int,
+        sheets: int,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -57,6 +58,7 @@ class Expected:
         self.walls = walls
         self.slabs = slabs
         self.anchor_bolts = anchor_bolts
+        self.sheets = sheets
 
 
 # 各フィクスチャの想定値。値は build_document の実出力から取得しており、
@@ -73,6 +75,7 @@ FIXTURES = [
         walls=38,
         slabs=38,
         anchor_bolts=96,
+        sheets=1,
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -85,6 +88,7 @@ FIXTURES = [
         walls=55,
         slabs=51,
         anchor_bolts=110,
+        sheets=1,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -97,6 +101,7 @@ FIXTURES = [
         walls=39,
         slabs=36,
         anchor_bolts=85,
+        sheets=1,
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -109,6 +114,7 @@ FIXTURES = [
         walls=27,
         slabs=28,
         anchor_bolts=60,
+        sheets=1,
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -121,6 +127,7 @@ FIXTURES = [
         walls=19,
         slabs=24,
         anchor_bolts=30,
+        sheets=1,
     ),
 ]
 
@@ -222,6 +229,7 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+        import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
         importlib.reload(vw_member)
@@ -229,6 +237,7 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         importlib.reload(vw_column)
         importlib.reload(vw_footing)
         importlib.reload(vw_anchor)
+        importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
 
@@ -285,6 +294,22 @@ class TestSampleIfcAnalysis:
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
         assert len(document['anchor_bolts']) == exp.anchor_bolts
+        assert len(document['sheets']) == exp.sheets
+
+    def test_foundation_plan_sheet_references_foundation_layers(
+            self, exp: Expected) -> None:
+        """基礎伏図シートは基礎・通り芯レイヤを表示するビューポートを持つ。"""
+        document = build_fixture_document(exp.filename)
+        # フィクスチャはいずれも基礎を含むため基礎伏図シートが 1 枚できる
+        assert len(document['sheets']) == 1
+        sheet = document['sheets'][0]
+        assert sheet['number'] == '1'
+        assert sheet['title'] == '基礎伏図'
+        viewport = sheet['viewport']
+        assert viewport['drawing_title'] == '基礎伏図'
+        assert viewport['drawing_number'] == '1'
+        assert viewport['layers'] == [
+            'F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']
 
     def test_wall_and_slab_layers_reference_foundation_layers(
             self, exp: Expected) -> None:
@@ -360,6 +385,7 @@ class TestFullPipeline:
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
         assert counts['anchor_bolts'] == len(document['anchor_bolts'])
+        assert counts['sheets'] == len(document['sheets'])
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
         assert counts['members'] == exp.members
@@ -367,6 +393,7 @@ class TestFullPipeline:
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs
         assert counts['anchor_bolts'] == exp.anchor_bolts
+        assert counts['sheets'] == exp.sheets
 
     def test_each_story_is_created(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)

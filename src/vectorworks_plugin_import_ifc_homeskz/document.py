@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 14):
+スキーマ (version 15):
 
     {
-        "version": 14,
+        "version": 15,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -134,6 +134,21 @@
                 # ストーリレベル (基礎天端) が担うため命令に高さ情報は持たせない。
                 "position": [x, y]
             }
+        ],
+        "sheets": [
+            {
+                # シートレイヤとビューポートを生成する命令。特定のデザインレイヤ群を
+                # 表示するビューポートを配置した 1 枚のシートを作る(例: 基礎伏図)。
+                "number": "1",           # シートレイヤ番号
+                "title": "基礎伏図",      # シートレイヤタイトル
+                "viewport": {
+                    "drawing_title": "基礎伏図",  # ビューポートの図面タイトル
+                    "drawing_number": "1",        # ビューポートの図番
+                    # ビューポートに表示するデザインレイヤ名。ここに挙げたレイヤだけを
+                    # 表示し、それ以外のデザインレイヤは非表示にする。
+                    "layers": ["F-底盤", "F-立上り", "F-アンカーボルト", "共通"]
+                }
+            }
         ]
     }
 """
@@ -142,7 +157,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 14
+DOCUMENT_VERSION = 15
 
 
 class LevelCommand(TypedDict):
@@ -291,6 +306,31 @@ class AnchorBoltCommand(TypedDict):
     position: list[float]
 
 
+class ViewportCommand(TypedDict):
+    """シート上に配置するビューポート 1 つ分。
+
+    drawing_title / drawing_number はビューポートの図面タイトル・図番。layers は
+    ビューポートに表示するデザインレイヤ名の並び。ここに挙げたレイヤだけを表示し、
+    それ以外のデザインレイヤは非表示にする。
+    """
+
+    drawing_title: str
+    drawing_number: str
+    layers: list[str]
+
+
+class SheetCommand(TypedDict):
+    """シートレイヤとその上のビューポートを生成する命令。
+
+    number はシートレイヤ番号、title はシートレイヤタイトル。viewport は
+    シートに配置するビューポート(表示するデザインレイヤ・図面タイトル・図番)。
+    """
+
+    number: str
+    title: str
+    viewport: ViewportCommand
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -302,6 +342,7 @@ class Document(TypedDict):
     walls: list[WallCommand]
     slabs: list[SlabCommand]
     anchor_bolts: list[AnchorBoltCommand]
+    sheets: list[SheetCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -454,6 +495,31 @@ def _validate_anchor_bolt(index: int, command: Any) -> None:
              f'{where}.position は [x, y] の数値ペアである必要があります')
 
 
+def _validate_viewport(where: str, viewport: Any) -> None:
+    field = f'{where}.viewport'
+    _require(isinstance(viewport, dict), f'{field} は dict である必要があります')
+    _require(isinstance(viewport.get('drawing_title'), str),
+             f'{field}.drawing_title は文字列である必要があります')
+    _require(isinstance(viewport.get('drawing_number'), str),
+             f'{field}.drawing_number は文字列である必要があります')
+    layers = viewport.get('layers')
+    _require(isinstance(layers, list) and len(layers) >= 1,
+             f'{field}.layers は 1 つ以上のレイヤ名リストである必要があります')
+    for j, layer in enumerate(layers):
+        _require(isinstance(layer, str) and layer,
+                 f'{field}.layers[{j}] は非空文字列である必要があります')
+
+
+def _validate_sheet(index: int, command: Any) -> None:
+    where = f'sheets[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('number'), str) and command['number'],
+             f'{where}.number は非空文字列である必要があります')
+    _require(isinstance(command.get('title'), str) and command['title'],
+             f'{where}.title は非空文字列である必要があります')
+    _validate_viewport(where, command.get('viewport'))
+
+
 def _validate_story_bound(where: str, key: str, bound: Any) -> None:
     field = f'{where}.{key}'
     _require(isinstance(bound, dict), f'{field} は dict である必要があります')
@@ -472,7 +538,7 @@ def validate_document(document: Any) -> Document:
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-                'anchor_bolts'):
+                'anchor_bolts', 'sheets'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -489,6 +555,8 @@ def validate_document(document: Any) -> Document:
         _validate_slab(i, command)
     for i, command in enumerate(document['anchor_bolts']):
         _validate_anchor_bolt(i, command)
+    for i, command in enumerate(document['sheets']):
+        _validate_sheet(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

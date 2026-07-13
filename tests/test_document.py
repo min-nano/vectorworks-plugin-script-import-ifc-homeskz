@@ -82,6 +82,15 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [0.0, 0.0],
             },
         ],
+        'sheets': [
+            {
+                'number': '1', 'title': '基礎伏図',
+                'viewport': {
+                    'drawing_title': '基礎伏図', 'drawing_number': '1',
+                    'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通'],
+                },
+            },
+        ],
     }
 
 
@@ -97,7 +106,7 @@ class TestValidateDocument:
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'slabs': [],
-                    'anchor_bolts': []}
+                    'anchor_bolts': [], 'sheets': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -117,7 +126,7 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
-                                     'walls', 'slabs', 'anchor_bolts'])
+                                     'walls', 'slabs', 'anchor_bolts', 'sheets'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -321,6 +330,42 @@ class TestValidateDocument:
         document = make_valid_document()
         document['anchor_bolts'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_sheet_with_empty_number(self) -> None:
+        document = make_valid_document()
+        document['sheets'][0]['number'] = ''
+        with pytest.raises(DocumentValidationError, match='number'):
+            validate_document(document)
+
+    def test_rejects_sheet_without_title(self) -> None:
+        document = make_valid_document()
+        del document['sheets'][0]['title']
+        with pytest.raises(DocumentValidationError, match='title'):
+            validate_document(document)
+
+    def test_rejects_sheet_without_viewport(self) -> None:
+        document = make_valid_document()
+        del document['sheets'][0]['viewport']
+        with pytest.raises(DocumentValidationError, match='viewport'):
+            validate_document(document)
+
+    def test_rejects_viewport_with_non_string_drawing_number(self) -> None:
+        document = make_valid_document()
+        document['sheets'][0]['viewport']['drawing_number'] = 1
+        with pytest.raises(DocumentValidationError, match='drawing_number'):
+            validate_document(document)
+
+    def test_rejects_viewport_without_layers(self) -> None:
+        document = make_valid_document()
+        document['sheets'][0]['viewport']['layers'] = []
+        with pytest.raises(DocumentValidationError, match='layers'):
+            validate_document(document)
+
+    def test_rejects_viewport_with_empty_layer_name(self) -> None:
+        document = make_valid_document()
+        document['sheets'][0]['viewport']['layers'] = ['F-底盤', '']
+        with pytest.raises(DocumentValidationError, match='layers'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:
