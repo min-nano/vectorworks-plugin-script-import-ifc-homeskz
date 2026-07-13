@@ -4,12 +4,15 @@ IFC の IfcColumn を走査し、各階の柱レイヤ(``n-柱``)に配置する
 生成する。柱は梁と同じ構造材ツール (StructuralMember) で鉛直材として描くため、
 断面寸法(幅・成)と柱高さを押し出しソリッドから取得する。構造用途は管柱・
 通し柱は柱、小屋束は小屋束を設定する(小屋束を柱用途にすると VW の柱高さ
-モデルで上端高さが崩れるため)。高さ基準は
-ストーリレベルにバインドする:一般階の管柱・通し柱は始端=自階の横架材天端、
-終端=上階の横架材天端(最上階直下の階では上階=屋根のため軒高)。小屋束(最上階
-の柱を含む)は上端も下端と同じ自階の横架材天端(最上階は軒高)を基準にする
-(上階に結び付けると短い束の上端が上階まで伸びて高さが崩れるため)。
-下端 Z(ストーリ高さ + ローカル配置 Z の絶対値)と柱高さはパスのジオメトリに使う。
+モデルで上端高さが崩れるため)。
+
+**柱の高さはパスのジオメトリ(下端 Z + 柱高さ)で決まり、ストーリレベルへの
+バインド(SetObjectStoryBound)は使わない。** 構造材ツールの高さバインドは
+「バインドで指定した高さ」を「パス由来の部材長」に**加算**するため、鉛直材の
+柱では両者が同一方向(Z)に重なり部材長が二重になって上端が崩れる(梁は部材長が
+水平方向でバインドが Z 方向のため二重にならない)。そのため柱は下端 Z
+(``elevation`` = ストーリ高さ + ローカル配置 Z の絶対値)と柱高さ(``height``)だけを
+命令に持ち、描画フェーズがパスを絶対 Z に配置して素直に描く。
 
 構造材 ID (member_id) は ``{幅}×{成} - {種別}`` に柱頭・柱脚金物の仕様を連結
 した文字列にする。構造材ツールには金物専用フィールドが無いため、金物仕様は
@@ -27,16 +30,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..document import ColumnCommand, StoryBoundCommand
+from ..document import ColumnCommand
 from .grid import resolve_lines
 from .member import _get_profile_dims
 from .story import (
-    LEVEL_BEAM_TOP,
     LEVEL_COLUMN,
-    LEVEL_EAVES,
     get_local_placement_z,
     layer_prefix_for,
-    resolve_beam_top_offset,
 )
 from .structural_class import CLASS_KOYAZUKA, resolve_column_class
 
@@ -146,78 +146,6 @@ def _collect_column_hardware(
     return heads, bases
 
 
-def _beam_top_level_name(is_top: bool) -> str:
-    """ストーリの横架材天端に相当するレベル名を返す。
-
-    一般階は ``横架材天端``、最上階(屋根)は ``軒高``。
-    """
-    return LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
-
-
-def beam_top_abs_z(elevation: float, beam_offset: float, is_top: bool) -> float:
-    """ストーリの横架材天端(最上階は軒高)の絶対 Z を返す。
-
-    一般階は ``ストーリ高さ + 横架材天端オフセット(負値)``、最上階は軒高
-    (オフセット 0)のため ``ストーリ高さ`` そのもの。
-    """
-    return elevation if is_top else elevation + beam_offset
-
-
-def resolve_height_bounds(
-    index: int, top_index: int,
-    bottom_abs: float, top_abs: float,
-    current_level_z: float, upper_level_z: float | None,
-    is_koyazuka: bool = False,
-) -> tuple[StoryBoundCommand, StoryBoundCommand]:
-    """柱の高さ基準(ストーリレベルへのバインド)を求める。
-
-    各端の ``offset`` は**バインド先レベルの絶対 Z から柱端(絶対 Z)までの距離**で、
-    柱の実ジオメトリ(IFC の下端 ``bottom_abs`` と上端 ``top_abs``)から決まる。
-    こうすることで、ストーリ高さを VW 側で変更しても柱端はレベルから一定距離を
-    保ち、かつインポート時点では IFC 通りの長さで描かれる。
-
-    - 一般階の管柱・通し柱: 始端=自階の横架材天端、終端=上階の横架材天端。
-      最上階の直下の階は上階が屋根(横架材天端が無く軒高のみ)のため終端=軒高に
-      なる。標準的な柱では始端は横架材天端に一致し ``offset≈0``、終端は上階梁の
-      下端(=上階横架材天端から梁背分下)になるため ``offset≈ -梁背`` になる。
-    - 小屋束(``is_koyazuka``)および最上階(屋根)の柱: 上端も下端と**同じ自階の
-      横架材天端**(最上階は軒高)を基準にする。小屋束は自階の梁上に立つ短い束で、
-      上階の横架材天端に結び付けると上端高さが崩れる(上階のレベルまで伸びる)ため
-      下端と同じレベルを基準にし、終端は横架材天端から柱高さ分
-      (``top_abs - 横架材天端``)持ち上げる。最上階の柱は常に小屋束。
-
-    Parameters
-    ----------
-    bottom_abs, top_abs : 柱下端・上端の絶対 Z(``top_abs = bottom_abs + 柱高さ``)。
-    current_level_z     : 自階の横架材天端(最上階は軒高)の絶対 Z。
-    upper_level_z       : 上階の横架材天端(屋根直下なら軒高)の絶対 Z。
-                          最上階では上階が無いため None を渡す。
-    is_koyazuka         : 小屋束なら True。上端も自階の横架材天端を基準にする。
-
-    Returns: (start_bound, end_bound)
-    """
-    is_top = index == top_index
-    if is_top or is_koyazuka:
-        # 小屋束(最上階の柱を含む)は上端・下端とも自階の横架材天端(最上階は軒高)。
-        level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
-        start_bound: StoryBoundCommand = {
-            'story_offset': 0, 'level': level,
-            'offset': bottom_abs - current_level_z}
-        end_bound: StoryBoundCommand = {
-            'story_offset': 0, 'level': level,
-            'offset': top_abs - current_level_z}
-        return start_bound, end_bound
-    upper_is_top = (index + 1) == top_index
-    assert upper_level_z is not None
-    start_bound = {
-        'story_offset': 0, 'level': LEVEL_BEAM_TOP,
-        'offset': bottom_abs - current_level_z}
-    end_bound = {
-        'story_offset': 1, 'level': _beam_top_level_name(upper_is_top),
-        'offset': top_abs - upper_level_z}
-    return start_bound, end_bound
-
-
 def resolve_column_type(object_type: str | None) -> str:
     """IfcColumn.ObjectType を柱種別名に変換する。
 
@@ -301,9 +229,6 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
 
     top_idx = len(storeys) - 1
     elevations = [float(s.Elevation or 0.0) for s in storeys]
-    # 各階の横架材天端オフセット(story.py のレベル定義と同じ算出方法)。
-    # 高さバインドの offset を実ジオメトリから求めるため絶対 Z 換算に使う。
-    beam_offsets = [resolve_beam_top_offset(s) for s in storeys]
 
     commands: list[ColumnCommand] = []
 
@@ -353,26 +278,13 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 through = is_through_column(top_abs, next_floor_elevation)
                 column_class = resolve_column_class(
                     element.ObjectType, element.Name, i, top_idx, through)
-                # 小屋束は構造用途を小屋束にし(柱用途だと上端高さが崩れる)、
-                # 上端も下端と同じ自階の横架材天端を基準にバインドする。
+                # 小屋束は構造用途を小屋束にする(柱用途だと VW の柱高さモデルで
+                # 上端高さが崩れる)。
                 is_koyazuka = column_class == CLASS_KOYAZUKA
                 structural_use = (
                     STRUCTURAL_USE_KOYAZUKA
                     if is_koyazuka
                     else STRUCTURAL_USE_COLUMN)
-
-                # 高さバインドの基準となるレベルの絶対 Z(自階・上階)。
-                current_level_z = beam_top_abs_z(
-                    storey_elevation, beam_offsets[i], is_top)
-                if is_top:
-                    upper_level_z: float | None = None
-                else:
-                    upper_is_top = (i + 1) == top_idx
-                    upper_level_z = beam_top_abs_z(
-                        elevations[i + 1], beam_offsets[i + 1], upper_is_top)
-                start_bound, end_bound = resolve_height_bounds(
-                    i, top_idx, bottom_abs, top_abs,
-                    current_level_z, upper_level_z, is_koyazuka=is_koyazuka)
 
                 commands.append({
                     'layer': layer_name,
@@ -384,8 +296,6 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                     'depth': depth,
                     'height': height,
                     'elevation': bottom_abs,
-                    'start_bound': start_bound,
-                    'end_bound': end_bound,
                     'top_hardware': top_hardware,
                     'bottom_hardware': bottom_hardware,
                 })

@@ -4,9 +4,15 @@
 柱・間柱ツールはスクリプト操作に対して不安定なため、安定して扱える標準の
 構造材ツールに置き換えている。鉛直パス(下端→上端)に断面 width×depth の
 プロファイルを与えて配置し、構造用途 (StructuralUse) を命令の structural_use
-(管柱・通し柱="4"=柱、小屋束="5"=小屋束)で設定して、高さ基準(柱頭/柱脚)を
-SetObjectStoryBound でストーリレベルにバインドする。小屋束を柱用途にすると VW の
-柱高さモデルで上端の高さオフセットと部材長が矛盾し上端高さが崩れるため用途を分ける。
+(管柱・通し柱="4"=柱、小屋束="5"=小屋束)で設定する。
+
+**柱の高さはパスのジオメトリ(下端の絶対 Z + 柱高さ)で決まり、
+SetObjectStoryBound は使わない。** 構造材ツールの高さバインドはバインドで指定した
+高さをパス由来の部材長に**加算**するため、鉛直材の柱では両者が同一方向(Z)に
+重なり部材長が二重になって上端が崩れる(例: 高さ 783.6 の小屋束にバインド
+オフセット 783.6 を与えると部材長 1567.6 になり上端が 783.6 高く描かれる)。梁は
+部材長が水平方向でバインドが Z 方向のため二重にならない。柱は Move3D で下端の
+絶対位置へ配置したパスの高さでそのまま描く。
 """
 from __future__ import annotations
 
@@ -23,8 +29,9 @@ def draw_column(command: ColumnCommand) -> None:
     パスはローカル原点 (0,0,0) から鉛直方向(高さ分)に定義し、
     CreateCustomObjectPath 後に Move3D で下端の絶対位置 (XY + 下端 Z) へ移動する。
     続いて構造用途 (StructuralUse) を命令の structural_use (柱="4"/小屋束="5") で
-    設定し、SetObjectStoryBound で始端・終端の高さ基準をストーリレベル
-    (start_bound / end_bound) にバインドする。
+    設定する。高さはパスのジオメトリで決まるため SetObjectStoryBound は使わない
+    (鉛直材ではバインドの高さがパス由来の部材長に加算され上端が二重になるため。
+    モジュール docstring 参照)。
     断面は width×depth の矩形プロファイル。member_id(柱頭・柱脚金物の仕様を
     含む構造材 ID)を MemberID フィールドに格納する。プラグインが利用できない
     場合は断面の矩形にフォールバックする。
@@ -52,13 +59,6 @@ def draw_column(command: ColumnCommand) -> None:
         vs.ResetOrientation3D()
         vs.Move3D(x, y, z_bottom)
         vs.SetClass(obj, command['class'])
-        # 高さ基準をストーリレベルにバインドする(始端=0/下端、終端=1/上端)。
-        start = command['start_bound']
-        end = command['end_bound']
-        vs.SetObjectStoryBound(
-            obj, 0, 2, start['story_offset'], start['level'], start['offset'])
-        vs.SetObjectStoryBound(
-            obj, 1, 2, end['story_offset'], end['level'], end['offset'])
         vs.SetRField(obj, PLUGIN_NAME, 'MemberID', command['member_id'])
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
         vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))

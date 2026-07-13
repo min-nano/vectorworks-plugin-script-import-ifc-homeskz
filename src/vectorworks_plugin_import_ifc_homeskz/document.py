@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 12):
+スキーマ (version 13):
 
     {
-        "version": 12,
+        "version": 13,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -78,22 +78,12 @@
                 "position": [x, y],       # 配置 XY (mm, センタリング済み)
                 "width": 105.0,           # 断面幅 (mm)
                 "depth": 105.0,           # 断面成 (mm)
+                # 柱の上端はパスのジオメトリ(elevation + height)で決まる。
+                # 構造材ツールの高さバインド(SetObjectStoryBound)は鉛直材では
+                # パス由来の部材長に加算され上端が二重になるため使わない。よって
+                # 柱命令は高さ基準(start_bound/end_bound)を持たない。
                 "height": 2844.0,         # 柱高さ (mm, 鉛直パス長 = 上端 − 下端)
                 "elevation": 426.0,       # 柱下端の Z 高さ (mm, 絶対値)
-                # 高さ基準(ストーリレベルへのバインド)。柱頭/柱脚をストーリ
-                # レベルに結び付ける。story_offset は柱が乗るストーリ(=レイヤの
-                # ストーリ)からの相対階数、level はそのストーリのレベル名、offset は
-                # レベルからの距離 (mm)。offset は IFC の実ジオメトリ(柱の下端・
-                # 上端の絶対 Z)とバインド先レベルの絶対 Z の差で決まる。
-                # 一般階の管柱・通し柱: 始端=自階の横架材天端、終端=上階の横架材天端
-                # (最上階直下の階では上階=屋根のため軒高)。標準的な柱は下端が自階
-                # 天端に一致するため始端 offset≈0、上端は上階梁の下端(上階天端から
-                # 梁背分下)になるため終端 offset≈ -梁背(負値)。
-                # 小屋束(最上階の柱を含む): 上端も下端と同じ自階の横架材天端
-                # (最上階は軒高)を基準にし、終端は横架材天端から柱高さ分持ち上げる
-                # (上階に結び付けると短い束の上端が上階まで伸びて崩れるため)。
-                "start_bound": {"story_offset": 0, "level": "横架材天端", "offset": 0.0},
-                "end_bound": {"story_offset": 1, "level": "軒高", "offset": -180.0},
                 # 柱頭・柱脚金物の仕様文字列(該当金物が無ければ "")。member_id
                 # にも連結されるが、構造化された記録として個別にも保持する。
                 "top_hardware": "柱頭金物:(ろ)",    # 柱頭金物の仕様
@@ -139,7 +129,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 12
+DOCUMENT_VERSION = 13
 
 
 class LevelCommand(TypedDict):
@@ -221,8 +211,6 @@ ColumnCommand = TypedDict('ColumnCommand', {
     'depth': float,
     'height': float,
     'elevation': float,
-    'start_bound': StoryBoundCommand,
-    'end_bound': StoryBoundCommand,
     'top_hardware': str,
     'bottom_hardware': str,
 })
@@ -230,12 +218,13 @@ ColumnCommand = TypedDict('ColumnCommand', {
 
 柱は梁と同じ構造材ツールで描く。下端 (elevation) から高さ (height) 分の鉛直パスを
 持ち、断面は width×depth。member_id は構造材 ID で、柱頭・柱脚金物の仕様も連結して
-保持する(構造材ツールに金物専用フィールドが無いため)。高さ基準は start_bound /
-end_bound でストーリレベルにバインドする。class は割り当てる柱種別クラス名。
-structural_use は構造材ツールの構造用途 (StructuralUse) 値で、管柱・通し柱は
-"4"(柱)、小屋束は "5"(小屋束)。小屋束を柱用途にすると上端の高さオフセットと
-部材長が矛盾するため小屋束用途にする。position・elevation・height はパスの
-ジオメトリ(XY と初期 Z・長さ)に使う。
+保持する(構造材ツールに金物専用フィールドが無いため)。class は割り当てる柱種別
+クラス名。structural_use は構造材ツールの構造用途 (StructuralUse) 値で、管柱・通し柱は
+"4"(柱)、小屋束は "5"(小屋束)。小屋束を柱用途にすると VW の柱高さモデルで上端
+高さが崩れるため小屋束用途にする。柱の上端はパスのジオメトリ(elevation + height)で
+決まり、ストーリレベルへの高さバインドは使わない(鉛直材ではバインドの高さが
+パス由来の部材長に加算され上端が二重になるため)。position・elevation・height は
+パスのジオメトリ(XY と下端 Z・長さ)に使う。
 """
 
 
@@ -385,8 +374,6 @@ def _validate_column(index: int, command: Any) -> None:
     for key in ('width', 'depth', 'height', 'elevation'):
         _require(_is_number(command.get(key)),
                  f'{where}.{key} は数値である必要があります')
-    for key in ('start_bound', 'end_bound'):
-        _validate_story_bound(where, key, command.get(key))
     for key in ('top_hardware', 'bottom_hardware'):
         _require(isinstance(command.get(key), str),
                  f'{where}.{key} は文字列である必要があります')

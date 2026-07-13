@@ -10,10 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vectorworks_plugin_import_ifc_homeskz.document import (
-    ColumnCommand,
-    StoryBoundCommand,
-)
+from vectorworks_plugin_import_ifc_homeskz.document import ColumnCommand
 
 
 def make_column_command(layer: str = '1-柱',
@@ -21,17 +18,11 @@ def make_column_command(layer: str = '1-柱',
                         position: tuple[float, float] = (0.0, 0.0),
                         width: float = 105.0, depth: float = 105.0,
                         height: float = 2844.0, elevation: float = 426.0,
-                        start_bound: StoryBoundCommand | None = None,
-                        end_bound: StoryBoundCommand | None = None,
                         top_hardware: str = '',
                         bottom_hardware: str = '',
                         column_class: str = '04構造-02木造-03柱-02管柱',
                         structural_use: str = '4',
                         ) -> ColumnCommand:
-    if start_bound is None:
-        start_bound = {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
-    if end_bound is None:
-        end_bound = {'story_offset': 1, 'level': '軒高', 'offset': 0.0}
     return {
         'layer': layer,
         'member_id': member_id,
@@ -42,8 +33,6 @@ def make_column_command(layer: str = '1-柱',
         'depth': depth,
         'height': height,
         'elevation': elevation,
-        'start_bound': start_bound,
-        'end_bound': end_bound,
         'top_hardware': top_hardware,
         'bottom_hardware': bottom_hardware,
     }
@@ -184,38 +173,34 @@ class TestExecuteColumns:
         fields = {field: value for _, _, field, value in set_rfield_args}
         assert fields['StructuralUse'] == '5'
 
-    def test_binds_height_to_story_levels(self) -> None:
-        """始端・終端の高さ基準を SetObjectStoryBound でストーリレベルにバインドする。"""
-        vs_mock = _make_vs_mock(existing_layers={'2-柱'})
-        _run_execute_columns(vs_mock, [
-            make_column_command(
-                layer='2-柱',
-                start_bound={'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
-                end_bound={'story_offset': 1, 'level': '軒高', 'offset': 0.0}),
-        ])
-        bound_calls = [c.args for c in vs_mock.SetObjectStoryBound.call_args_list]
-        # (handle, end, mode, story_offset, level, offset)
-        starts = [c for c in bound_calls if c[1] == 0]
-        ends = [c for c in bound_calls if c[1] == 1]
-        assert len(starts) == 1
-        assert len(ends) == 1
-        assert starts[0][3:] == (0, '横架材天端', 0.0)
-        assert ends[0][3:] == (1, '軒高', 0.0)
+    def test_does_not_bind_height_to_story_levels(self) -> None:
+        """柱は高さをパスのジオメトリで決めるため SetObjectStoryBound を呼ばない。
 
-    def test_top_story_binds_both_ends_to_eaves(self) -> None:
-        """最上階の柱は始端・終端とも軒高基準で、終端は柱高さ分のオフセットを持つ。"""
+        鉛直材ではバインドの高さがパス由来の部材長に加算され上端が二重になるため
+        (梁は水平方向の部材長なので加算にならず、bound を使う)。
+        """
+        vs_mock = _make_vs_mock(existing_layers={'2-柱'})
+        _run_execute_columns(vs_mock, [make_column_command(layer='2-柱')])
+        vs_mock.SetObjectStoryBound.assert_not_called()
+
+    def test_top_of_column_is_path_geometry(self) -> None:
+        """柱の上端はパス(下端 Z + 高さ)で決まる。Move3D で下端の絶対 Z に配置し、
+        パスは高さ分の鉛直ベクトル。バインドで二重に持ち上げない。"""
         vs_mock = _make_vs_mock(existing_layers={'R-柱'})
+        vertex_calls: list[tuple[float, float, float]] = []
+        move3d_calls: list[tuple[float, float, float]] = []
+        vs_mock.AddVertex3D.side_effect = (
+            lambda h, x, y, z: vertex_calls.append((x, y, z)))
+        vs_mock.Move3D.side_effect = (
+            lambda x, y, z: move3d_calls.append((x, y, z)))
+
         _run_execute_columns(vs_mock, [
-            make_column_command(
-                layer='R-柱', height=900.0,
-                start_bound={'story_offset': 0, 'level': '軒高', 'offset': 0.0},
-                end_bound={'story_offset': 0, 'level': '軒高', 'offset': 900.0}),
+            make_column_command(layer='R-柱', height=900.0, elevation=6300.0),
         ])
-        bound_calls = [c.args for c in vs_mock.SetObjectStoryBound.call_args_list]
-        starts = [c for c in bound_calls if c[1] == 0]
-        ends = [c for c in bound_calls if c[1] == 1]
-        assert starts[0][3:] == (0, '軒高', 0.0)
-        assert ends[0][3:] == (0, '軒高', 900.0)
+        # パスは (0,0,高さ) の鉛直ベクトル、下端の絶対 Z(6300)へ Move3D
+        assert vertex_calls == [(0, 0, 900)]
+        assert any(abs(z - 6300.0) < 1e-6 for _, _, z in move3d_calls)
+        vs_mock.SetObjectStoryBound.assert_not_called()
 
     def test_member_id_carries_hardware_spec(self) -> None:
         """柱頭・柱脚金物の仕様は member_id 経由で MemberID に格納される。"""
