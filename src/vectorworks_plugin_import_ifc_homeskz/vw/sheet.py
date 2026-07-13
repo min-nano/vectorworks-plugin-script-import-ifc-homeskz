@@ -143,23 +143,28 @@ def draw_tag(tag: TagCommand, member_handle: Any, viewport: Any) -> bool:
     """tag 命令 1 件をビューポート注釈のデータタグとして描画する。
 
     ``vs.CreateCustomObject`` でデータタグ(``断面寸法`` スタイル)を挿入位置・
-    軸方向の角度で作り、「引出線を表示」を OFF にしてから対象の横架材
-    (``member_handle``)に関連付け、ビューポートの注釈に追加する。関連付け対象が
-    無い(横架材がフォールバック描画等でハンドルを持たない)場合は関連付けを省く。
-    タグが作れなければ False。
+    軸方向の角度で作り、対象の横架材(``member_handle``)に関連付けて
+    ビューポートの注釈に追加する。関連付け対象が無い(横架材がフォールバック
+    描画等でハンドルを持たない)場合は関連付けを省く。タグが作れなければ False。
+
+    **「引出線を表示」の OFF は関連付け・タグ更新の後に最後に設定する。**
+    スタイル適用・関連付け・``DT_UpdateTaggedTags`` はタグを再生成してスタイルの
+    引出線設定(既定 ON)を引き直すため、途中で OFF にしても上書きされてしまう。
+    すべての再生成が終わった後に「引出線を表示」を OFF にして ``ResetObject`` で
+    反映することで、引出線を確実に消す。
     """
     x, y = tag['position']
     obj = vs.CreateCustomObject(_DATA_TAG_PLUGIN, (x, y), tag['angle'])
     if obj == vs.Handle(0):
         return False
     vs.SetPluginStyle(obj, tag['style'])
-    # 引出線を非表示にする(部材に接して置いても既定 ON だと引出線が描かれるため)。
-    vs.SetRField(obj, _DATA_TAG_PLUGIN, _LEADER_FIELD, _LEADER_OFF)
-    vs.ResetObject(obj)
     if member_handle is not None:
         vs.DT_AssociateWithObj(obj, member_handle)
     vs.AddVPAnnotationObject(viewport, obj)
     vs.DT_UpdateTaggedTags(obj)
+    # 引出線を非表示にする。再生成でスタイルの引出線設定に戻されないよう最後に行う。
+    vs.SetRField(obj, _DATA_TAG_PLUGIN, _LEADER_FIELD, _LEADER_OFF)
+    vs.ResetObject(obj)
     return True
 
 
