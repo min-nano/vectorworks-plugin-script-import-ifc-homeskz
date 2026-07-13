@@ -34,11 +34,12 @@ _OV_VP_DRAWING_NUMBER = 1033  # 図番
 # 1:N の N(GetLScale が返す縮尺係数)。
 _OV_VP_SCALE = 1003
 
-# ビューポートのレイヤ表示種別(SetVPLayerVisibility): 0=表示, 1=グレー, 2=非表示
+# ビューポートのレイヤ表示種別(SetVPLayerVisibility): 0=表示, 1=非表示, 2=グレー
+# 対象外レイヤは 2(グレー)だとグレー表示で残ってしまうため 1(非表示)で完全に隠す。
 _VP_LAYER_VISIBLE = 0
-_VP_LAYER_HIDDEN = 2
+_VP_LAYER_HIDDEN = 1
 
-# ビューポートのクラス表示種別(SetVPClassVisibility): 0=表示, 1=グレー, 2=非表示
+# ビューポートのクラス表示種別(SetVPClassVisibility): 0=表示, 1=非表示, 2=グレー
 _VP_CLASS_VISIBLE = 0
 
 

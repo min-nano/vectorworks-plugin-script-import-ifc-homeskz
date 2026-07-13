@@ -135,7 +135,7 @@ class TestExecuteSheets:
         for name in _TARGET_LAYERS:
             assert ('VP_HANDLE', _handle(name),
                     vw_sheet._VP_LAYER_VISIBLE) in vis_calls
-        # 対象外レイヤは非表示 (2) のみで、表示 (0) にはしない
+        # 対象外レイヤは非表示 (1) のみで、表示 (0) にはしない
         for name in extras:
             assert ('VP_HANDLE', _handle(name),
                     vw_sheet._VP_LAYER_HIDDEN) in vis_calls
