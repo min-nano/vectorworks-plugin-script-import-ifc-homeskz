@@ -51,47 +51,47 @@ class TestBuildTagCommands:
         tags = build_tag_commands([make_member(), make_member(), make_member()])
         assert [t['member_index'] for t in tags] == [0, 1, 2]
 
-    def test_east_west_member_tag_placed_above(self) -> None:
-        """東西向き(横)の横架材はタグを上(+Y 側)へ寄せる。"""
+    def test_east_west_member_tag_placed_on_top_edge(self) -> None:
+        """東西向き(横)の横架材はタグの下端中央を上辺の中央へ置く。"""
         tags = build_tag_commands([
             make_member(start=(0.0, 0.0), end=(2000.0, 0.0), width=120.0),
         ])
         pos = tags[0]['position']
-        # 中央 (1000, 0) から上へ 幅/2 + 余白 = 60 + 100 = 160
+        # 軸中央 (1000, 0) から上へ 幅/2 = 60(上辺の中央、余白なし)
         assert pos[0] == 1000.0
-        assert pos[1] == 160.0
+        assert pos[1] == 60.0
         # 軸方向 (水平) に沿った角度は 0 度
         assert tags[0]['angle'] == 0.0
 
-    def test_north_south_member_tag_placed_left(self) -> None:
-        """南北向き(縦)の横架材はタグを左(-X 側)へ寄せる。"""
+    def test_north_south_member_tag_placed_on_left_edge(self) -> None:
+        """南北向き(縦)の横架材はタグの下端中央を左辺の中央へ置く。"""
         tags = build_tag_commands([
             make_member(start=(0.0, 0.0), end=(0.0, 2000.0), width=120.0),
         ])
         pos = tags[0]['position']
-        # 中央 (0, 1000) から左へ 幅/2 + 余白 = 160
-        assert pos[0] == -160.0
+        # 軸中央 (0, 1000) から左へ 幅/2 = 60(左辺の中央、余白なし)
+        assert pos[0] == -60.0
         assert pos[1] == 1000.0
         # 軸方向 (鉛直) に沿った角度は 90 度
         assert tags[0]['angle'] == 90.0
 
-    def test_reversed_east_west_member_still_above(self) -> None:
-        """西向き(終点が始点より左)でもタグは上へ寄せ、角度も (-90, 90] に収める。"""
+    def test_reversed_east_west_member_still_on_top_edge(self) -> None:
+        """西向き(終点が始点より左)でもタグは上辺へ置き、角度も (-90, 90] に収める。"""
         tags = build_tag_commands([
             make_member(start=(2000.0, 0.0), end=(0.0, 0.0), width=120.0),
         ])
         pos = tags[0]['position']
         assert pos[0] == 1000.0
-        assert pos[1] == 160.0
+        assert pos[1] == 60.0
         assert tags[0]['angle'] == 0.0
 
-    def test_reversed_north_south_member_still_left(self) -> None:
-        """南向き(終点が始点より下)でもタグは左へ寄せる。"""
+    def test_reversed_north_south_member_still_on_left_edge(self) -> None:
+        """南向き(終点が始点より下)でもタグは左辺へ置く。"""
         tags = build_tag_commands([
             make_member(start=(0.0, 2000.0), end=(0.0, 0.0), width=120.0),
         ])
         pos = tags[0]['position']
-        assert pos[0] == -160.0
+        assert pos[0] == -60.0
         assert pos[1] == 1000.0
         assert tags[0]['angle'] == 90.0
 
@@ -107,19 +107,21 @@ class TestBuildTagCommands:
         assert tags[0]['position'][1] > cy
 
     def test_offset_scales_with_member_width(self) -> None:
-        """オフセット量は断面幅に応じて変わる(幅/2 + 一定余白)。"""
+        """オフセット量(部材の面までの距離)は断面幅/2 に等しい。"""
         narrow = build_tag_commands([make_member(width=100.0)])[0]
         wide = build_tag_commands([make_member(width=300.0)])[0]
-        # 幅 300 の方が 100 mm 分だけ上に離れる ((300-100)/2 = 100)
+        # 幅 300 は上辺が 150、幅 100 は上辺が 50 なので差は 100 ((300-100)/2)
         assert wide['position'][1] - narrow['position'][1] == 100.0
+        assert narrow['position'][1] == 50.0
+        assert wide['position'][1] == 150.0
 
     def test_zero_length_member_uses_default_upward_offset(self) -> None:
         """始点と終点が同じ(長さ 0)の材でも既定(上)方向へオフセットして落ちない。"""
         tags = build_tag_commands([
             make_member(start=(100.0, 200.0), end=(100.0, 200.0), width=120.0),
         ])
-        # 向きを決められないため既定の上方向 (0, 1) へ 幅/2 + 余白 = 160
-        assert tags[0]['position'] == [100.0, 360.0]
+        # 向きを決められないため既定の上方向 (0, 1) へ 幅/2 = 60
+        assert tags[0]['position'] == [100.0, 260.0]
 
     def test_offset_direction_is_perpendicular_to_axis(self) -> None:
         """オフセットは軸に直交している。"""
