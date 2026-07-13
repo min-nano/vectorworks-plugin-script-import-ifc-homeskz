@@ -75,7 +75,7 @@ FIXTURES = [
         walls=38,
         slabs=38,
         anchor_bolts=96,
-        sheets=1,
+        sheets=4,
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -88,7 +88,7 @@ FIXTURES = [
         walls=55,
         slabs=51,
         anchor_bolts=110,
-        sheets=1,
+        sheets=4,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -101,7 +101,7 @@ FIXTURES = [
         walls=39,
         slabs=36,
         anchor_bolts=85,
-        sheets=1,
+        sheets=4,
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -114,7 +114,7 @@ FIXTURES = [
         walls=27,
         slabs=28,
         anchor_bolts=60,
-        sheets=1,
+        sheets=5,
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -127,7 +127,7 @@ FIXTURES = [
         walls=19,
         slabs=24,
         anchor_bolts=30,
-        sheets=1,
+        sheets=5,
     ),
 ]
 
@@ -302,8 +302,7 @@ class TestSampleIfcAnalysis:
             self, exp: Expected) -> None:
         """基礎伏図シートは基礎・通り芯レイヤを表示するビューポートを持つ。"""
         document = build_fixture_document(exp.filename)
-        # フィクスチャはいずれも基礎を含むため基礎伏図シートが 1 枚できる
-        assert len(document['sheets']) == 1
+        # フィクスチャはいずれも基礎を含むため基礎伏図シートが先頭に来る
         sheet = document['sheets'][0]
         assert sheet['number'] == '1'
         assert sheet['title'] == '基礎伏図'
@@ -312,6 +311,35 @@ class TestSampleIfcAnalysis:
         assert viewport['drawing_number'] == '1'
         assert viewport['layers'] == [
             'F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']
+
+    def test_floor_framing_sheets_follow_foundation(
+            self, exp: Expected) -> None:
+        """基礎伏図に続けて各階の柱梁伏図が並び、既知のレイヤを参照する。"""
+        document = build_fixture_document(exp.filename)
+        story_layers = {
+            level['layer']
+            for story in document['stories']
+            for level in story['levels']
+        }
+        # 基礎伏図(先頭)以降が柱梁伏図。フロア数 = FL ストーリ数(= 基礎を除く)。
+        floor_sheets = document['sheets'][1:]
+        floor_story_count = len(exp.story_names) - 1
+        assert len(floor_sheets) == floor_story_count
+        # タイトルは 1階床伏図・2階床伏図・…・小屋伏図
+        expected_titles = [
+            f'{i + 1}階床伏図' for i in range(floor_story_count - 1)
+        ] + ['小屋伏図']
+        assert [s['title'] for s in floor_sheets] == expected_titles
+        # シートレイヤ番号は基礎伏図(1)に続けて 2 から連番
+        assert [s['number'] for s in floor_sheets] == [
+            str(2 + i) for i in range(floor_story_count)]
+        # 各伏図の表示レイヤは 通り芯 と 各階のストーリレイヤ(横架材・柱・床)、
+        # および最下階のアンカーボルトのみ。
+        allowed = story_layers | {'共通'}
+        for s in floor_sheets:
+            for layer in s['viewport']['layers']:
+                assert layer in allowed, \
+                    f"未知のレイヤを参照しています: {layer}"
 
     def test_wall_and_slab_layers_reference_foundation_layers(
             self, exp: Expected) -> None:

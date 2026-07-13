@@ -1,18 +1,23 @@
 """シートレイヤ(伏図)の命令の組み立て。vs 非依存。
 
 モデルデータ(ストーリ・通り芯・基礎など)を取り込んだ後に、特定のデザインレイヤ群を
-表示するビューポートを配置した 1 枚のシートレイヤを作るための命令(sheet 命令)を
+表示するビューポートを配置したシートレイヤを作るための命令(sheet 命令)を
 組み立てる。IFC そのものからシート構成を読み取るわけではなく、取り込んだ要素の
 有無からどのシートを作るべきかを判断する。
 
-現状は **基礎伏図** の 1 枚のみ:
+作成するシート:
 
-- 基礎要素(立上り・底盤・アンカーボルト)が取り込まれる場合にだけ作成する
-  (基礎が無ければ表示すべきレイヤが生成されずビューポートが空になるため)。
-- シートレイヤ番号 ``1``・タイトル ``基礎伏図``、ビューポートの図面タイトルも
-  ``基礎伏図``・図番 ``1``。
-- ビューポートには 底盤(``F-底盤``)・立上り(``F-立上り``)・アンカーボルト
-  (``F-アンカーボルト``)・通り芯(``共通``)のレイヤを表示する。
+- **基礎伏図**(``build_foundation_sheet_commands``): 基礎要素(立上り・底盤・
+  アンカーボルト)が取り込まれる場合にだけ作成する(基礎が無ければ表示すべき
+  レイヤが生成されずビューポートが空になるため)。シートレイヤ番号 ``1``・タイトル
+  ``基礎伏図``、表示レイヤは 底盤(``F-底盤``)・立上り(``F-立上り``)・
+  アンカーボルト(``F-アンカーボルト``)・通り芯(``共通``)。
+- **各階の柱梁伏図**(``build_floor_framing_sheet_commands``): ストーリごとに 1 枚。
+  シートレイヤ番号は基礎伏図(``1``)に続けて ``2`` から順に振る。タイトルは
+  最下階から ``1階床伏図``・``2階床伏図``・…、最上階は ``小屋伏図``。表示レイヤは
+  各階の横架材(``n-横架材天端``、最上階は ``n-軒高``)・柱(``n-柱``)・通り芯(``共通``)。
+  加えて一般階(最上階以外)は床(``n-FL``)も表示し、最下階には基礎がある場合に
+  アンカーボルト(``F-アンカーボルト``)も表示する。
 """
 from __future__ import annotations
 
@@ -25,6 +30,12 @@ from .story import (
     LAYER_FOUNDATION_ANCHOR,
     LAYER_FOUNDATION_SLAB,
     LAYER_FOUNDATION_WALL,
+    LEVEL_BEAM_TOP,
+    LEVEL_COLUMN,
+    LEVEL_EAVES,
+    LEVEL_FL,
+    collect_stories,
+    layer_prefix_for,
 )
 
 if TYPE_CHECKING:
@@ -41,11 +52,19 @@ FOUNDATION_PLAN_LAYERS = [
     TARGET_LAYER,
 ]
 
+# 柱梁伏図(各階)シートの構成
+# 最上階のタイトル(それ以外は "{階番号}階床伏図")
+FLOOR_PLAN_ROOF_TITLE = '小屋伏図'
+# 柱梁伏図のシートレイヤ番号の開始値。基礎伏図(番号 1)に続けて 2 から振る。
+FLOOR_PLAN_START_NUMBER = 2
 
-def build_sheet_commands(ifc_file: ifcopenshell.file) -> list[SheetCommand]:
-    """sheet 命令のリストを組み立てて返す。
 
-    現状は基礎要素が存在する場合に基礎伏図シートを 1 枚だけ返す。基礎が無ければ
+def build_foundation_sheet_commands(
+    ifc_file: ifcopenshell.file,
+) -> list[SheetCommand]:
+    """基礎伏図シートの sheet 命令を組み立てて返す。
+
+    基礎要素が存在する場合に基礎伏図シートを 1 枚だけ返す。基礎が無ければ
     空リストを返す(表示すべき基礎レイヤが生成されないため)。
     """
     if not has_foundation(ifc_file):
@@ -59,3 +78,58 @@ def build_sheet_commands(ifc_file: ifcopenshell.file) -> list[SheetCommand]:
             'layers': list(FOUNDATION_PLAN_LAYERS),
         },
     }]
+
+
+def floor_plan_title(index: int, is_top: bool) -> str:
+    """柱梁伏図シートのタイトルを返す(最上階は 小屋伏図、それ以外は n階床伏図)。"""
+    return FLOOR_PLAN_ROOF_TITLE if is_top else f'{index + 1}階床伏図'
+
+
+def build_floor_framing_sheet_commands(
+    ifc_file: ifcopenshell.file,
+) -> list[SheetCommand]:
+    """各階の柱梁伏図シートの sheet 命令を組み立てて返す。
+
+    ストーリ 1 つにつき伏図 1 枚。表示レイヤは横架材・柱・通り芯を基本とし、
+    最上階以外は床(FL)を加える。最下階には基礎がある場合にアンカーボルトも加える。
+    ストーリが無ければ空リストを返す。
+    """
+    stories = collect_stories(ifc_file)
+    foundation = has_foundation(ifc_file)
+    commands: list[SheetCommand] = []
+    n = len(stories)
+    for i in range(n):
+        is_top = i == n - 1
+        prefix = layer_prefix_for(i, is_top)
+        # 横架材レイヤは一般階=横架材天端、最上階=軒高。
+        beam_level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
+        layers = [f'{prefix}-{beam_level}', f'{prefix}-{LEVEL_COLUMN}']
+        if not is_top:
+            # 最下階には基礎(アンカーボルト)がある場合に表示する。
+            if i == 0 and foundation:
+                layers.append(LAYER_FOUNDATION_ANCHOR)
+            layers.append(f'{prefix}-{LEVEL_FL}')
+        layers.append(TARGET_LAYER)
+        title = floor_plan_title(i, is_top)
+        number = str(FLOOR_PLAN_START_NUMBER + i)
+        commands.append({
+            'number': number,
+            'title': title,
+            'viewport': {
+                'drawing_title': title,
+                'drawing_number': number,
+                'layers': layers,
+            },
+        })
+    return commands
+
+
+def build_sheet_commands(ifc_file: ifcopenshell.file) -> list[SheetCommand]:
+    """sheet 命令のリストを組み立てて返す。
+
+    基礎伏図(基礎がある場合のみ)に続けて、各階の柱梁伏図を組み立てる。
+    """
+    return [
+        *build_foundation_sheet_commands(ifc_file),
+        *build_floor_framing_sheet_commands(ifc_file),
+    ]
