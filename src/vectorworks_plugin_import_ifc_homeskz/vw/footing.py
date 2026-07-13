@@ -3,8 +3,11 @@
 立上りは ``vs.Wall`` で壁オブジェクトを、底盤・地中梁は外形ポリゴンから
 ``vs.CreateSlab`` でスラブオブジェクトを生成する。いずれも高さ基準を
 ``SetObjectStoryBound`` でストーリレベルにバインドする(梁・柱と同じ規約)。
-立上りには壁スタイル(``WALL_STYLE_NAME``)を ``SetWallStyle`` で適用する
-(オフセットは 0/0 で壁芯に揃える)。
+立上りには壁スタイル(``WALL_STYLE_NAME``)を ``SetWallStyle`` で関連付ける
+(オフセットは 0/0 で壁芯に揃える)。``SetWallStyle`` はスタイルの関連付けまでで、
+スタイルが決めるマテリアル/テクスチャ等の描画属性はプッシュされないため、
+``execute_walls`` が全配置後に ``UpdateStyledObjects`` でまとめて反映する
+(構造材と同じ規約。#56/#57)。
 """
 from __future__ import annotations
 
@@ -88,6 +91,11 @@ def execute_walls(commands: list[WallCommand]) -> int:
     """wall 命令のリストを描画し、配置数を返す。
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
+
+    全配置後に UpdateStyledObjects(WALL_STYLE_NAME) を 1 回呼び、当該壁スタイルの
+    全オブジェクトをスタイルから更新してマテリアル/テクスチャ等の描画属性を反映する。
+    SetWallStyle はスタイルの関連付けまでで描画属性をプッシュしないため、これを
+    呼ばないとテクスチャ等が反映されない(構造材と同じ規約。#56/#57)。
     """
     count = 0
     for command in commands:
@@ -97,6 +105,10 @@ def execute_walls(commands: list[WallCommand]) -> int:
         vs.Layer(layer)
         draw_wall(command)
         count += 1
+
+    if count > 0:
+        vs.UpdateStyledObjects(WALL_STYLE_NAME)
+
     return count
 
 
