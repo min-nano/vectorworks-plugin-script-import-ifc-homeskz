@@ -74,6 +74,8 @@ def _make_vs_mock(
     vs_mock.GetObject.side_effect = get_obj
     vs_mock.CreateLayer.side_effect = create_layer
     vs_mock.CreateVP.return_value = 'VP_HANDLE'
+    # デザインレイヤの縮尺(1:50 相当)
+    vs_mock.GetLScale.return_value = 50.0
     return vs_mock
 
 
@@ -152,6 +154,16 @@ class TestExecuteSheets:
         cls_calls = [c.args for c in vs_mock.SetVPClassVisibility.call_args_list]
         for name in classes:
             assert ('VP_HANDLE', name, vw_sheet._VP_CLASS_VISIBLE) in cls_calls
+
+    def test_matches_viewport_scale_to_design_layer(self) -> None:
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        vw_sheet.execute_sheets([make_command()])
+
+        # 表示デザインレイヤの縮尺 (GetLScale) をビューポート縮尺に設定する
+        vs_mock.SetObjectVariableReal.assert_called_once_with(
+            'VP_HANDLE', vw_sheet._OV_VP_SCALE, 50.0)
 
     def test_skips_viewport_when_creation_fails(self) -> None:
         vs_mock = _make_vs_mock(_TARGET_LAYERS)

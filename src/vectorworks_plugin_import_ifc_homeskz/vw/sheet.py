@@ -4,6 +4,7 @@
 指定したデザインレイヤ群を表示するビューポートを 1 つ配置する。ビューポートには
 命令の ``layers`` に挙げたデザインレイヤだけを表示し、それ以外のデザインレイヤは
 非表示にする。クラスは伏図に必要な要素が欠けないよう全クラスを表示にする。
+ビューポートの縮尺は表示するデザインレイヤの縮尺に合わせる。
 
 シートレイヤ番号は VectorWorks ではシートレイヤ(=レイヤ)の名前がそのまま担うため、
 ``vs.CreateLayer`` に番号を渡してレイヤ名=シートレイヤ番号にする。シートレイヤタイトル・
@@ -29,6 +30,9 @@ _OV_SHEET_TITLE = 159   # シートレイヤタイトル
 # ビューポートのオブジェクト変数 selector(SetObjectVariableString)
 _OV_VP_DRAWING_TITLE = 1032   # 図面タイトル
 _OV_VP_DRAWING_NUMBER = 1033  # 図番
+# ビューポートの縮尺 selector(SetObjectVariableReal)。値はデザインレイヤと同じく
+# 1:N の N(GetLScale が返す縮尺係数)。
+_OV_VP_SCALE = 1003
 
 # ビューポートのレイヤ表示種別(SetVPLayerVisibility): 0=表示, 1=グレー, 2=非表示
 _VP_LAYER_VISIBLE = 0
@@ -70,6 +74,20 @@ def configure_viewport_classes(viewport: Any) -> None:
         vs.SetVPClassVisibility(viewport, vs.ClassList(i), _VP_CLASS_VISIBLE)
 
 
+def configure_viewport_scale(viewport: Any, target_layers: list[str]) -> None:
+    """ビューポートの縮尺を表示するデザインレイヤの縮尺に合わせる。
+
+    ``target_layers`` のうち最初に見つかったデザインレイヤの縮尺(``GetLScale``)を
+    そのままビューポートの縮尺に設定する(伏図では表示レイヤの縮尺は揃っている)。
+    レイヤが 1 つも見つからなければ何もしない(既定縮尺のまま)。
+    """
+    for name in target_layers:
+        layer_h = vs.GetLayerByName(name)
+        if layer_h != vs.Handle(0):
+            vs.SetObjectVariableReal(viewport, _OV_VP_SCALE, vs.GetLScale(layer_h))
+            return
+
+
 def draw_viewport(
     viewport: ViewportCommand, sheet_layer: Any,
 ) -> None:
@@ -85,6 +103,7 @@ def draw_viewport(
     vs.SetName(obj, viewport['drawing_title'])
     configure_viewport_layers(obj, viewport['layers'], sheet_layer)
     configure_viewport_classes(obj)
+    configure_viewport_scale(obj, viewport['layers'])
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_TITLE, viewport['drawing_title'])
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_NUMBER, viewport['drawing_number'])
     vs.UpdateVP(obj)
