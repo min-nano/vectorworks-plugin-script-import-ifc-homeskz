@@ -26,6 +26,7 @@ def make_column_command(layer: str = '1-柱',
                         top_hardware: str = '',
                         bottom_hardware: str = '',
                         column_class: str = '04構造-02木造-03柱-02管柱',
+                        structural_use: str = '4',
                         ) -> ColumnCommand:
     if start_bound is None:
         start_bound = {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}
@@ -35,6 +36,7 @@ def make_column_command(layer: str = '1-柱',
         'layer': layer,
         'member_id': member_id,
         'class': column_class,
+        'structural_use': structural_use,
         'position': list(position),
         'width': width,
         'depth': depth,
@@ -162,8 +164,25 @@ class TestExecuteColumns:
         assert fields['D'] == '120'
         # 配置基準は中央(4)。上部中央(1)にすると柱の断面が軸から上方向にずれる
         assert fields['AxisAlign'] == '4'
-        # 構造用途は柱(4)
+        # 構造用途は命令の structural_use(既定は柱="4")
         assert fields['StructuralUse'] == '4'
+
+    def test_structural_use_comes_from_command(self) -> None:
+        """構造用途 (StructuralUse) は命令の structural_use をそのまま設定する。
+
+        小屋束は "5"(小屋束用途)。柱用途 ("4") のままだと VW の柱高さモデルで
+        上端の高さオフセットと部材長が矛盾し上端高さが崩れる。
+        """
+        vs_mock = _make_vs_mock(existing_layers={'R-柱'})
+        _run_execute_columns(vs_mock, [
+            make_column_command(
+                layer='R-柱', member_id='90×105 - 小屋束',
+                column_class='04構造-02木造-05小屋組-02小屋束',
+                structural_use='5'),
+        ])
+        set_rfield_args = [c.args for c in vs_mock.SetRField.call_args_list]
+        fields = {field: value for _, _, field, value in set_rfield_args}
+        assert fields['StructuralUse'] == '5'
 
     def test_binds_height_to_story_levels(self) -> None:
         """始端・終端の高さ基準を SetObjectStoryBound でストーリレベルにバインドする。"""

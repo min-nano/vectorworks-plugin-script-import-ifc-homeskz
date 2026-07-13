@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 11):
+スキーマ (version 12):
 
     {
-        "version": 11,
+        "version": 12,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -69,6 +69,12 @@
                 # MemberID に含めて保持する)。
                 "member_id": "105×105 - 管柱 / 柱頭金物:(ろ) / 柱脚金物:(ろ)",
                 "class": "04構造-...-管柱",  # 割り当てるクラス名(柱種別)
+                # 構造材ツールの構造用途 (StructuralUse) 値。管柱・通し柱は柱
+                # ("4")、小屋束は小屋束 ("5") を設定する。小屋束を柱として描くと
+                # VW が柱の高さモデルを適用し、上端の高さオフセットと部材長が
+                # 矛盾して上端高さが正しく描画されない。小屋束用途に切り替えると
+                # 実ジオメトリどおりの高さで描かれる。
+                "structural_use": "4",    # "4"=柱 / "5"=小屋束
                 "position": [x, y],       # 配置 XY (mm, センタリング済み)
                 "width": 105.0,           # 断面幅 (mm)
                 "depth": 105.0,           # 断面成 (mm)
@@ -132,7 +138,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 11
+DOCUMENT_VERSION = 12
 
 
 class LevelCommand(TypedDict):
@@ -208,6 +214,7 @@ ColumnCommand = TypedDict('ColumnCommand', {
     'layer': str,
     'member_id': str,
     'class': str,
+    'structural_use': str,
     'position': list[float],
     'width': float,
     'depth': float,
@@ -223,8 +230,11 @@ ColumnCommand = TypedDict('ColumnCommand', {
 柱は梁と同じ構造材ツールで描く。下端 (elevation) から高さ (height) 分の鉛直パスを
 持ち、断面は width×depth。member_id は構造材 ID で、柱頭・柱脚金物の仕様も連結して
 保持する(構造材ツールに金物専用フィールドが無いため)。高さ基準は start_bound /
-end_bound でストーリレベルにバインドする(構造用途は柱)。class は割り当てる柱種別
-クラス名。position・elevation・height はパスのジオメトリ(XY と初期 Z・長さ)に使う。
+end_bound でストーリレベルにバインドする。class は割り当てる柱種別クラス名。
+structural_use は構造材ツールの構造用途 (StructuralUse) 値で、管柱・通し柱は
+"4"(柱)、小屋束は "5"(小屋束)。小屋束を柱用途にすると上端の高さオフセットと
+部材長が矛盾するため小屋束用途にする。position・elevation・height はパスの
+ジオメトリ(XY と初期 Z・長さ)に使う。
 """
 
 
@@ -366,6 +376,9 @@ def _validate_column(index: int, command: Any) -> None:
              f'{where}.member_id は文字列である必要があります')
     _require(isinstance(command.get('class'), str) and command['class'],
              f'{where}.class は非空文字列である必要があります')
+    _require(isinstance(command.get('structural_use'), str)
+             and command['structural_use'],
+             f'{where}.structural_use は非空文字列である必要があります')
     _require(_is_point(command.get('position')),
              f'{where}.position は [x, y] の数値ペアである必要があります')
     for key in ('width', 'depth', 'height', 'elevation'):

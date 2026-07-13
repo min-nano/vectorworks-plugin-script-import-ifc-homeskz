@@ -2,8 +2,10 @@
 
 IFC の IfcColumn を走査し、各階の柱レイヤ(``n-柱``)に配置する column 命令を
 生成する。柱は梁と同じ構造材ツール (StructuralMember) で鉛直材として描くため、
-断面寸法(幅・成)と柱高さを押し出しソリッドから取得する。高さ基準は
-ストーリレベルにバインドする(構造用途は柱):始端は自階の横架材天端、終端は
+断面寸法(幅・成)と柱高さを押し出しソリッドから取得する。構造用途は管柱・
+通し柱は柱、小屋束は小屋束を設定する(小屋束を柱用途にすると VW の柱高さ
+モデルで上端高さが崩れるため)。高さ基準は
+ストーリレベルにバインドする:始端は自階の横架材天端、終端は
 上階の横架材天端(最上階直下の階では上階=屋根のため軒高)。最上階(屋根)の柱は
 上階が無いため始端・終端とも自階の軒高を基準にし、終端は柱高さ分持ち上げる。
 下端 Z(ストーリ高さ + ローカル配置 Z の絶対値)と柱高さはパスのジオメトリに使う。
@@ -35,7 +37,15 @@ from .story import (
     layer_prefix_for,
     resolve_beam_top_offset,
 )
-from .structural_class import resolve_column_class
+from .structural_class import CLASS_KOYAZUKA, resolve_column_class
+
+# 構造材ツールの構造用途 (StructuralUse) 値(VW の構造用途プルダウンの並び順に
+# 対応する: <自動>, 梁="1", 桁, 根太, 柱="4", 小屋束="5", ...)。管柱・通し柱は
+# 柱、小屋束は小屋束を設定する。小屋束を柱用途で描くと VW が柱の高さモデルを
+# 適用して上端の高さオフセットと部材長が矛盾し上端高さが正しく描画されないため、
+# 小屋束は小屋束用途にして実ジオメトリどおりの高さで描く。
+STRUCTURAL_USE_COLUMN = '4'    # 柱
+STRUCTURAL_USE_KOYAZUKA = '5'  # 小屋束
 
 # 柱が上階の床(次階 FL)を貫いていれば通し柱とみなす許容値 (mm)。管柱の上端は
 # 次階の横架材天端(=次階 FL より梁背分下)で止まるため、次階 FL をわずかに超えた
@@ -336,6 +346,11 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 through = is_through_column(top_abs, next_floor_elevation)
                 column_class = resolve_column_class(
                     element.ObjectType, element.Name, i, top_idx, through)
+                # 小屋束は構造用途を小屋束にする(柱用途だと上端高さが崩れる)。
+                structural_use = (
+                    STRUCTURAL_USE_KOYAZUKA
+                    if column_class == CLASS_KOYAZUKA
+                    else STRUCTURAL_USE_COLUMN)
 
                 # 高さバインドの基準となるレベルの絶対 Z(自階・上階)。
                 current_level_z = beam_top_abs_z(
@@ -354,6 +369,7 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                     'layer': layer_name,
                     'member_id': member_id,
                     'class': column_class,
+                    'structural_use': structural_use,
                     'position': [ox - center_x, oy - center_y],
                     'width': width,
                     'depth': depth,
