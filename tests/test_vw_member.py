@@ -230,6 +230,31 @@ class TestExecuteMembers:
         vs_mock.SetPluginStyle.assert_called_once_with(
             vs_mock.CreateCustomObjectPath.return_value, '木質構造材_横架材')
 
+    def test_updates_styled_objects_after_placing(self) -> None:
+        """全配置後に UpdateStyledObjects でスタイルの描画属性(テクスチャ等)を反映する。
+
+        SetPluginStyle はスタイルの関連付けまでで描画属性を反映しないため、
+        配置後に UpdateStyledObjects を呼ばないとテクスチャ等が反映されない(#56)。
+        by-instance の個別フィールドを設定し終えた全配置後に 1 回だけ呼ぶ。
+        """
+        vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})
+        _run_execute_members(vs_mock, [
+            make_member_command(start=(0.0, 0.0)),
+            make_member_command(start=(0.0, 1000.0)),
+        ])
+        # 2 部材配置しても UpdateStyledObjects はスタイル単位で 1 回
+        vs_mock.UpdateStyledObjects.assert_called_once_with('木質構造材_横架材')
+        # 個別フィールド(SetRField)を設定し終えた後に呼ぶ
+        methods = [c[0] for c in vs_mock.mock_calls]
+        last_setrfield = max(i for i, m in enumerate(methods) if m == 'SetRField')
+        assert methods.index('UpdateStyledObjects') > last_setrfield
+
+    def test_no_style_update_when_nothing_placed(self) -> None:
+        """1 件も配置しなければ UpdateStyledObjects を呼ばない。"""
+        vs_mock = _make_vs_mock(existing_layers=set())
+        _run_execute_members(vs_mock, [make_member_command()])
+        vs_mock.UpdateStyledObjects.assert_not_called()
+
     def test_fallback_to_line_when_plugin_unavailable(self) -> None:
         """構造材プラグインが利用できない場合に通常線にフォールバックする。"""
         vs_mock = _make_vs_mock(existing_layers={'1-横架材天端'})

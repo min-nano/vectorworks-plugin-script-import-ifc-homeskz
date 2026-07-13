@@ -249,6 +249,31 @@ class TestExecuteColumns:
         vs_mock.SetPluginStyle.assert_called_once_with(
             vs_mock.CreateCustomObjectPath.return_value, '木質構造材_柱・束')
 
+    def test_updates_styled_objects_after_placing(self) -> None:
+        """全配置後に UpdateStyledObjects でスタイルの描画属性(テクスチャ等)を反映する。
+
+        SetPluginStyle はスタイルの関連付けまでで描画属性を反映しないため、
+        配置後に UpdateStyledObjects を呼ばないとテクスチャ等が反映されない(#56)。
+        by-instance の個別フィールドを設定し終えた全配置後に 1 回だけ呼ぶ。
+        """
+        vs_mock = _make_vs_mock(existing_layers={'1-柱'})
+        _run_execute_columns(vs_mock, [
+            make_column_command(position=(0.0, 0.0)),
+            make_column_command(position=(1000.0, 0.0)),
+        ])
+        # 2 本配置しても UpdateStyledObjects はスタイル単位で 1 回
+        vs_mock.UpdateStyledObjects.assert_called_once_with('木質構造材_柱・束')
+        # 個別フィールド(SetRField)を設定し終えた後に呼ぶ
+        methods = [c[0] for c in vs_mock.mock_calls]
+        last_setrfield = max(i for i, m in enumerate(methods) if m == 'SetRField')
+        assert methods.index('UpdateStyledObjects') > last_setrfield
+
+    def test_no_style_update_when_nothing_placed(self) -> None:
+        """1 件も配置しなければ UpdateStyledObjects を呼ばない。"""
+        vs_mock = _make_vs_mock(existing_layers=set())
+        _run_execute_columns(vs_mock, [make_column_command()])
+        vs_mock.UpdateStyledObjects.assert_not_called()
+
     def test_sets_class(self) -> None:
         """柱種別クラスを SetClass で割り当てる。"""
         vs_mock = _make_vs_mock(existing_layers={'1-柱'})

@@ -35,9 +35,12 @@ def draw_column(command: ColumnCommand) -> None:
     モジュール docstring 参照)。
     断面は width×depth の矩形プロファイル。member_id(柱頭・柱脚金物の仕様を
     含む構造材 ID)を MemberID フィールドに格納する。プラグインスタイル
-    (STYLE_NAME)を SetPluginStyle で適用してから個別フィールドを設定するため、
-    スタイルの既定値は本命令の実測値で上書きされる。プラグインが利用できない
-    場合は断面の矩形にフォールバックする。
+    (STYLE_NAME)を SetPluginStyle で関連付ける。SetPluginStyle はパラメータの
+    関連付けまでで、スタイルが決める描画属性(コンポーネントのクラス/マテリアル=
+    テクスチャ等)はプッシュされない。描画属性は execute_columns が全配置後に
+    UpdateStyledObjects でまとめて反映する(#56 の不具合)。個別フィールドはスタイル
+    関連付けの後に設定するため、スタイルの既定値は本命令の実測値で上書きされる。
+    プラグインが利用できない場合は断面の矩形にフォールバックする。
     """
     x, y = command['position']
     z_bottom = command['elevation']
@@ -91,6 +94,11 @@ def execute_columns(commands: list[ColumnCommand]) -> int:
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する。
     未生成 = ストーリ設定がスキップされた階であり、勝手にレイヤを作らない)。
+
+    全配置後に UpdateStyledObjects(STYLE_NAME) を 1 回呼び、当該スタイルの全
+    オブジェクトをスタイルから更新して描画属性(テクスチャ等)を反映する(梁と同じ
+    規約。SetPluginStyle はパラメータの関連付けまでで描画属性をプッシュしないため。
+    #56)。by-instance の個別フィールドは保持したまま by-style の描画属性のみ更新する。
     """
     count = 0
     for command in commands:
@@ -101,5 +109,8 @@ def execute_columns(commands: list[ColumnCommand]) -> int:
 
         draw_column(command)
         count += 1
+
+    if count > 0:
+        vs.UpdateStyledObjects(STYLE_NAME)
 
     return count
