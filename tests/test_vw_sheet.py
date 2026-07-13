@@ -7,13 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from vectorworks_plugin_import_ifc_homeskz.document import SheetCommand
 
+_NUMBER = '1'
 _TITLE = '基礎伏図'
 _TARGET_LAYERS = ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']
 
 
 def make_command() -> SheetCommand:
     return {
-        'number': '1',
+        'number': _NUMBER,
         'title': _TITLE,
         'viewport': {
             'drawing_title': _TITLE,
@@ -59,7 +60,8 @@ def _make_vs_mock(
         return _handle(name) if name in design_layers else null_handle
 
     def get_obj(name: str) -> object:
-        if sheet_exists and name == _TITLE:
+        # シートレイヤはシートレイヤ番号を名前として作る
+        if sheet_exists and name == _NUMBER:
             return _handle(name)
         return null_handle
 
@@ -83,19 +85,19 @@ def _load(vs_mock: MagicMock) -> Any:
 
 
 class TestExecuteSheets:
-    def test_creates_sheet_layer_with_number_and_title(self) -> None:
+    def test_creates_sheet_layer_named_by_number_with_title(self) -> None:
         vs_mock = _make_vs_mock(_TARGET_LAYERS)
         vw_sheet = _load(vs_mock)
 
         count = vw_sheet.execute_sheets([make_command()])
 
         assert count == 1
-        # シートレイヤはプレゼンテーションレイヤ (種別 2) として作る
-        vs_mock.CreateLayer.assert_called_once_with(_TITLE, 2)
+        # シートレイヤ番号はレイヤ名が担う: 番号を名前にプレゼンテーションレイヤ
+        # (種別 2) として作る
+        vs_mock.CreateLayer.assert_called_once_with(_NUMBER, 2)
         ov_calls = [c.args for c in vs_mock.SetObjectVariableString.call_args_list]
-        # シートレイヤ番号・タイトルをオブジェクト変数で設定する
-        assert (_handle(_TITLE), vw_sheet._OV_SHEET_NUMBER, '1') in ov_calls
-        assert (_handle(_TITLE), vw_sheet._OV_SHEET_TITLE, _TITLE) in ov_calls
+        # シートレイヤタイトルをオブジェクト変数で設定する
+        assert (_handle(_NUMBER), vw_sheet._OV_SHEET_TITLE, _TITLE) in ov_calls
 
     def test_reuses_existing_sheet_layer(self) -> None:
         vs_mock = _make_vs_mock(_TARGET_LAYERS, sheet_exists=True)
@@ -113,7 +115,7 @@ class TestExecuteSheets:
         vw_sheet.execute_sheets([make_command()])
 
         # ビューポートはシートレイヤ上に作る
-        vs_mock.CreateVP.assert_called_once_with(_handle(_TITLE))
+        vs_mock.CreateVP.assert_called_once_with(_handle(_NUMBER))
         ov_calls = [c.args for c in vs_mock.SetObjectVariableString.call_args_list]
         assert ('VP_HANDLE', vw_sheet._OV_VP_DRAWING_TITLE, _TITLE) in ov_calls
         assert ('VP_HANDLE', vw_sheet._OV_VP_DRAWING_NUMBER, '1') in ov_calls

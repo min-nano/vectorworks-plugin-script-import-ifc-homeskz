@@ -5,9 +5,11 @@
 命令の ``layers`` に挙げたデザインレイヤだけを表示し、それ以外のデザインレイヤは
 非表示にする。クラスは伏図に必要な要素が欠けないよう全クラスを表示にする。
 
-シートレイヤ番号・タイトル、ビューポートの図面タイトル・図番は VectorWorks の
-オブジェクト変数(``SetObjectVariableString`` の selector)で設定する。selector 値は
-VectorWorks 公式のオブジェクト変数一覧に基づく(``document.py`` のスキーマ参照)。
+シートレイヤ番号は VectorWorks ではシートレイヤ(=レイヤ)の名前がそのまま担うため、
+``vs.CreateLayer`` に番号を渡してレイヤ名=シートレイヤ番号にする。シートレイヤタイトル・
+ビューポートの図面タイトル・図番は オブジェクト変数(``SetObjectVariableString`` の
+selector)で設定する。selector 値は VectorWorks 公式のオブジェクト変数一覧に基づく
+(``document.py`` のスキーマ参照)。
 """
 from __future__ import annotations
 
@@ -20,13 +22,13 @@ from ..document import SheetCommand, ViewportCommand
 # レイヤ種別(vs.CreateLayer): 1=デザインレイヤ, 2=プレゼンテーション(シート)レイヤ
 _SHEET_LAYER_TYPE = 2
 
-# シートレイヤのオブジェクト変数 selector(SetObjectVariableString)
-_OV_SHEET_NUMBER = 158  # シートレイヤ番号
+# シートレイヤのオブジェクト変数 selector(SetObjectVariableString)。
+# シートレイヤ番号はレイヤ名が担う(CreateLayer に番号を渡す)ため selector は無い。
 _OV_SHEET_TITLE = 159   # シートレイヤタイトル
 
 # ビューポートのオブジェクト変数 selector(SetObjectVariableString)
 _OV_VP_DRAWING_TITLE = 1032   # 図面タイトル
-_OV_VP_DRAWING_NUMBER = 1034  # 図番
+_OV_VP_DRAWING_NUMBER = 1033  # 図番
 
 # ビューポートのレイヤ表示種別(SetVPLayerVisibility): 0=表示, 1=グレー, 2=非表示
 _VP_LAYER_VISIBLE = 0
@@ -91,18 +93,18 @@ def draw_viewport(
 def draw_sheet(command: SheetCommand) -> None:
     """sheet 命令 1 件をシートレイヤ + ビューポートとして描画する。
 
-    シートレイヤ(プレゼンテーションレイヤ)を作成し、シートレイヤ番号・タイトルを
-    設定してから、その上にビューポートを配置する。同名のシートレイヤが既にある場合は
-    再利用する。
+    シートレイヤ(プレゼンテーションレイヤ)を **シートレイヤ番号を名前として**
+    作成し(VW ではシートレイヤ番号はレイヤ名が担う)、シートレイヤタイトルを
+    設定してから、その上にビューポートを配置する。同じ番号のシートレイヤが既にある
+    場合は再利用する。
     """
-    title = command['title']
-    sheet_layer = vs.GetObject(title)
+    number = command['number']
+    sheet_layer = vs.GetObject(number)
     if sheet_layer == vs.Handle(0):
-        sheet_layer = vs.CreateLayer(title, _SHEET_LAYER_TYPE)
+        sheet_layer = vs.CreateLayer(number, _SHEET_LAYER_TYPE)
     if sheet_layer == vs.Handle(0):
         return
-    vs.SetObjectVariableString(sheet_layer, _OV_SHEET_NUMBER, command['number'])
-    vs.SetObjectVariableString(sheet_layer, _OV_SHEET_TITLE, title)
+    vs.SetObjectVariableString(sheet_layer, _OV_SHEET_TITLE, command['title'])
     draw_viewport(command['viewport'], sheet_layer)
 
 
