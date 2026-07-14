@@ -97,10 +97,10 @@ class TestBuildMoyaSheetCommands:
         # 基礎伏図(1)+各階柱梁伏図(1階・2階・屋根=3)の次=5
         assert command['number'] == '5'
         assert command['title'] == '母屋伏図'
-        # 表示レイヤは母屋・通り芯
+        # 表示レイヤは母屋・小屋束記号・通り芯
         assert command['viewport']['drawing_title'] == '母屋伏図'
         assert command['viewport']['drawing_number'] == '5'
-        assert command['viewport']['layers'] == ['R-母屋', '共通']
+        assert command['viewport']['layers'] == ['R-母屋', 'R-小屋束', '共通']
 
 
 class TestBuildSheetCommands:

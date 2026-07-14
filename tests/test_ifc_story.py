@@ -154,6 +154,7 @@ class TestBuildStoryCommands:
                 'levels': [
                     {'type': '柱', 'offset': 0.0, 'layer': 'R-柱'},
                     {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
+                    {'type': '小屋束', 'offset': 0.0, 'layer': 'R-小屋束'},
                     {'type': '母屋', 'offset': 0.0, 'layer': 'R-母屋'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
@@ -170,7 +171,7 @@ class TestBuildStoryCommands:
         assert commands[0]['name'] == '屋根'
         assert commands[0]['suffix'] == 'R'
         level_types = [level['type'] for level in commands[0]['levels']]
-        assert level_types == ['柱', '母屋', '軒高']
+        assert level_types == ['柱', '小屋束', '母屋', '軒高']
 
     def test_empty_ifc_returns_empty_list(self) -> None:
         assert build_story_commands(ifcopenshell.file()) == []

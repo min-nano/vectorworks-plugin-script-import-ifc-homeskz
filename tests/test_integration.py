@@ -81,7 +81,7 @@ FIXTURES = [
         anchor_bolts=96,
         fire_braces=66,
         sheets=5,
-        column_marks=2,
+        column_marks=3,
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -96,7 +96,7 @@ FIXTURES = [
         anchor_bolts=110,
         fire_braces=35,
         sheets=5,
-        column_marks=2,
+        column_marks=3,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -111,7 +111,7 @@ FIXTURES = [
         anchor_bolts=85,
         fire_braces=28,
         sheets=5,
-        column_marks=2,
+        column_marks=3,
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -126,7 +126,7 @@ FIXTURES = [
         anchor_bolts=60,
         fire_braces=28,
         sheets=6,
-        column_marks=3,
+        column_marks=4,
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -141,7 +141,7 @@ FIXTURES = [
         anchor_bolts=30,
         fire_braces=2,
         sheets=6,
-        column_marks=3,
+        column_marks=4,
     ),
 ]
 
@@ -295,11 +295,13 @@ class TestSampleIfcAnalysis:
         assert [lv['layer'] for lv in foundation['levels']] == [
             'F-アンカーボルト', 'F-立上り', 'F-底盤']
         # 最上階は常に「屋根」、構造レベルは「軒高」＋柱配置用の柱＋下階柱記号の下階柱
-        # ＋母屋(棟木含む)配置用の母屋。柱レベルはレイヤを軒高の直上に積むため先頭、
-        # 下階柱・母屋は軒高の直上に積む(母屋が軒高の直前)。
+        # ＋小屋束記号の小屋束＋母屋(棟木含む)配置用の母屋。柱レベルはレイヤを軒高の
+        # 直上に積むため先頭、下階柱・小屋束・母屋は軒高の直上に積む(母屋が軒高の直前、
+        # 小屋束が母屋の直前)。
         roof = stories[-1]
         assert roof['name'] == '屋根'
-        assert [lv['type'] for lv in roof['levels']] == ['柱', '下階柱', '母屋', '軒高']
+        assert [lv['type'] for lv in roof['levels']] == [
+            '柱', '下階柱', '小屋束', '母屋', '軒高']
         # 最下階(1階=stories[1])は下に柱が無いため下階柱レベルを持たない
         assert [lv['type'] for lv in stories[1]['levels']] == [
             '柱', 'FL', '横架材天端']
@@ -357,10 +359,10 @@ class TestSampleIfcAnalysis:
         # シートレイヤ番号は基礎伏図(1)に続けて 2 から連番
         assert [s['number'] for s in floor_sheets] == [
             str(2 + i) for i in range(floor_story_count)]
-        # 母屋伏図は最後で、番号は柱梁伏図に続く。表示レイヤは母屋・通り芯。
+        # 母屋伏図は最後で、番号は柱梁伏図に続く。表示レイヤは母屋・小屋束記号・通り芯。
         assert moya_sheet['title'] == '母屋伏図'
         assert moya_sheet['number'] == str(2 + floor_story_count)
-        assert moya_sheet['viewport']['layers'] == ['R-母屋', '共通']
+        assert moya_sheet['viewport']['layers'] == ['R-母屋', 'R-小屋束', '共通']
         # 各伏図の表示レイヤは 通り芯 と 各階のストーリレイヤ(横架材・柱・床・母屋)、
         # および最下階のアンカーボルトのみ。
         allowed = story_layers | {'共通'}

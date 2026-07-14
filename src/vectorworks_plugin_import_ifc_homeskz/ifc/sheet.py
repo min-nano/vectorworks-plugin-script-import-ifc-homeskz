@@ -20,7 +20,8 @@
   アンカーボルト(``F-アンカーボルト``)も表示する。
 - **母屋伏図**(``build_moya_sheet_commands``): 最上階(屋根)の母屋・棟木(と将来の
   垂木)を梁と分けて表示する 1 枚。シートレイヤ番号は柱梁伏図の最後(小屋伏図)に
-  続けて振る。表示レイヤは母屋(``R-母屋``)・通り芯(``共通``)。
+  続けて振る。表示レイヤは母屋(``R-母屋``)・小屋束記号(``R-小屋束``)・通り芯
+  (``共通``)。母屋を支える小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。
 """
 from __future__ import annotations
 
@@ -37,6 +38,7 @@ from .story import (
     LEVEL_COLUMN,
     LEVEL_EAVES,
     LEVEL_FL,
+    LEVEL_KOYAZUKA_MARK,
     LEVEL_MOYA,
     LEVEL_UNDER_COLUMN,
     collect_stories,
@@ -144,7 +146,8 @@ def build_moya_sheet_commands(
 
     最上階(屋根)の母屋・棟木(と将来の垂木)を梁と分けて表示する伏図を 1 枚返す。
     シートレイヤ番号は柱梁伏図の最後(小屋伏図)に続けて振る。表示レイヤは
-    母屋(``R-母屋``)・通り芯(``共通``)。ストーリが無ければ空リストを返す。
+    母屋(``R-母屋``)・小屋束記号(``R-小屋束``)・通り芯(``共通``)。母屋を支える
+    小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
     if not stories:
@@ -159,7 +162,11 @@ def build_moya_sheet_commands(
         'viewport': {
             'drawing_title': MOYA_PLAN_TITLE,
             'drawing_number': number,
-            'layers': [f'{prefix}-{LEVEL_MOYA}', TARGET_LAYER],
+            'layers': [
+                f'{prefix}-{LEVEL_MOYA}',
+                f'{prefix}-{LEVEL_KOYAZUKA_MARK}',
+                TARGET_LAYER,
+            ],
         },
     }]
 
