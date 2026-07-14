@@ -289,6 +289,31 @@ class TestBuildWallJoinCommands:
         assert joins[0]['join_type'] == footing._JOIN_L
         assert joins[0]['point'] == [0.0, 0.0]
 
+    def test_overhanging_corner_is_l_not_x(self) -> None:
+        # ホームズ君 IFC の外周コーナー: 各壁が相手壁の外面まで伸びるため、壁芯
+        # どうしの交点が各壁の端から半壁厚(既定 120mm の半分=60mm)離れる。
+        # 固定 1mm 許容では「両方とも内部」= X と誤判定されるが、相手の半壁厚を
+        # 含む端点許容で「両方とも端点」= L と正しく判定する。
+        walls = [
+            _wall([-60.0, 0.0], [3000.0, 0.0]),   # 水平: 左端が縦壁芯を 60mm 越える
+            _wall([0.0, -60.0], [0.0, 3000.0]),   # 鉛直: 下端が横壁芯を 60mm 越える
+        ]
+        joins = footing.build_wall_join_commands(walls)
+        assert len(joins) == 1
+        assert joins[0]['join_type'] == footing._JOIN_L
+        assert joins[0]['point'] == [0.0, 0.0]
+
+    def test_overhanging_t_is_t_not_x(self) -> None:
+        # 通し材の途中に、相手の外面まで伸びた材が突き当たる T コーナー。
+        # 突き当たる材の端点が通し材の芯を半壁厚越えても T と判定する。
+        through = _wall([0.0, 0.0], [3000.0, 0.0])
+        stem = _wall([1500.0, -60.0], [1500.0, 2000.0])  # 下端が通し材芯を 60mm 越える
+        joins = footing.build_wall_join_commands([through, stem])
+        assert len(joins) == 1
+        assert joins[0]['join_type'] == footing._JOIN_T
+        assert joins[0]['a'] == 1  # stem が先
+        assert joins[0]['b'] == 0
+
     def test_t_join_puts_stem_first(self) -> None:
         # 通し材(内部で交わる)と、その途中に端点で突き当たる材 → T 結合(1)。
         # 延長される stem(端点側)を a に、通し through を b にする。

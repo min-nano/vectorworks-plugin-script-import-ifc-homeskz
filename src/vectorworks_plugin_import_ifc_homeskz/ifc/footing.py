@@ -70,7 +70,9 @@ _WALL_MERGE_ANGLE_TOL = 1e-3
 _JOIN_T = 1
 _JOIN_L = 2
 _JOIN_X = 3
-# 交点が壁芯の端点とみなせる、端からの距離の許容値 (mm)。
+# 交点が壁芯の端点とみなせる、端からの距離の許容値 (mm)。実際の端点許容は
+# これに相手壁の半壁厚を足した値(_wall_intersection 参照。立上りは相手壁の
+# 外面まで伸びるためコーナーの交点が端から半壁厚離れる)。
 _JOIN_ENDPOINT_TOL = 1.0
 
 # 3 次元ベクトル(ワールド座標)
@@ -601,10 +603,17 @@ def _wall_intersection(
     """立上り a・b の壁芯の交点と、その交点が各壁芯の端点か内部かを返す。
 
     Returns: (交点 x, 交点 y, a の端点で交わるか, b の端点で交わるか)。
-    平行(交点が定まらない)・区間外で交わる立上りは None。交点が壁芯の端から
-    ``_JOIN_ENDPOINT_TOL`` 以内なら端点、それ以外は内部とみなす。区間の許容は
-    端点許容値を各壁芯長で割った割合。同一直線上(平行)の立上りは merge_wall_commands
-    が扱うためここでは結合対象にしない(None を返す)。
+    平行(交点が定まらない)・区間外で交わる立上りは None。同一直線上(平行)の
+    立上りは merge_wall_commands が扱うためここでは結合対象にしない(None を返す)。
+
+    **端点許容は相手壁の半分の壁厚を含める**。ホームズ君 IFC の立上りは直交する
+    相手壁の**外面まで**モデル化されるため(コーナーで各壁が相手の芯を半壁厚だけ
+    越えて/手前で終わる)、壁芯どうしの交点は各壁の端から半壁厚ほど離れた位置に
+    来る。1mm の固定許容では外周コーナー(L)が「両方とも内部で交わる」= X 結合と
+    誤判定され、VW の JoinWalls がコーナーを繋がない。各壁の端点許容を
+    「相手壁の半壁厚 + ``_JOIN_ENDPOINT_TOL``」を壁芯長で割った割合にすることで、
+    相手の外面で終わる(または手前で止まる)コーナーを正しく端点交差(L/T)と
+    判定し、区間判定でも取りこぼさない。
     """
     ax1, ay1 = a['start']
     ax2, ay2 = a['end']
@@ -623,8 +632,9 @@ def _wall_intersection(
     qx, qy = bx1 - ax1, by1 - ay1
     t = (qx * sy - qy * sx) / rxs
     u = (qx * ry - qy * rx) / rxs
-    frac_a = _JOIN_ENDPOINT_TOL / la
-    frac_b = _JOIN_ENDPOINT_TOL / lb
+    # a の端点許容は相手 b の半壁厚(a は b の外面で終端しうる)、b は a の半壁厚。
+    frac_a = (b['thickness'] / 2.0 + _JOIN_ENDPOINT_TOL) / la
+    frac_b = (a['thickness'] / 2.0 + _JOIN_ENDPOINT_TOL) / lb
     # 交点が両壁芯の区間内(端点許容込み)にあるか
     if t < -frac_a or t > 1.0 + frac_a:
         return None
