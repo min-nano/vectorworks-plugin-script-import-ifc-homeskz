@@ -58,8 +58,15 @@ def draw_slab(command: SlabCommand) -> None:
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
     外形ポリゴンを閉じた多角形として作成し、``CreateSlab`` でスラブにする。
-    スラブ厚を ``SetSlabHeight`` で設定し、天端の高さ基準を底盤天端レベルに
-    バインドする。スラブが生成できない場合は外形ポリゴンにフォールバックする。
+    スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の高さ基準を底盤天端
+    レベルにバインドする。スラブが生成できない場合は外形ポリゴンにフォールバック
+    する。
+
+    **``SetSlabHeight`` はスラブ厚ではなく天端高さ(Coordinate)を設定する**。
+    以前はここに厚みを渡していたため天端が厚み分だけ高く描画されていた
+    (柱・梁の高さ二重加算と同種の不具合)。スラブ厚はスラブスタイルのコンポーネント
+    が決めるため、天端高さ(``elevation``、絶対 Z)を渡す。基礎ストーリは GL=0 の
+    ため、この絶対 Z はストーリ基準高さと一致する。
     """
     boundary = command['boundary']
 
@@ -74,7 +81,7 @@ def draw_slab(command: SlabCommand) -> None:
     slab = vs.CreateSlab(poly_h)
     if slab != vs.Handle(0):
         vs.SetClass(slab, command['class'])
-        vs.SetSlabHeight(slab, command['thickness'])
+        vs.SetSlabHeight(slab, command['elevation'])
         bound = command['bound']
         vs.SetObjectStoryBound(
             slab, 0, 2, bound['story_offset'], bound['level'], bound['offset'])

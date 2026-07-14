@@ -166,7 +166,7 @@ def make_document() -> dict[str, Any]:
         'slabs': [
             {'layer': 'F-底盤', 'class': '04構造-01基礎-02基礎スラブ',
              'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0], [0.0, 2000.0]],
-             'thickness': 150.0,
+             'elevation': 50.0,
              'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0}},
         ],
         'anchor_bolts': [

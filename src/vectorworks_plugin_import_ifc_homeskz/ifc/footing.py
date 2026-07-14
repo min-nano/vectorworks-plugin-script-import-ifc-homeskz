@@ -444,9 +444,13 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
 def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
     """基礎の底盤・地中梁から slab 命令のリストを組み立てる。
 
-    平面外形を底盤天端レベルにセンタリングして格納し、天端を底盤天端レベルに
-    バインドする(offset は実天端 Z と底盤天端の絶対 Z の差)。スラブ厚は実形状の
-    Z 方向の厚み。地中梁は底盤の下にぶら下がるため offset が負値になる。
+    平面外形を底盤天端レベルにセンタリングして格納し、天端の絶対 Z を elevation に
+    格納する(描画フェーズが SetSlabHeight でスラブの天端高さとして設定する)。
+    加えて天端を底盤天端レベルにバインドする(bound.offset は実天端 Z と底盤天端の
+    絶対 Z の差)。基礎ストーリは GL=0 のため elevation はストーリ基準高さとも一致する。
+    地中梁は底盤の下にぶら下がるため天端が底盤天端より低く offset が負値になる。
+    スラブ厚は SetSlabHeight では設定できず(高さを設定する関数のため)スラブ
+    スタイルが決めるので、命令には厚みを持たせない。
     """
     slab_top = resolve_slab_top_elevation(ifc_file)
     slab_top_abs = slab_top if slab_top is not None else 0.0
@@ -461,7 +465,7 @@ def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
         solid = _world_solid(element)
         if solid is None:
             continue
-        top_abs, thickness = _z_top_and_thickness(solid)
+        top_abs, _thickness = _z_top_and_thickness(solid)
         boundary = [[x - center_x, y - center_y] for x, y in _footprint(solid)]
         bound: StoryBoundCommand = {
             'story_offset': 0, 'level': LEVEL_SLAB_TOP,
@@ -470,7 +474,7 @@ def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
             'layer': LAYER_FOUNDATION_SLAB,
             'class': CLASS_FOUNDATION_SLAB,
             'boundary': boundary,
-            'thickness': thickness,
+            'elevation': top_abs,
             'bound': bound,
         })
     return commands

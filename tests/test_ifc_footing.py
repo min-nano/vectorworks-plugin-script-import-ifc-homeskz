@@ -144,13 +144,17 @@ class TestBuildFromFixture:
         ifc = _open(self.FILENAME)
         slabs = footing.build_slab_commands(ifc)
         assert slabs
+        slab_top = footing.resolve_slab_top_elevation(ifc)
+        assert slab_top is not None
         for slab in slabs:
             assert slab['layer'] == 'F-底盤'
             assert slab['class'] == '04構造-01基礎-02基礎スラブ'
             assert len(slab['boundary']) >= 3
-            assert slab['thickness'] > 0
             assert slab['bound']['level'] == '底盤天端'
             assert slab['bound']['story_offset'] == 0
+            # elevation は天端の絶対 Z、bound.offset は底盤天端(絶対)との差
+            assert math.isclose(
+                slab['elevation'], slab_top + slab['bound']['offset'])
         # 主たる底盤は天端=底盤天端 (offset≈0)、地中梁は底盤天端より低い (offset<0)
         offsets = [round(s['bound']['offset'], 1) for s in slabs]
         assert 0.0 in offsets

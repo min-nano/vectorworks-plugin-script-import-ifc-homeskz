@@ -72,7 +72,7 @@ def make_valid_document() -> dict[str, Any]:
             {
                 'layer': 'F-底盤', 'class': '04構造-01基礎-02基礎スラブ',
                 'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0], [0.0, 2000.0]],
-                'thickness': 150.0,
+                'elevation': 50.0,
                 'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0},
             },
         ],
@@ -292,10 +292,10 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError, match='bottom_bound.level'):
             validate_document(document)
 
-    def test_rejects_slab_without_thickness(self) -> None:
+    def test_rejects_slab_without_elevation(self) -> None:
         document = make_valid_document()
-        del document['slabs'][0]['thickness']
-        with pytest.raises(DocumentValidationError, match='thickness'):
+        del document['slabs'][0]['elevation']
+        with pytest.raises(DocumentValidationError, match='elevation'):
             validate_document(document)
 
     def test_rejects_slab_without_class(self) -> None:
