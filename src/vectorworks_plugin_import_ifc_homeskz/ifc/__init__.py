@@ -17,6 +17,7 @@ from .footing import (
     build_foundation_story_command,
     build_slab_commands,
     build_wall_commands,
+    build_wall_join_commands,
 )
 from .grid import build_grid_commands
 from .loader import open_ifc
@@ -35,7 +36,7 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_grid_commands', 'build_member_commands',
            'build_sheet_commands', 'build_slab_commands',
            'build_story_commands', 'build_tag_commands', 'build_wall_commands',
-           'open_ifc']
+           'build_wall_join_commands', 'open_ifc']
 
 
 def build_document(ifc_file: ifcopenshell.file) -> Document:
@@ -51,6 +52,8 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
 
     # 横架材命令は断面寸法データタグの組み立てにも使うため一度だけ組み立てる
     members = build_member_commands(ifc_file)
+    # 立上り命令は壁結合(交点はインデックス参照)の組み立てにも使うため一度だけ組み立てる
+    walls = build_wall_commands(ifc_file)
 
     return {
         'version': DOCUMENT_VERSION,
@@ -58,7 +61,8 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'grids': build_grid_commands(ifc_file),
         'members': members,
         'columns': build_column_commands(ifc_file),
-        'walls': build_wall_commands(ifc_file),
+        'walls': walls,
+        'wall_joins': build_wall_join_commands(walls),
         'slabs': build_slab_commands(ifc_file),
         'anchor_bolts': build_anchor_bolt_commands(ifc_file),
         'fire_braces': build_fire_brace_commands(ifc_file),

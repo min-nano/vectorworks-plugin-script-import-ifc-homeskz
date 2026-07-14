@@ -8,19 +8,28 @@
 """
 from __future__ import annotations
 
+from typing import Any
+
 import vs
 
-from ..document import SlabCommand, WallCommand
+from ..document import SlabCommand, WallCommand, WallJoinCommand
 
 WALL_STYLE_NAME = '基礎 - 木造ベタ基礎150mm'
 
+# 壁結合(JoinWalls)の引数。基礎立上りはコンクリートで一体のため capped=False
+# (結合部を閉じない=貫通)にする。showAlerts=False で結合失敗時のダイアログを
+# 抑止する(インポート中に手動操作を求められないように)。
+_JOIN_CAPPED = False
+_JOIN_SHOW_ALERTS = False
 
-def draw_wall(command: WallCommand) -> None:
-    """wall 命令 1 件を壁オブジェクトとして描画する。
+
+def draw_wall(command: WallCommand) -> Any:
+    """wall 命令 1 件を壁オブジェクトとして描画し、壁ハンドルを返す。
 
     壁厚を ``DoubLines`` で設定してから ``Wall`` で壁芯線から壁を生成し、
     下端・上端の高さ基準をストーリレベルにバインドする(boundType=2=Story)。
-    壁が生成できない場合は壁芯の直線にフォールバックする。
+    壁が生成できない場合は壁芯の直線にフォールバックし、None を返す(壁結合の
+    対象にならないため)。
 
     バインドには**壁専用の ``SetWallOverallHeights``** を使う。汎用の
     ``SetObjectStoryBound`` では壁の高さ基準が確定せず、壁がデザインレイヤの
@@ -46,12 +55,13 @@ def draw_wall(command: WallCommand) -> None:
             2, bottom['story_offset'], bottom['level'], bottom['offset'],
             2, top['story_offset'], top['level'], top['offset'])
         vs.ResetObject(obj)
-    else:
-        # フォールバック: 壁芯の直線
-        vs.MoveTo(x1, y1)
-        vs.LineTo(x2, y2)
-        fallback_line = vs.LNewObj()
-        vs.SetClass(fallback_line, command['class'])
+        return obj
+    # フォールバック: 壁芯の直線
+    vs.MoveTo(x1, y1)
+    vs.LineTo(x2, y2)
+    fallback_line = vs.LNewObj()
+    vs.SetClass(fallback_line, command['class'])
+    return None
 
 
 def draw_slab(command: SlabCommand) -> None:
@@ -91,18 +101,52 @@ def draw_slab(command: SlabCommand) -> None:
         vs.SetClass(poly_h, command['class'])
 
 
-def execute_walls(commands: list[WallCommand]) -> int:
+def execute_walls(
+    commands: list[WallCommand], handles: dict[int, Any] | None = None,
+) -> int:
     """wall 命令のリストを描画し、配置数を返す。
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
+
+    ``handles`` に dict を渡すと、命令のインデックス(commands 内の位置)をキーに
+    配置した壁ハンドルを記録する(壁結合 ``execute_wall_joins`` の関連付けに使う。
+    横架材ハンドルと同じ受け渡し方式)。フォールバック描画(壁が作れない)や
+    レイヤ未生成でスキップした命令は記録しない。
     """
     count = 0
-    for command in commands:
+    for index, command in enumerate(commands):
         layer = command['layer']
         if vs.GetObject(layer) == vs.Handle(0):
             continue
         vs.Layer(layer)
-        draw_wall(command)
+        obj = draw_wall(command)
+        if handles is not None and obj is not None:
+            handles[index] = obj
+        count += 1
+    return count
+
+
+def execute_wall_joins(
+    commands: list[WallJoinCommand], handles: dict[int, Any],
+) -> int:
+    """wall_join 命令のリストを実行して交差する立上りを結合し、結合数を返す。
+
+    ``handles`` は ``execute_walls`` が記録した壁インデックス→壁ハンドルの dict。
+    各命令の ``a`` / ``b`` で 2 つの壁ハンドルを引き、``vs.JoinWalls`` で結合する。
+    どちらかの壁が未配置(レイヤ未生成・フォールバック描画でハンドル未記録)の
+    命令はスキップする。ピック点(どの端を結合するか)は両壁とも交点を渡し、
+    結合種別は命令の ``join_type``(1=T・2=L・3=X)を joinModifier に渡す。
+    """
+    count = 0
+    for command in commands:
+        first = handles.get(command['a'])
+        second = handles.get(command['b'])
+        if first is None or second is None:
+            continue
+        px, py = command['point']
+        vs.JoinWalls(
+            first, second, (px, py), (px, py),
+            command['join_type'], _JOIN_CAPPED, _JOIN_SHOW_ALERTS)
         count += 1
     return count
 

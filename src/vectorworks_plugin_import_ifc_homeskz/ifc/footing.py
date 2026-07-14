@@ -24,7 +24,13 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Optional
 
-from ..document import SlabCommand, StoryBoundCommand, StoryCommand, WallCommand
+from ..document import (
+    SlabCommand,
+    StoryBoundCommand,
+    StoryCommand,
+    WallCommand,
+    WallJoinCommand,
+)
 from .grid import resolve_lines
 from .story import (
     FOUNDATION_SUFFIX,
@@ -59,6 +65,13 @@ _VERTICAL_EXTRUDE_TOL = 0.9
 _WALL_MERGE_DIST_TOL = 1.0
 # 平行判定に使う単位方向ベクトルの外積(sin 角)の許容値。
 _WALL_MERGE_ANGLE_TOL = 1e-3
+
+# 壁結合(JoinWalls)の joinModifier 値。1=T 結合・2=L 結合・3=X 結合。
+_JOIN_T = 1
+_JOIN_L = 2
+_JOIN_X = 3
+# 交点が壁芯の端点とみなせる、端からの距離の許容値 (mm)。
+_JOIN_ENDPOINT_TOL = 1.0
 
 # 3 次元ベクトル(ワールド座標)
 _Vec = tuple[float, float, float]
@@ -580,6 +593,91 @@ def merge_wall_commands(walls: list[WallCommand]) -> list[WallCommand]:
     for key in order:
         result.extend(_merge_wall_group(groups[key]))
     return result
+
+
+def _wall_intersection(
+    a: WallCommand, b: WallCommand,
+) -> tuple[float, float, bool, bool] | None:
+    """立上り a・b の壁芯の交点と、その交点が各壁芯の端点か内部かを返す。
+
+    Returns: (交点 x, 交点 y, a の端点で交わるか, b の端点で交わるか)。
+    平行(交点が定まらない)・区間外で交わる立上りは None。交点が壁芯の端から
+    ``_JOIN_ENDPOINT_TOL`` 以内なら端点、それ以外は内部とみなす。区間の許容は
+    端点許容値を各壁芯長で割った割合。同一直線上(平行)の立上りは merge_wall_commands
+    が扱うためここでは結合対象にしない(None を返す)。
+    """
+    ax1, ay1 = a['start']
+    ax2, ay2 = a['end']
+    bx1, by1 = b['start']
+    bx2, by2 = b['end']
+    rx, ry = ax2 - ax1, ay2 - ay1
+    sx, sy = bx2 - bx1, by2 - by1
+    la = math.hypot(rx, ry)
+    lb = math.hypot(sx, sy)
+    if la <= 0.0 or lb <= 0.0:
+        return None
+    rxs = rx * sy - ry * sx
+    # 平行/同一直線: 交点が定まらないため結合対象にしない
+    if abs(rxs) <= _WALL_MERGE_ANGLE_TOL * la * lb:
+        return None
+    qx, qy = bx1 - ax1, by1 - ay1
+    t = (qx * sy - qy * sx) / rxs
+    u = (qx * ry - qy * rx) / rxs
+    frac_a = _JOIN_ENDPOINT_TOL / la
+    frac_b = _JOIN_ENDPOINT_TOL / lb
+    # 交点が両壁芯の区間内(端点許容込み)にあるか
+    if t < -frac_a or t > 1.0 + frac_a:
+        return None
+    if u < -frac_b or u > 1.0 + frac_b:
+        return None
+    px = ax1 + t * rx
+    py = ay1 + t * ry
+    a_at_end = t <= frac_a or t >= 1.0 - frac_a
+    b_at_end = u <= frac_b or u >= 1.0 - frac_b
+    return px, py, a_at_end, b_at_end
+
+
+def _wall_join_command(
+    i: int, a: WallCommand, j: int, b: WallCommand,
+) -> WallJoinCommand | None:
+    """立上り a(index i)・b(index j)が交差すれば壁結合命令を返す。無ければ None。
+
+    交点が両壁芯の端点なら L 結合、片方の端点+片方の内部なら T 結合(端点側の壁を
+    延長される stem= a に、通し側の壁を through= b にする)、両方の内部なら X 結合。
+    配置レイヤが違う立上りは結合しない(現状すべて同一レイヤだが念のため)。
+    """
+    if a['layer'] != b['layer']:
+        return None
+    result = _wall_intersection(a, b)
+    if result is None:
+        return None
+    px, py, a_at_end, b_at_end = result
+    if a_at_end and b_at_end:
+        return {'a': i, 'b': j, 'point': [px, py], 'join_type': _JOIN_L}
+    if a_at_end and not b_at_end:
+        return {'a': i, 'b': j, 'point': [px, py], 'join_type': _JOIN_T}
+    if b_at_end and not a_at_end:
+        # b の端点が a の内部で交わる T 結合。stem(延長される側)= b を先にする。
+        return {'a': j, 'b': i, 'point': [px, py], 'join_type': _JOIN_T}
+    return {'a': i, 'b': j, 'point': [px, py], 'join_type': _JOIN_X}
+
+
+def build_wall_join_commands(walls: list[WallCommand]) -> list[WallJoinCommand]:
+    """立上り(壁)命令から、交差する壁同士を結合する wall_join 命令を組み立てる。
+
+    ``walls`` は ``build_wall_commands`` が返す(マージ済みの)wall 命令リストで、
+    その並び順が document の ``walls`` と一致するため、命令の ``a`` / ``b`` は
+    そのインデックスをそのまま指す。全ペアを走査し、壁芯が交差する組(L/T/X)を
+    結合命令にする。同一直線上(平行)の立上りは merge_wall_commands が 1 本に
+    統合済みで結合対象にしない。判定は入力順に対して決定的。
+    """
+    commands: list[WallJoinCommand] = []
+    for i in range(len(walls)):
+        for j in range(i + 1, len(walls)):
+            command = _wall_join_command(i, walls[i], j, walls[j])
+            if command is not None:
+                commands.append(command)
+    return commands
 
 
 def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:

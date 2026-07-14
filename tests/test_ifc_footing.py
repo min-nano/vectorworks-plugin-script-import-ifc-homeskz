@@ -273,6 +273,88 @@ class TestMergeWallCommands:
         assert footing.merge_wall_commands([]) == []
 
 
+class TestBuildWallJoinCommands:
+    """交差する立上り同士の壁結合(JoinWalls)命令を組み立てる。"""
+
+    def test_l_join_at_shared_endpoint(self) -> None:
+        # 両端点で交わる直角コーナー → L 結合(2)
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([0.0, 0.0], [0.0, 3000.0]),
+        ]
+        joins = footing.build_wall_join_commands(walls)
+        assert len(joins) == 1
+        assert joins[0]['a'] == 0
+        assert joins[0]['b'] == 1
+        assert joins[0]['join_type'] == footing._JOIN_L
+        assert joins[0]['point'] == [0.0, 0.0]
+
+    def test_t_join_puts_stem_first(self) -> None:
+        # 通し材(内部で交わる)と、その途中に端点で突き当たる材 → T 結合(1)。
+        # 延長される stem(端点側)を a に、通し through を b にする。
+        through = _wall([0.0, 0.0], [3000.0, 0.0])
+        stem = _wall([1500.0, 0.0], [1500.0, 2000.0])
+        joins = footing.build_wall_join_commands([through, stem])
+        assert len(joins) == 1
+        assert joins[0]['join_type'] == footing._JOIN_T
+        assert joins[0]['a'] == 1  # stem(index 1)が先
+        assert joins[0]['b'] == 0  # through(index 0)が後
+        assert joins[0]['point'] == [1500.0, 0.0]
+
+    def test_x_join_at_interior_crossing(self) -> None:
+        # 両方の内部で交わる十字 → X 結合(3)
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([1500.0, -1500.0], [1500.0, 1500.0]),
+        ]
+        joins = footing.build_wall_join_commands(walls)
+        assert len(joins) == 1
+        assert joins[0]['join_type'] == footing._JOIN_X
+        assert joins[0]['point'] == [1500.0, 0.0]
+
+    def test_non_touching_walls_not_joined(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0]),
+            _wall([2000.0, 1000.0], [3000.0, 1000.0]),
+        ]
+        assert footing.build_wall_join_commands(walls) == []
+
+    def test_collinear_walls_not_joined(self) -> None:
+        # 同一直線上(平行)は merge の担当。壁結合の対象にしない。
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0]),
+            _wall([2000.0, 0.0], [3000.0, 0.0]),
+        ]
+        assert footing.build_wall_join_commands(walls) == []
+
+    def test_parallel_offset_walls_not_joined(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([0.0, 500.0], [3000.0, 500.0]),
+        ]
+        assert footing.build_wall_join_commands(walls) == []
+
+    def test_different_layer_walls_not_joined(self) -> None:
+        a = _wall([0.0, 0.0], [3000.0, 0.0])
+        b = _wall([0.0, 0.0], [0.0, 3000.0])
+        b['layer'] = '別レイヤ'
+        assert footing.build_wall_join_commands([a, b]) == []
+
+    def test_through_wall_with_two_stems_makes_two_joins(self) -> None:
+        # 1 本の通し材に 2 本の材が別位置で突き当たる → T 結合が 2 件
+        through = _wall([0.0, 0.0], [3000.0, 0.0])
+        stem1 = _wall([1000.0, 0.0], [1000.0, 2000.0])
+        stem2 = _wall([2000.0, 0.0], [2000.0, 2000.0])
+        joins = footing.build_wall_join_commands([through, stem1, stem2])
+        assert len(joins) == 2
+        assert all(j['join_type'] == footing._JOIN_T for j in joins)
+        points = sorted(j['point'][0] for j in joins)
+        assert points == [1000.0, 2000.0]
+
+    def test_empty_returns_empty(self) -> None:
+        assert footing.build_wall_join_commands([]) == []
+
+
 class TestNoFoundation:
     def test_returns_none_and_empty_when_absent(self) -> None:
         # 空の IFC には基礎要素が無い

@@ -67,6 +67,15 @@ def make_valid_document() -> dict[str, Any]:
                 'bottom_bound': {'story_offset': 0, 'level': 'GL', 'offset': -100.0},
                 'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -190.0},
             },
+            {
+                'layer': 'F-立上り', 'class': '04構造-01基礎-03立ち上がり',
+                'start': [0.0, 0.0], 'end': [0.0, 3000.0], 'thickness': 120.0,
+                'bottom_bound': {'story_offset': 0, 'level': 'GL', 'offset': -100.0},
+                'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -190.0},
+            },
+        ],
+        'wall_joins': [
+            {'a': 0, 'b': 1, 'point': [0.0, 0.0], 'join_type': 2},
         ],
         'slabs': [
             {
@@ -123,9 +132,9 @@ class TestValidateDocument:
 
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'slabs': [],
-                    'anchor_bolts': [], 'fire_braces': [], 'sheets': [],
-                    'tags': [], 'column_marks': []}
+                    'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
+                    'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
+                    'sheets': [], 'tags': [], 'column_marks': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -145,9 +154,9 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
-                                     'walls', 'slabs', 'anchor_bolts',
-                                     'fire_braces', 'sheets', 'tags',
-                                     'column_marks'])
+                                     'walls', 'wall_joins', 'slabs',
+                                     'anchor_bolts', 'fire_braces', 'sheets',
+                                     'tags', 'column_marks'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -297,6 +306,36 @@ class TestValidateDocument:
         document = make_valid_document()
         document['walls'][0]['bottom_bound']['level'] = ''
         with pytest.raises(DocumentValidationError, match='bottom_bound.level'):
+            validate_document(document)
+
+    def test_rejects_wall_join_with_non_int_index(self) -> None:
+        document = make_valid_document()
+        document['wall_joins'][0]['a'] = 0.5
+        with pytest.raises(DocumentValidationError, match='wall_joins'):
+            validate_document(document)
+
+    def test_rejects_wall_join_with_negative_index(self) -> None:
+        document = make_valid_document()
+        document['wall_joins'][0]['b'] = -1
+        with pytest.raises(DocumentValidationError, match='wall_joins'):
+            validate_document(document)
+
+    def test_rejects_wall_join_with_same_indices(self) -> None:
+        document = make_valid_document()
+        document['wall_joins'][0]['b'] = document['wall_joins'][0]['a']
+        with pytest.raises(DocumentValidationError, match='異なる壁インデックス'):
+            validate_document(document)
+
+    def test_rejects_wall_join_with_bad_point(self) -> None:
+        document = make_valid_document()
+        document['wall_joins'][0]['point'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='point'):
+            validate_document(document)
+
+    def test_rejects_wall_join_with_invalid_join_type(self) -> None:
+        document = make_valid_document()
+        document['wall_joins'][0]['join_type'] = 9
+        with pytest.raises(DocumentValidationError, match='join_type'):
             validate_document(document)
 
     def test_rejects_slab_without_elevation(self) -> None:

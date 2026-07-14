@@ -164,6 +164,7 @@ def make_document() -> dict[str, Any]:
              'bottom_bound': {'story_offset': 0, 'level': 'GL', 'offset': -100.0},
              'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -190.0}},
         ],
+        'wall_joins': [],
         'slabs': [
             {'layer': 'F-底盤', 'class': '04構造-01基礎-02基礎スラブ',
              'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0], [0.0, 2000.0]],
@@ -196,21 +197,21 @@ class TestExecuteDocument:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
-                          'walls': 1, 'slabs': 1, 'anchor_bolts': 1,
-                          'fire_braces': 1, 'column_marks': 1, 'sheets': 1,
-                          'tags': 0}
+                          'walls': 1, 'wall_joins': 0, 'slabs': 1,
+                          'anchor_bolts': 1, 'fire_braces': 1, 'column_marks': 1,
+                          'sheets': 1, 'tags': 0}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'slabs': [],
-                    'anchor_bolts': [], 'fire_braces': [], 'sheets': [],
-                    'tags': [], 'column_marks': []}
+                    'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
+                    'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
+                    'sheets': [], 'tags': [], 'column_marks': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
-                          'walls': 0, 'slabs': 0, 'anchor_bolts': 0,
-                          'fire_braces': 0, 'column_marks': 0, 'sheets': 0,
-                          'tags': 0}
+                          'walls': 0, 'wall_joins': 0, 'slabs': 0,
+                          'anchor_bolts': 0, 'fire_braces': 0, 'column_marks': 0,
+                          'sheets': 0, 'tags': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

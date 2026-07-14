@@ -5,7 +5,11 @@ import importlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from vectorworks_plugin_import_ifc_homeskz.document import SlabCommand, WallCommand
+from vectorworks_plugin_import_ifc_homeskz.document import (
+    SlabCommand,
+    WallCommand,
+    WallJoinCommand,
+)
 
 
 def make_wall_command() -> WallCommand:
@@ -15,6 +19,10 @@ def make_wall_command() -> WallCommand:
         'bottom_bound': {'story_offset': 0, 'level': 'GL', 'offset': -100.0},
         'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -190.0},
     }
+
+
+def make_wall_join_command() -> WallJoinCommand:
+    return {'a': 0, 'b': 1, 'point': [0.0, 0.0], 'join_type': 2}
 
 
 def make_slab_command() -> SlabCommand:
@@ -92,6 +100,50 @@ class TestExecuteWalls:
         assert count == 1
         vs_mock.MoveTo.assert_called_once()
         vs_mock.LineTo.assert_called_once()
+
+
+class TestExecuteWallJoins:
+    def test_records_wall_handles_by_index(self) -> None:
+        vs_mock = _make_vs_mock({'F-立上り'})
+        # 各 draw_wall で異なる壁ハンドルを返させる (LNewObj は draw_wall で 1 回)
+        vs_mock.LNewObj.side_effect = ['WALL_0', 'WALL_1']
+        vw_footing = _load(vs_mock)
+
+        handles: dict[int, Any] = {}
+        count = vw_footing.execute_walls(
+            [make_wall_command(), make_wall_command()], handles)
+
+        assert count == 2
+        assert handles == {0: 'WALL_0', 1: 'WALL_1'}
+
+    def test_joins_walls_via_join_walls(self) -> None:
+        vs_mock = _make_vs_mock(set())
+        vw_footing = _load(vs_mock)
+
+        handles = {0: 'WALL_A', 1: 'WALL_B'}
+        count = vw_footing.execute_wall_joins([make_wall_join_command()], handles)
+
+        assert count == 1
+        # (firstWall, secondWall, pt_a, pt_b, joinModifier, capped, showAlerts)
+        args = vs_mock.JoinWalls.call_args.args
+        assert args[0] == 'WALL_A'
+        assert args[1] == 'WALL_B'
+        assert args[2] == (0.0, 0.0)
+        assert args[3] == (0.0, 0.0)
+        assert args[4] == 2       # join_type (L)
+        assert args[5] is False   # capped(コンクリート一体のため閉じない)
+        assert args[6] is False   # showAlerts
+
+    def test_skips_when_handle_missing(self) -> None:
+        vs_mock = _make_vs_mock(set())
+        vw_footing = _load(vs_mock)
+
+        # b(index 1)のハンドルが記録されていない(壁未配置)
+        handles = {0: 'WALL_A'}
+        count = vw_footing.execute_wall_joins([make_wall_join_command()], handles)
+
+        assert count == 0
+        vs_mock.JoinWalls.assert_not_called()
 
 
 class TestExecuteSlabs:
