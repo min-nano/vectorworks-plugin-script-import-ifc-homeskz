@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 16):
+スキーマ (version 17):
 
     {
-        "version": 16,
+        "version": 17,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -135,6 +135,21 @@
                 "position": [x, y]
             }
         ],
+        "fire_braces": [
+            {
+                # 火打(火打梁、IfcBeam/IfcMember の "火打:…")をハイブリッド
+                # シンボル "鋼製火打" に置換して横架材レイヤに配置する命令。
+                "layer": "2-横架材天端",   # 配置先デザインレイヤ名(既存のみ・なければスキップ)
+                "symbol": "鋼製火打",       # 置換するハイブリッドシンボル名
+                # 2D 基準位置は横架材接合部の内側面交点(火打が取り付く 2 梁の
+                # 面が幾何学的に交わる内角の点、mm・センタリング済み)。高さの基準は
+                # 配置先レイヤ(横架材天端 / 最上階は軒高)のストーリレベルが担う。
+                "position": [x, y],
+                # 火打の向きに合わせた回転角(度)。基準点(内角)から火打本体の
+                # 重心へ向かう方向(内角の二等分方向)を採る。
+                "angle": -45.0
+            }
+        ],
         "sheets": [
             {
                 # シートレイヤとビューポートを生成する命令。特定のデザインレイヤ群を
@@ -176,7 +191,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 16
+DOCUMENT_VERSION = 17
 
 
 class LevelCommand(TypedDict):
@@ -325,6 +340,24 @@ class AnchorBoltCommand(TypedDict):
     position: list[float]
 
 
+class FireBraceCommand(TypedDict):
+    """火打(火打梁)をハイブリッドシンボルに置換して配置する命令。
+
+    layer は配置先デザインレイヤ名(火打が属する階の横架材天端、最上階は軒高)。
+    symbol は置換するハイブリッドシンボル名(鋼製火打)。position は横架材接合部の
+    内側面交点(火打が取り付く 2 梁の面が幾何学的に交わる内角の点、センタリング済み)
+    の 2D 座標で、これがシンボルの基準点になる。angle は火打の向きに合わせた回転角
+    (度)で、基準点(内角)から火打本体の重心へ向かう方向(内角の二等分方向)。
+    高さの基準(横架材天端 / 軒高)は配置先レイヤのストーリレベルが担うため、
+    命令には高さ情報を持たせない。
+    """
+
+    layer: str
+    symbol: str
+    position: list[float]
+    angle: float
+
+
 class ViewportCommand(TypedDict):
     """シート上に配置するビューポート 1 つ分。
 
@@ -381,6 +414,7 @@ class Document(TypedDict):
     walls: list[WallCommand]
     slabs: list[SlabCommand]
     anchor_bolts: list[AnchorBoltCommand]
+    fire_braces: list[FireBraceCommand]
     sheets: list[SheetCommand]
     tags: list[TagCommand]
 
@@ -535,6 +569,19 @@ def _validate_anchor_bolt(index: int, command: Any) -> None:
              f'{where}.position は [x, y] の数値ペアである必要があります')
 
 
+def _validate_fire_brace(index: int, command: Any) -> None:
+    where = f'fire_braces[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('symbol'), str) and command['symbol'],
+             f'{where}.symbol は非空文字列である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+    _require(_is_number(command.get('angle')),
+             f'{where}.angle は数値である必要があります')
+
+
 def _validate_viewport(where: str, viewport: Any) -> None:
     field = f'{where}.viewport'
     _require(isinstance(viewport, dict), f'{field} は dict である必要があります')
@@ -595,7 +642,7 @@ def validate_document(document: Any) -> Document:
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-                'anchor_bolts', 'sheets', 'tags'):
+                'anchor_bolts', 'fire_braces', 'sheets', 'tags'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -612,6 +659,8 @@ def validate_document(document: Any) -> Document:
         _validate_slab(i, command)
     for i, command in enumerate(document['anchor_bolts']):
         _validate_anchor_bolt(i, command)
+    for i, command in enumerate(document['fire_braces']):
+        _validate_fire_brace(i, command)
     for i, command in enumerate(document['sheets']):
         _validate_sheet(i, command)
     for i, command in enumerate(document['tags']):

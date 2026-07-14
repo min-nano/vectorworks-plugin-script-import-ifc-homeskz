@@ -46,6 +46,7 @@ class Expected:
         walls: int,
         slabs: int,
         anchor_bolts: int,
+        fire_braces: int,
         sheets: int,
     ) -> None:
         self.filename = filename
@@ -58,6 +59,7 @@ class Expected:
         self.walls = walls
         self.slabs = slabs
         self.anchor_bolts = anchor_bolts
+        self.fire_braces = fire_braces
         self.sheets = sheets
 
 
@@ -75,6 +77,7 @@ FIXTURES = [
         walls=38,
         slabs=38,
         anchor_bolts=96,
+        fire_braces=66,
         sheets=4,
     ),
     Expected(
@@ -88,6 +91,7 @@ FIXTURES = [
         walls=55,
         slabs=51,
         anchor_bolts=110,
+        fire_braces=35,
         sheets=4,
     ),
     Expected(
@@ -101,6 +105,7 @@ FIXTURES = [
         walls=39,
         slabs=36,
         anchor_bolts=85,
+        fire_braces=28,
         sheets=4,
     ),
     Expected(
@@ -114,6 +119,7 @@ FIXTURES = [
         walls=27,
         slabs=28,
         anchor_bolts=60,
+        fire_braces=28,
         sheets=5,
     ),
     Expected(
@@ -127,6 +133,7 @@ FIXTURES = [
         walls=19,
         slabs=24,
         anchor_bolts=30,
+        fire_braces=2,
         sheets=5,
     ),
 ]
@@ -228,6 +235,7 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         import vectorworks_plugin_import_ifc_homeskz.vw as vw
         import vectorworks_plugin_import_ifc_homeskz.vw.anchor_bolt as vw_anchor
         import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
+        import vectorworks_plugin_import_ifc_homeskz.vw.fire_brace as vw_fire
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
@@ -239,6 +247,7 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         importlib.reload(vw_column)
         importlib.reload(vw_footing)
         importlib.reload(vw_anchor)
+        importlib.reload(vw_fire)
         importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
@@ -296,6 +305,7 @@ class TestSampleIfcAnalysis:
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
         assert len(document['anchor_bolts']) == exp.anchor_bolts
+        assert len(document['fire_braces']) == exp.fire_braces
         assert len(document['sheets']) == exp.sheets
 
     def test_foundation_plan_sheet_references_foundation_layers(
@@ -415,6 +425,7 @@ class TestFullPipeline:
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
         assert counts['anchor_bolts'] == len(document['anchor_bolts'])
+        assert counts['fire_braces'] == len(document['fire_braces'])
         assert counts['sheets'] == len(document['sheets'])
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
@@ -423,6 +434,7 @@ class TestFullPipeline:
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs
         assert counts['anchor_bolts'] == exp.anchor_bolts
+        assert counts['fire_braces'] == exp.fire_braces
         assert counts['sheets'] == exp.sheets
 
     def test_each_story_is_created(self, exp: Expected) -> None:

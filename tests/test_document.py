@@ -82,6 +82,12 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [0.0, 0.0],
             },
         ],
+        'fire_braces': [
+            {
+                'layer': '2-横架材天端', 'symbol': '鋼製火打',
+                'position': [1200.0, -800.0], 'angle': -45.0,
+            },
+        ],
         'sheets': [
             {
                 'number': '1', 'title': '基礎伏図',
@@ -112,7 +118,8 @@ class TestValidateDocument:
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'slabs': [],
-                    'anchor_bolts': [], 'sheets': [], 'tags': []}
+                    'anchor_bolts': [], 'fire_braces': [], 'sheets': [],
+                    'tags': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -132,8 +139,8 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
-                                     'walls', 'slabs', 'anchor_bolts', 'sheets',
-                                     'tags'])
+                                     'walls', 'slabs', 'anchor_bolts',
+                                     'fire_braces', 'sheets', 'tags'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -337,6 +344,36 @@ class TestValidateDocument:
         document = make_valid_document()
         document['anchor_bolts'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_fire_brace_without_symbol(self) -> None:
+        document = make_valid_document()
+        del document['fire_braces'][0]['symbol']
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_fire_brace_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['fire_braces'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_fire_brace_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['fire_braces'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_fire_brace_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['fire_braces'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_fire_brace_with_non_number_angle(self) -> None:
+        document = make_valid_document()
+        document['fire_braces'][0]['angle'] = 'x'
+        with pytest.raises(DocumentValidationError, match='angle'):
             validate_document(document)
 
     def test_rejects_sheet_with_empty_number(self) -> None:
