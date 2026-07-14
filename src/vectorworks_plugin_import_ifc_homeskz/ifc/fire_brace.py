@@ -44,6 +44,10 @@ _FIRE_BRACE_PREFIX = '火打'
 # 置換するハイブリッドシンボル名
 SYMBOL_FIRE_BRACE = '鋼製火打'
 
+# 鋼製火打シンボルの基準姿勢(0 度での向き)の補正。内角の二等分方向に対して
+# シンボルの角度基準がずれているため、基準点周りに反時計方向へ 45 度回転させる。
+_SYMBOL_ANGLE_OFFSET = 45.0
+
 # 2 直線が平行(交点なし)とみなす行列式の閾値
 _PARALLEL_TOL = 1e-9
 
@@ -117,12 +121,14 @@ def _base_point(faces: list[_Segment]) -> _Point | None:
 def _angle(base: _Point, world: list[_Point]) -> float:
     """火打の向きに合わせた回転角(度)を返す。
 
-    基準点(内角)から火打本体の重心へ向かう方向 = 内角の二等分方向。
+    基準点(内角)から火打本体の重心へ向かう方向(内角の二等分方向)に、シンボルの
+    基準姿勢のずれを補正する ``_SYMBOL_ANGLE_OFFSET``(反時計方向 45 度)を加える。
     """
     n = len(world)
     cx = sum(p[0] for p in world) / n
     cy = sum(p[1] for p in world) / n
-    return math.degrees(math.atan2(cy - base[1], cx - base[0]))
+    bisector = math.degrees(math.atan2(cy - base[1], cx - base[0]))
+    return bisector + _SYMBOL_ANGLE_OFFSET
 
 
 def build_fire_brace_commands(

@@ -62,11 +62,18 @@ class TestEndFacesAndBasePoint:
 
 
 class TestAngle:
-    def test_points_from_base_to_centroid(self) -> None:
-        # 基準点 (0,0)、重心が (+1,-1) 方向 → -45 度
+    def test_points_from_base_to_centroid_with_offset(self) -> None:
+        # 基準点 (0,0)、重心が (+1,-1) 方向 = 二等分方向 -45 度。シンボルの基準姿勢
+        # 補正(反時計方向 45 度)を加えて 0 度になる。
         world = [(2.0, -2.0), (2.0, -2.0), (2.0, -2.0), (2.0, -2.0)]
         angle = fire_brace._angle((0.0, 0.0), world)
-        assert math.isclose(angle, -45.0)
+        assert math.isclose(angle, 0.0, abs_tol=1e-9)
+
+    def test_applies_symbol_angle_offset(self) -> None:
+        # 二等分方向が 0 度(重心が +X 方向)なら補正後は 45 度
+        world = [(2.0, 0.0), (2.0, 0.0), (2.0, 0.0), (2.0, 0.0)]
+        angle = fire_brace._angle((0.0, 0.0), world)
+        assert math.isclose(angle, 45.0)
 
 
 class TestIsFireBrace:
