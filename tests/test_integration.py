@@ -48,6 +48,7 @@ class Expected:
         anchor_bolts: int,
         fire_braces: int,
         sheets: int,
+        column_marks: int,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -61,6 +62,7 @@ class Expected:
         self.anchor_bolts = anchor_bolts
         self.fire_braces = fire_braces
         self.sheets = sheets
+        self.column_marks = column_marks
 
 
 # 各フィクスチャの想定値。値は build_document の実出力から取得しており、
@@ -79,6 +81,7 @@ FIXTURES = [
         anchor_bolts=96,
         fire_braces=66,
         sheets=4,
+        column_marks=2,
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -93,6 +96,7 @@ FIXTURES = [
         anchor_bolts=110,
         fire_braces=35,
         sheets=4,
+        column_marks=2,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -107,6 +111,7 @@ FIXTURES = [
         anchor_bolts=85,
         fire_braces=28,
         sheets=4,
+        column_marks=2,
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -121,6 +126,7 @@ FIXTURES = [
         anchor_bolts=60,
         fire_braces=28,
         sheets=5,
+        column_marks=3,
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -135,6 +141,7 @@ FIXTURES = [
         anchor_bolts=30,
         fire_braces=2,
         sheets=5,
+        column_marks=3,
     ),
 ]
 
@@ -287,15 +294,18 @@ class TestSampleIfcAnalysis:
             '基礎天端', 'GL', '底盤天端']
         assert [lv['layer'] for lv in foundation['levels']] == [
             'F-アンカーボルト', 'F-立上り', 'F-底盤']
-        # 最上階は常に「屋根」、構造レベルは「軒高」＋柱配置用の柱
-        # 柱レベルはレイヤを軒高の直上に積むため先頭に置く
+        # 最上階は常に「屋根」、構造レベルは「軒高」＋柱配置用の柱＋下階柱記号の下階柱。
+        # 柱レベルはレイヤを軒高の直上に積むため先頭、下階柱は軒高の直上に積む。
         roof = stories[-1]
         assert roof['name'] == '屋根'
-        assert [lv['type'] for lv in roof['levels']] == ['柱', '軒高']
-        # 一般階は FL + 横架材天端 ＋柱配置用の柱（柱レベルは FL の直上に積むため先頭）
-        for story in stories[1:-1]:
+        assert [lv['type'] for lv in roof['levels']] == ['柱', '下階柱', '軒高']
+        # 最下階(1階=stories[1])は下に柱が無いため下階柱レベルを持たない
+        assert [lv['type'] for lv in stories[1]['levels']] == [
+            '柱', 'FL', '横架材天端']
+        # 中間階は FL + 横架材天端 ＋柱＋下階柱(横架材天端の直上)
+        for story in stories[2:-1]:
             assert [lv['type'] for lv in story['levels']] == [
-                '柱', 'FL', '横架材天端']
+                '柱', 'FL', '下階柱', '横架材天端']
 
     def test_grid_and_member_counts_match_expected(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)
@@ -307,6 +317,7 @@ class TestSampleIfcAnalysis:
         assert len(document['anchor_bolts']) == exp.anchor_bolts
         assert len(document['fire_braces']) == exp.fire_braces
         assert len(document['sheets']) == exp.sheets
+        assert len(document['column_marks']) == exp.column_marks
 
     def test_foundation_plan_sheet_references_foundation_layers(
             self, exp: Expected) -> None:
@@ -426,6 +437,7 @@ class TestFullPipeline:
         assert counts['slabs'] == len(document['slabs'])
         assert counts['anchor_bolts'] == len(document['anchor_bolts'])
         assert counts['fire_braces'] == len(document['fire_braces'])
+        assert counts['column_marks'] == len(document['column_marks'])
         assert counts['sheets'] == len(document['sheets'])
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
@@ -435,6 +447,7 @@ class TestFullPipeline:
         assert counts['slabs'] == exp.slabs
         assert counts['anchor_bolts'] == exp.anchor_bolts
         assert counts['fire_braces'] == exp.fire_braces
+        assert counts['column_marks'] == exp.column_marks
         assert counts['sheets'] == exp.sheets
 
     def test_each_story_is_created(self, exp: Expected) -> None:

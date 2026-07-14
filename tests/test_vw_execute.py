@@ -134,6 +134,7 @@ def make_document() -> dict[str, Any]:
             {
                 'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
                 'levels': [
+                    {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
             },
@@ -183,6 +184,10 @@ def make_document() -> dict[str, Any]:
                           'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']}},
         ],
         'tags': [],
+        'column_marks': [
+            {'layer': 'R-下階柱', 'target_layer': '1-柱', 'target_class': '',
+             'size': 300.0, 'position': [0.0, 0.0]},
+        ],
     }
 
 
@@ -192,18 +197,20 @@ class TestExecuteDocument:
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
                           'walls': 1, 'slabs': 1, 'anchor_bolts': 1,
-                          'fire_braces': 1, 'sheets': 1, 'tags': 0}
+                          'fire_braces': 1, 'column_marks': 1, 'sheets': 1,
+                          'tags': 0}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'slabs': [],
                     'anchor_bolts': [], 'fire_braces': [], 'sheets': [],
-                    'tags': []}
+                    'tags': [], 'column_marks': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
                           'walls': 0, 'slabs': 0, 'anchor_bolts': 0,
-                          'fire_braces': 0, 'sheets': 0, 'tags': 0}
+                          'fire_braces': 0, 'column_marks': 0, 'sheets': 0,
+                          'tags': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

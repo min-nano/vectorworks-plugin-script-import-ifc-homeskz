@@ -145,6 +145,7 @@ class TestBuildStoryCommands:
                 'levels': [
                     {'type': '柱', 'offset': -36.0, 'layer': '2-柱'},
                     {'type': 'FL', 'offset': 0.0, 'layer': '2-FL'},
+                    {'type': '下階柱', 'offset': -36.0, 'layer': '2-下階柱'},
                     {'type': '横架材天端', 'offset': -36.0, 'layer': '2-横架材天端'},
                 ],
             },
@@ -152,6 +153,7 @@ class TestBuildStoryCommands:
                 'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
                 'levels': [
                     {'type': '柱', 'offset': 0.0, 'layer': 'R-柱'},
+                    {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
             },

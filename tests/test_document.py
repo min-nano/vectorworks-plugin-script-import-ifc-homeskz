@@ -103,6 +103,12 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [1500.0, 160.0], 'angle': 0.0,
             },
         ],
+        'column_marks': [
+            {
+                'layer': '2-下階柱', 'target_layer': '1-柱',
+                'target_class': '', 'size': 300.0, 'position': [0.0, 0.0],
+            },
+        ],
     }
 
 
@@ -119,7 +125,7 @@ class TestValidateDocument:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'slabs': [],
                     'anchor_bolts': [], 'fire_braces': [], 'sheets': [],
-                    'tags': []}
+                    'tags': [], 'column_marks': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -140,7 +146,8 @@ class TestValidateDocument:
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
                                      'walls', 'slabs', 'anchor_bolts',
-                                     'fire_braces', 'sheets', 'tags'])
+                                     'fire_braces', 'sheets', 'tags',
+                                     'column_marks'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -446,6 +453,42 @@ class TestValidateDocument:
         document = make_valid_document()
         document['tags'][0]['angle'] = '0'
         with pytest.raises(DocumentValidationError, match='angle'):
+            validate_document(document)
+
+    def test_rejects_column_mark_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['column_marks'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_column_mark_with_empty_target_layer(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['target_layer'] = ''
+        with pytest.raises(DocumentValidationError, match='target_layer'):
+            validate_document(document)
+
+    def test_rejects_column_mark_with_non_string_target_class(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['target_class'] = 1
+        with pytest.raises(DocumentValidationError, match='target_class'):
+            validate_document(document)
+
+    def test_accepts_column_mark_with_empty_target_class(self) -> None:
+        # 空の target_class(全クラス)は許容する
+        document = make_valid_document()
+        document['column_marks'][0]['target_class'] = ''
+        validate_document(document)
+
+    def test_rejects_column_mark_without_size(self) -> None:
+        document = make_valid_document()
+        del document['column_marks'][0]['size']
+        with pytest.raises(DocumentValidationError, match='size'):
+            validate_document(document)
+
+    def test_rejects_column_mark_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:

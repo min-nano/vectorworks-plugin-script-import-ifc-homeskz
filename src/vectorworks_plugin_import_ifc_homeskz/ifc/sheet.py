@@ -34,6 +34,7 @@ from .story import (
     LEVEL_COLUMN,
     LEVEL_EAVES,
     LEVEL_FL,
+    LEVEL_UNDER_COLUMN,
     collect_stories,
     layer_prefix_for,
 )
@@ -92,6 +93,7 @@ def build_floor_framing_sheet_commands(
 
     ストーリ 1 つにつき伏図 1 枚。表示レイヤは横架材・柱・通り芯を基本とし、
     最上階以外は床(FL)を加える。最下階には基礎がある場合にアンカーボルトも加える。
+    最下階以外は直下階の柱を記号化する下階柱記号レイヤ(``n-下階柱``)も加える。
     ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
@@ -104,6 +106,9 @@ def build_floor_framing_sheet_commands(
         # 横架材レイヤは一般階=横架材天端、最上階=軒高。
         beam_level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
         layers = [f'{prefix}-{beam_level}', f'{prefix}-{LEVEL_COLUMN}']
+        # 最下階(i=0)以外は直下階の柱を記号化する下階柱記号レイヤを表示する。
+        if i >= 1:
+            layers.append(f'{prefix}-{LEVEL_UNDER_COLUMN}')
         if not is_top:
             # 最下階には基礎(アンカーボルト)がある場合に表示する。
             if i == 0 and foundation:

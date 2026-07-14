@@ -59,7 +59,8 @@ def run() -> None:
             f'{counts["anchor_bolts"]} 本のアンカーボルト(シンボル)、'
             f'{counts["fire_braces"]} 本の火打(シンボル)を配置しました。'
             f' {counts["sheets"]} 枚のシートレイヤ(伏図)を作成し、'
-            f'{counts["tags"]} 個の断面寸法データタグを配置しました。'
+            f'{counts["tags"]} 個の断面寸法データタグ、'
+            f'{counts["column_marks"]} 個の下階柱記号を配置しました。'
         )
 
     except Exception as e:

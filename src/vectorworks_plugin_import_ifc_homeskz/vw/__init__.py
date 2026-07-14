@@ -11,6 +11,7 @@ from typing import Any
 from ..document import validate_document
 from .anchor_bolt import execute_anchor_bolts
 from .column import execute_columns
+from .column_mark import execute_column_marks
 from .fire_brace import execute_fire_braces
 from .footing import execute_slabs, execute_walls
 from .grid import execute_grids
@@ -18,23 +19,25 @@ from .member import execute_members
 from .sheet import execute_sheets
 from .story import execute_stories, reorder_story_layers
 
-__all__ = ['execute_anchor_bolts', 'execute_columns', 'execute_document',
-           'execute_fire_braces', 'execute_grids', 'execute_members',
-           'execute_sheets', 'execute_slabs', 'execute_stories',
-           'execute_walls', 'reorder_story_layers']
+__all__ = ['execute_anchor_bolts', 'execute_column_marks', 'execute_columns',
+           'execute_document', 'execute_fire_braces', 'execute_grids',
+           'execute_members', 'execute_sheets', 'execute_slabs',
+           'execute_stories', 'execute_walls', 'reorder_story_layers']
 
 
 def execute_document(document: Any) -> dict[str, int]:
-    """命令セットを検証し、ストーリ → 通り芯 → 構造材 → 柱 → 立上り → 底盤 → アンカーボルト → 火打 → シートの順で描画する。
+    """命令セットを検証し、ストーリ → 通り芯 → 構造材 → 柱 → 立上り → 底盤 → アンカーボルト → 火打 → 下階柱記号 → シートの順で描画する。
 
     構造材などの描画後に reorder_story_layers でデザインレイヤのスタック順を整える。
     通り芯レイヤ(共通)を最上段に積むため、その生成(通り芯描画)後に並べ替える
     必要がある。シート(ビューポート)はデザインレイヤを参照するため、それらの生成後
-    (並べ替え後)に描画する。
+    (並べ替え後)に描画する。下階柱記号(柱束伏図記号 PIO)は配置後のリセットで
+    直下階の柱を検索するため、柱の描画後に配置する。
 
     Returns: {'stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-        'anchor_bolts', 'fire_braces', 'sheets', 'tags'} 各命令の実行数。
-        fire_braces は横架材レイヤに配置した火打シンボル数、tags は伏図
+        'anchor_bolts', 'fire_braces', 'column_marks', 'sheets', 'tags'}
+        各命令の実行数。fire_braces は横架材レイヤに配置した火打シンボル数、
+        column_marks は下階柱レイヤに配置した柱束伏図記号 PIO 数、tags は伏図
         ビューポートに配置した断面寸法データタグ数。
     """
     validated = validate_document(document)
@@ -49,6 +52,8 @@ def execute_document(document: Any) -> dict[str, int]:
         'slabs': execute_slabs(validated['slabs']),
         'anchor_bolts': execute_anchor_bolts(validated['anchor_bolts']),
         'fire_braces': execute_fire_braces(validated['fire_braces']),
+        # 下階柱記号は直下階の柱を検索するため柱の描画後に配置する
+        'column_marks': execute_column_marks(validated['column_marks']),
     }
     reorder_story_layers(validated['stories'])
     counters: dict[str, int] = {}

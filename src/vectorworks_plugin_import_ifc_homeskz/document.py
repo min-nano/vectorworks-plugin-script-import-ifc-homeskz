@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 18):
+スキーマ (version 19):
 
     {
-        "version": 18,
+        "version": 19,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -189,6 +189,23 @@
                 "position": [1500.0, 60.0],
                 "angle": 0.0              # 横架材の軸方向に沿った文字角度 (度)
             }
+        ],
+        "column_marks": [
+            {
+                # 各階の伏図に直下階(N-1)の柱を記号化する「下階柱記号」。
+                # カスタム PIO「柱束伏図記号」(姉妹プロジェクト
+                # vectorworks-plugin-column-under-mark)を配置する命令。PIO は
+                # リセット時に target_layer の柱(構造用途 4/5)を検索し、各柱位置に
+                # 記号を描く(柱が編集されれば記号も追随する)。
+                "layer": "2-下階柱",       # PIO を配置するデザインレイヤ名
+                                          # (横架材天端の直上・既存のみ・なければスキップ)
+                "target_layer": "1-柱",    # PIO が柱を検索する対象レイヤ(直下階の柱レイヤ)
+                "target_class": "",        # 検索対象クラス(空=全クラス)
+                "size": 300.0,            # 記号サイズ (mm)。PIO の MarkSize に渡す。
+                # PIO の挿入点(センタリング済み)。記号は検索した柱のワールド位置に
+                # 描かれ挿入点には依存しないため原点でよい。
+                "position": [0.0, 0.0]
+            }
         ]
     }
 """
@@ -197,7 +214,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 18
+DOCUMENT_VERSION = 19
 
 
 class LevelCommand(TypedDict):
@@ -413,6 +430,25 @@ class TagCommand(TypedDict):
     angle: float
 
 
+class ColumnMarkCommand(TypedDict):
+    """下階柱記号(柱束伏図記号 PIO)を配置する命令。
+
+    各階の伏図に直下階(N-1)の柱を記号化するため、横架材天端(最上階は軒高)
+    レイヤの直上の ``layer``(``n-下階柱``)にカスタム PIO「柱束伏図記号」を置く。
+    PIO はリセット時に ``target_layer``(直下階の ``n-柱`` レイヤ)の柱(構造用途
+    4/5)を検索し、各柱位置に記号を描く。``target_class`` は検索対象クラス
+    (空=全クラス)、``size`` は記号サイズ(mm、PIO の MarkSize に渡す)、
+    ``position`` は PIO の挿入点(記号は検索した柱のワールド位置に描かれ挿入点には
+    依存しないため原点でよい)。
+    """
+
+    layer: str
+    target_layer: str
+    target_class: str
+    size: float
+    position: list[float]
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -427,6 +463,7 @@ class Document(TypedDict):
     fire_braces: list[FireBraceCommand]
     sheets: list[SheetCommand]
     tags: list[TagCommand]
+    column_marks: list[ColumnMarkCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -634,6 +671,23 @@ def _validate_tag(index: int, command: Any) -> None:
              f'{where}.angle は数値である必要があります')
 
 
+def _validate_column_mark(index: int, command: Any) -> None:
+    where = f'column_marks[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('target_layer'), str)
+             and command['target_layer'],
+             f'{where}.target_layer は非空文字列である必要があります')
+    # target_class は空文字(全クラス)を許容するため非空チェックはしない
+    _require(isinstance(command.get('target_class'), str),
+             f'{where}.target_class は文字列である必要があります')
+    _require(_is_number(command.get('size')),
+             f'{where}.size は数値である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+
+
 def _validate_story_bound(where: str, key: str, bound: Any) -> None:
     field = f'{where}.{key}'
     _require(isinstance(bound, dict), f'{field} は dict である必要があります')
@@ -652,7 +706,7 @@ def validate_document(document: Any) -> Document:
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'columns', 'walls', 'slabs',
-                'anchor_bolts', 'fire_braces', 'sheets', 'tags'):
+                'anchor_bolts', 'fire_braces', 'sheets', 'tags', 'column_marks'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -675,6 +729,8 @@ def validate_document(document: Any) -> Document:
         _validate_sheet(i, command)
     for i, command in enumerate(document['tags']):
         _validate_tag(i, command)
+    for i, command in enumerate(document['column_marks']):
+        _validate_column_mark(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

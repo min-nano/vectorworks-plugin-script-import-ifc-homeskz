@@ -15,6 +15,9 @@ LEVEL_FL = 'FL'
 LEVEL_BEAM_TOP = '横架材天端'
 LEVEL_EAVES = '軒高'
 LEVEL_COLUMN = '柱'
+# 下階柱記号(柱束伏図記号 PIO)を配置するレイヤ・レベル。各階の伏図に直下階
+# (N-1)の柱を記号化するため、横架材天端(最上階は軒高)レイヤの直上に積む。
+LEVEL_UNDER_COLUMN = '下階柱'
 STORY_ROOF = '屋根'
 
 # 基礎(立上り・底盤・アンカーボルト)用のストーリ・レベル・レイヤ
@@ -114,6 +117,10 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     さらに各階に柱配置用の 柱 レベル(高さは横架材天端=最上階は軒高に揃える)を加える。
     柱は 柱 レイヤに梁と同じ構造材ツールで配置する。
 
+    加えて最下階(下に柱が無い)以外の各階には、直下階(N-1)の柱を伏図に記号化する
+    下階柱記号(柱束伏図記号 PIO)を置く 下階柱 レベルを、横架材天端(最上階は軒高)
+    レイヤの直上に積む。
+
     ``levels`` の並び順は**デザインレイヤの希望スタック順(上→下)**を表す。柱レイヤを
     FL(最上階は軒高)レイヤの直上に積むため 柱 レベルを先頭に置く。実際のレイヤ並びは
     描画フェーズ(vw.story)が HMoveForward で命令の順序どおりに揃える(レイヤの高さ
@@ -140,6 +147,15 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
                 {'type': LEVEL_BEAM_TOP, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_BEAM_TOP}'},
             ]
+        # 下階柱記号のレイヤ。直下階(N-1)の柱を伏図に記号化するため、横架材天端
+        # (最上階は軒高)レイヤの**直上**に積む(levels の末尾=横架材天端/軒高の
+        # 直前に挿入する)。最下階(i=0)は下に柱が無いため作らない。高さは横架材天端
+        # (最上階は軒高)に揃える。
+        if i >= 1:
+            levels.insert(
+                len(levels) - 1,
+                {'type': LEVEL_UNDER_COLUMN, 'offset': column_offset,
+                 'layer': f'{prefix}-{LEVEL_UNDER_COLUMN}'})
         # 柱を配置するレイヤ。高さは横架材天端(最上階は軒高)に揃える。
         # levels の先頭=スタック最上段とし、FL(最上階は軒高)レイヤの直上に来るようにする。
         levels.insert(

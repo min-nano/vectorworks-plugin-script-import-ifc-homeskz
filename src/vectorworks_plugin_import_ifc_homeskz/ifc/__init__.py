@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from ..document import DOCUMENT_VERSION, Document
 from .anchor_bolt import build_anchor_bolt_commands
 from .column import build_column_commands
+from .column_mark import build_column_mark_commands
 from .fire_brace import build_fire_brace_commands
 from .footing import (
     build_foundation_story_command,
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     import ifcopenshell
 
 __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
+           'build_column_mark_commands',
            'build_document', 'build_fire_brace_commands',
            'build_foundation_story_command',
            'build_grid_commands', 'build_member_commands',
@@ -62,4 +64,5 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'fire_braces': build_fire_brace_commands(ifc_file),
         'sheets': build_sheet_commands(ifc_file),
         'tags': build_tag_commands(members),
+        'column_marks': build_column_mark_commands(ifc_file),
     }
