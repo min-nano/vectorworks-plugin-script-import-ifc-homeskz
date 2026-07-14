@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..document import LevelCommand, StoryCommand
+from .structural_class import CLASS_MOYA, CLASS_MUNAGI, member_class_from_name
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -74,6 +75,40 @@ def resolve_beam_top_offset(storey: ifcopenshell.entity_instance) -> float:
     return max(offsets, default=0.0)
 
 
+def story_has_moya(storey: ifcopenshell.entity_instance) -> bool:
+    """階に属する横架材の ``Name`` から母屋・棟木(小屋組)を含むか判定する。
+
+    中間階に架かる下屋根(下屋)の小屋組は、その階の IfcBeam/IfcMember の
+    ``Name`` が母屋・棟木に対応するもの(``member_class_from_name`` が
+    ``CLASS_MOYA`` / ``CLASS_MUNAGI`` を返すもの)として表れる。1 つでもあれば
+    True を返す。この判定は横架材の描画側(``ifc/member.py`` の母屋レイヤ振り分け)
+    が中間階の母屋を専用レイヤ(``n-母屋``)に置く条件と一致させる必要がある。
+    """
+    for rel in storey.ContainsElements or ():
+        for element in rel.RelatedElements:
+            if not (element.is_a('IfcBeam') or element.is_a('IfcMember')):
+                continue
+            if member_class_from_name(element.Name) in (CLASS_MOYA, CLASS_MUNAGI):
+                return True
+    return False
+
+
+def collect_story_moya_flags(ifc_file: ifcopenshell.file) -> list[bool]:
+    """``collect_stories`` と同じ Elevation 昇順で、各階が母屋(小屋組)を含むか返す。
+
+    各要素は ``story_has_moya`` による名前判定の結果。最上階(屋根)は母屋を必ず
+    専用レイヤ(``R-母屋``)・専用シート(母屋伏図)へ分離するため、この判定とは
+    別に描画側が常に母屋レイヤを持つが、下屋の小屋組を持つ中間階は名前判定で
+    母屋レイヤを追加するかどうかを決める。
+    """
+    storeys = [
+        s for s in ifc_file.by_type('IfcBuildingStorey')
+        if (s.Name or '').upper().endswith('FL')
+    ]
+    storeys.sort(key=lambda s: float(s.Elevation or 0.0))
+    return [story_has_moya(s) for s in storeys]
+
+
 def collect_stories(ifc_file: ifcopenshell.file) -> list[tuple[float, float | None]]:
     """IFC からストーリ情報を集める。
 
@@ -126,9 +161,11 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
 
     加えて最下階(下に柱が無い)以外の各階には、直下階(N-1)の柱を伏図に記号化する
     下階柱記号(柱束伏図記号 PIO)を置く 下階柱 レベルを、横架材天端(最上階は軒高)
-    レイヤの直上に積む。最上階(屋根)にはさらに、母屋(棟木含む)を梁と分けて配置する
-    母屋 レベルを軒高レイヤの直上に積み、その母屋レイヤの直上に小屋束を母屋伏図へ
-    記号化する 小屋束 レベル(柱束伏図記号 PIO の配置先)を積む。
+    レイヤの直上に積む。母屋(棟木含む)を梁と分けて配置する 母屋 レベルは、最上階
+    (屋根)は常に、中間階は下屋根(下屋)の小屋組を名前判定(``story_has_moya`` /
+    ``collect_story_moya_flags``)で含む場合に、横架材天端(最上階は軒高)レイヤの
+    直上に積む。最上階はさらにその母屋レイヤの直上に小屋束を母屋伏図へ記号化する
+    小屋束 レベル(柱束伏図記号 PIO の配置先)を積む(中間階の下屋根には付けない)。
 
     ``levels`` の並び順は**デザインレイヤの希望スタック順(上→下)**を表す。柱レイヤを
     FL(最上階は軒高)レイヤの直上に積むため 柱 レベルを先頭に置く。実際のレイヤ並びは
@@ -136,6 +173,7 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     オフセットに依存しない)。
     """
     stories = collect_stories(ifc_file)
+    moya_flags = collect_story_moya_flags(ifc_file)
 
     commands: list[StoryCommand] = []
     n = len(stories)
@@ -165,19 +203,23 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
                 len(levels) - 1,
                 {'type': LEVEL_UNDER_COLUMN, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_UNDER_COLUMN}'})
-        # 母屋(棟木含む)を配置するレイヤ。最上階(屋根)のみ、軒高レイヤの直上に
-        # 積む(levels の末尾=軒高の直前に挿入する)。高さは軒高に揃える(offset 0)
-        # ため実描画の高さは母屋部材の天端バインドが担い、この offset には依存しない。
-        # 加えて母屋伏図に小屋束を記号化する小屋束記号レイヤ(母屋レイヤの直上)も積む。
-        if is_top:
+        # 母屋(棟木含む)を配置するレイヤ。最上階(屋根)は常に、中間階は下屋根の
+        # 小屋組(母屋・棟木)を含む場合に、横架材天端(最上階は軒高)レイヤの直上に
+        # 積む(levels の末尾=横架材天端/軒高の直前に挿入する)。高さは横架材天端
+        # (最上階は軒高)に揃える(offset=column_offset。最上階は 0)ため実描画の
+        # 高さは母屋部材の天端バインドが担い、この offset には依存しない。加えて
+        # 最上階(屋根)は母屋伏図に小屋束を記号化する小屋束記号レイヤ(母屋レイヤの
+        # 直上)も積む(中間階の下屋根には小屋束記号を付けない)。
+        if is_top or moya_flags[i]:
             levels.insert(
                 len(levels) - 1,
-                {'type': LEVEL_MOYA, 'offset': 0.0,
+                {'type': LEVEL_MOYA, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_MOYA}'})
-            levels.insert(
-                len(levels) - 2,
-                {'type': LEVEL_KOYAZUKA_MARK, 'offset': 0.0,
-                 'layer': f'{prefix}-{LEVEL_KOYAZUKA_MARK}'})
+            if is_top:
+                levels.insert(
+                    len(levels) - 2,
+                    {'type': LEVEL_KOYAZUKA_MARK, 'offset': 0.0,
+                     'layer': f'{prefix}-{LEVEL_KOYAZUKA_MARK}'})
         # 柱を配置するレイヤ。高さは横架材天端(最上階は軒高)に揃える。
         # levels の先頭=スタック最上段とし、FL(最上階は軒高)レイヤの直上に来るようにする。
         levels.insert(

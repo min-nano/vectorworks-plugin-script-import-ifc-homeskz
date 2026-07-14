@@ -49,6 +49,7 @@ class Expected:
         fire_braces: int,
         sheets: int,
         column_marks: int,
+        moya_stories: set[str] | None = None,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -63,6 +64,10 @@ class Expected:
         self.fire_braces = fire_braces
         self.sheets = sheets
         self.column_marks = column_marks
+        # 下屋根の小屋組(母屋・棟木)を含む中間階のストーリ名の集合。
+        # 該当階は 母屋 レベル(n-母屋 レイヤ)を持ち、床伏図に母屋を重ねて
+        # 表示し、タイトルが {n}階床・{n-1}階母屋伏図 になる。
+        self.moya_stories = moya_stories or set()
 
 
 # 各フィクスチャの想定値。値は build_document の実出力から取得しており、
@@ -82,6 +87,7 @@ FIXTURES = [
         fire_braces=66,
         sheets=5,
         column_marks=3,
+        moya_stories={'2階'},
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -112,6 +118,7 @@ FIXTURES = [
         fire_braces=28,
         sheets=5,
         column_marks=3,
+        moya_stories={'2階'},
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -127,6 +134,7 @@ FIXTURES = [
         fire_braces=28,
         sheets=6,
         column_marks=4,
+        moya_stories={'2階', '3階'},
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -305,10 +313,14 @@ class TestSampleIfcAnalysis:
         # 最下階(1階=stories[1])は下に柱が無いため下階柱レベルを持たない
         assert [lv['type'] for lv in stories[1]['levels']] == [
             '柱', 'FL', '横架材天端']
-        # 中間階は FL + 横架材天端 ＋柱＋下階柱(横架材天端の直上)
+        # 中間階は FL + 横架材天端 ＋柱＋下階柱(横架材天端の直上)。下屋根の母屋を
+        # 含む階は母屋レベル(横架材天端の直前)も持つ。
         for story in stories[2:-1]:
-            assert [lv['type'] for lv in story['levels']] == [
-                '柱', 'FL', '下階柱', '横架材天端']
+            expected_types = ['柱', 'FL', '下階柱']
+            if story['name'] in exp.moya_stories:
+                expected_types.append('母屋')
+            expected_types.append('横架材天端')
+            assert [lv['type'] for lv in story['levels']] == expected_types
 
     def test_grid_and_member_counts_match_expected(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)
@@ -351,10 +363,15 @@ class TestSampleIfcAnalysis:
         moya_sheet = document['sheets'][-1]
         floor_story_count = len(exp.story_names) - 1
         assert len(floor_sheets) == floor_story_count
-        # タイトルは 1階床伏図・2階床伏図・…・小屋伏図
-        expected_titles = [
-            f'{i + 1}階床伏図' for i in range(floor_story_count - 1)
-        ] + ['小屋伏図']
+        # タイトルは 1階床伏図・2階床伏図・…・小屋伏図。下屋根の母屋を含む中間階は
+        # {n}階床・{n-1}階母屋伏図 になる。
+        expected_titles = []
+        for i in range(floor_story_count - 1):
+            if f'{i + 1}階' in exp.moya_stories:
+                expected_titles.append(f'{i + 1}階床・{i}階母屋伏図')
+            else:
+                expected_titles.append(f'{i + 1}階床伏図')
+        expected_titles.append('小屋伏図')
         assert [s['title'] for s in floor_sheets] == expected_titles
         # シートレイヤ番号は基礎伏図(1)に続けて 2 から連番
         assert [s['number'] for s in floor_sheets] == [

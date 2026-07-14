@@ -295,8 +295,9 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
 
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
     最上階(屋根)には横架材天端レイヤが存在しないため軒高レイヤを指定する。
-    ただし最上階の母屋・棟木(小屋組の上端材)は梁と重なって見にくいため、
-    軒高レイヤと分けた母屋レイヤ(R-母屋)に配置する。
+    ただし母屋・棟木(小屋組の上端材)は梁と重なって見にくいため、横架材天端
+    (最上階は軒高)レイヤと分けた母屋レイヤ(n-母屋)に配置する。最上階の主屋根
+    だけでなく、中間階に架かる下屋根(下屋)の母屋・棟木も同様に分離する。
     """
     _, center_x, center_y = resolve_lines(ifc_file)
 
@@ -382,11 +383,14 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                 member_class = resolve_member_class(
                     element.Name, i, top_idx, above_eaves)
 
-                # 母屋・棟木(小屋組の上端材)は最上階で梁(小屋梁・軒桁)と重なって
-                # 見にくいため、軒高レイヤと分けた母屋レイヤ(R-母屋)に配置し、
-                # 高さ基準も母屋レベルにバインドする。母屋レベルは軒高と同じ絶対 Z
-                # (offset 0)なので layer_elevation は変わらず offset の算出はそのまま。
-                if is_top and member_class in (CLASS_MOYA, CLASS_MUNAGI):
+                # 母屋・棟木(小屋組の上端材)は梁(小屋梁・軒桁)と重なって見にくい
+                # ため、横架材天端(最上階は軒高)レイヤと分けた母屋レイヤ(n-母屋)に
+                # 配置し、高さ基準も母屋レベルにバインドする。母屋レベルは横架材天端
+                # (最上階は軒高)と同じ絶対 Z(offset=column_offset、最上階は 0)なので
+                # layer_elevation は変わらず offset の算出はそのまま。最上階(屋根)の
+                # 主屋根だけでなく、中間階に架かる下屋根(下屋)の母屋・棟木も同様に
+                # 分離する(story.py が該当階に母屋レベルを作る条件と一致する)。
+                if member_class in (CLASS_MOYA, CLASS_MUNAGI):
                     element_layer_name = f'{prefix}-{LEVEL_MOYA}'
                     bound_level = LEVEL_MOYA
                 else:
