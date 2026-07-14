@@ -54,6 +54,12 @@ CLASS_FOUNDATION_SLAB = '04構造-01基礎-02基礎スラブ'
 # 押し出し方向が鉛直とみなす Z 成分の閾値(|z| > これ)
 _VERTICAL_EXTRUDE_TOL = 0.9
 
+# 立上り(壁)のマージ許容値(mm)。同一直線判定の直交距離・接続判定の隙間、
+# および断面キーの丸め桁に使う。単位系は mm。
+_WALL_MERGE_DIST_TOL = 1.0
+# 平行判定に使う単位方向ベクトルの外積(sin 角)の許容値。
+_WALL_MERGE_ANGLE_TOL = 1e-3
+
 # 3 次元ベクトル(ワールド座標)
 _Vec = tuple[float, float, float]
 
@@ -393,6 +399,10 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
     壁芯は配置原点からプロファイル中心線(押し出し方向)に沿った線。壁厚は矩形断面
     の幅(XDim)、上下端は実形状の絶対 Z。下端は基礎の GL、上端は 1 階の横架材天端に
     バインドし、offset はそれぞれの実 Z とバインド先レベルの絶対 Z の差。
+
+    最後に ``merge_wall_commands`` で、同一直線上にあり同一断面形状(壁厚・高さ基準)
+    の立上りを 1 本の壁に統合する(ホームズ君 IFC では通り芯の交点等で立上りが細かく
+    分断されているため、できるだけマージした形状で壁を作る)。
     """
     storey = _first_fl_storey(ifc_file)
     if storey is None:
@@ -438,7 +448,138 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
             'bottom_bound': bottom_bound,
             'top_bound': top_bound,
         })
-    return commands
+    return merge_wall_commands(commands)
+
+
+def _wall_section_key(wall: WallCommand) -> tuple[object, ...]:
+    """立上りの断面形状(統合可否)を表すキー。
+
+    レイヤ・クラス・壁厚・下端/上端の高さ基準(story_offset・level・offset)が
+    すべて一致する立上り同士だけを統合対象にする。offset は実 Z 由来の浮動小数
+    のため許容値で丸める(``_WALL_MERGE_DIST_TOL`` = 1mm)。
+    """
+    bottom = wall['bottom_bound']
+    top = wall['top_bound']
+    return (
+        wall['layer'], wall['class'], round(wall['thickness'], 3),
+        bottom['story_offset'], bottom['level'],
+        round(bottom['offset'] / _WALL_MERGE_DIST_TOL),
+        top['story_offset'], top['level'],
+        round(top['offset'] / _WALL_MERGE_DIST_TOL),
+    )
+
+
+def _walls_connected_collinear(a: WallCommand, b: WallCommand) -> bool:
+    """立上り a・b が同一直線上にあり、区間が重なる/接触するか。
+
+    a の壁芯を基準線とし、(1) b の方向が a と平行、(2) b の端点が a の直線上
+    (直交距離 ≈ 0)、(3) a の区間 [0, len_a] と b の射影区間が重なる/接触する、
+    の 3 条件をすべて満たすとき True(いずれも ``_WALL_MERGE_*_TOL`` の許容内)。
+    """
+    ax1, ay1 = a['start']
+    ax2, ay2 = a['end']
+    bx1, by1 = b['start']
+    bx2, by2 = b['end']
+    dax, day = ax2 - ax1, ay2 - ay1
+    la = math.hypot(dax, day)
+    dbx, dby = bx2 - bx1, by2 - by1
+    lb = math.hypot(dbx, dby)
+    if la <= 0.0 or lb <= 0.0:
+        return False
+    ux, uy = dax / la, day / la
+    # (1) 単位方向ベクトルの外積(= sin 角)で平行判定
+    if abs(ux * (dby / lb) - uy * (dbx / lb)) > _WALL_MERGE_ANGLE_TOL:
+        return False
+    # (2) b の始点の a 直線からの直交距離(平行なら b の全点が同距離)
+    if abs(ux * (by1 - ay1) - uy * (bx1 - ax1)) > _WALL_MERGE_DIST_TOL:
+        return False
+    # (3) b を a 方向に射影した区間が [0, la] と重なる/接触するか
+    tb1 = ux * (bx1 - ax1) + uy * (by1 - ay1)
+    tb2 = ux * (bx2 - ax1) + uy * (by2 - ay1)
+    b_lo, b_hi = min(tb1, tb2), max(tb1, tb2)
+    if b_hi < -_WALL_MERGE_DIST_TOL or b_lo > la + _WALL_MERGE_DIST_TOL:
+        return False
+    return True
+
+
+def _merge_wall_group(walls: list[WallCommand]) -> list[WallCommand]:
+    """同一断面の立上り群のうち、同一直線上で連続するものを 1 本に統合する。
+
+    Union-Find で連結成分(同一直線上で重なる/接触する立上りの連鎖)にまとめ、
+    各成分を先頭の壁芯方向へ全端点を射影した最小〜最大区間の 1 本にする。
+    成分の代表は最小インデックス、出力は代表インデックス昇順で入力順に準ずる。
+    """
+    n = len(walls)
+    parent = list(range(n))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _walls_connected_collinear(walls[i], walls[j]):
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[max(ri, rj)] = min(ri, rj)
+
+    components: dict[int, list[int]] = {}
+    for i in range(n):
+        components.setdefault(find(i), []).append(i)
+
+    merged: list[WallCommand] = []
+    for root in sorted(components):
+        members = [walls[i] for i in components[root]]
+        if len(members) == 1:
+            merged.append(members[0])
+            continue
+        base = members[0]
+        ax1, ay1 = base['start']
+        ax2, ay2 = base['end']
+        la = math.hypot(ax2 - ax1, ay2 - ay1)
+        ux, uy = (ax2 - ax1) / la, (ay2 - ay1) / la
+        ts = [ux * (px - ax1) + uy * (py - ay1)
+              for wall in members for px, py in (wall['start'], wall['end'])]
+        t_lo, t_hi = min(ts), max(ts)
+        command: WallCommand = {
+            'layer': base['layer'],
+            'class': base['class'],
+            'start': [ax1 + ux * t_lo, ay1 + uy * t_lo],
+            'end': [ax1 + ux * t_hi, ay1 + uy * t_hi],
+            'thickness': base['thickness'],
+            'bottom_bound': base['bottom_bound'],
+            'top_bound': base['top_bound'],
+        }
+        merged.append(command)
+    return merged
+
+
+def merge_wall_commands(walls: list[WallCommand]) -> list[WallCommand]:
+    """立上りの wall 命令を、同一直線上・同一断面のもの同士で統合する。
+
+    基礎の立上りはホームズ君 IFC 上では通り芯の交点等で細かく分断されているため、
+    そのまま描くと壁オブジェクトが多数に分かれる。同じ断面形状(壁厚・高さ基準)で
+    同一直線上に連続する立上りを 1 本の壁にまとめ、できるだけ分断のない形状にする。
+
+    断面キー(``_wall_section_key``)ごとにグループ化してから ``_merge_wall_group``
+    で統合する。断面が異なる(壁厚・高さの違う)立上りや、同一直線上でも隙間がある
+    立上り、平行だが別の線上にある立上りは統合しない。統合はグループ化・グループ内
+    処理とも入力順に対して決定的で、命令の並び順に依存しない結果になる。
+    """
+    groups: dict[tuple[object, ...], list[WallCommand]] = {}
+    order: list[tuple[object, ...]] = []
+    for wall in walls:
+        key = _wall_section_key(wall)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(wall)
+    result: list[WallCommand] = []
+    for key in order:
+        result.extend(_merge_wall_group(groups[key]))
+    return result
 
 
 def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:

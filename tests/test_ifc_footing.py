@@ -140,6 +140,17 @@ class TestBuildFromFixture:
             assert wall['top_bound']['level'] == '横架材天端'
             assert wall['top_bound']['story_offset'] == 1
 
+    def test_walls_are_merged(self) -> None:
+        # 同一直線・同一断面の立上りが統合され、残った壁同士に統合可能ペアが無い
+        ifc = _open(self.FILENAME)
+        walls = footing.build_wall_commands(ifc)
+        for i in range(len(walls)):
+            for j in range(i + 1, len(walls)):
+                if (footing._wall_section_key(walls[i])
+                        == footing._wall_section_key(walls[j])):
+                    assert not footing._walls_connected_collinear(
+                        walls[i], walls[j])
+
     def test_slab_commands_shape(self) -> None:
         ifc = _open(self.FILENAME)
         slabs = footing.build_slab_commands(ifc)
@@ -159,6 +170,107 @@ class TestBuildFromFixture:
         offsets = [round(s['bound']['offset'], 1) for s in slabs]
         assert 0.0 in offsets
         assert any(o < 0.0 for o in offsets)
+
+
+def _wall(
+    start: list[float], end: list[float], thickness: float = 120.0,
+    bottom_offset: float = -100.0, top_offset: float = -190.0,
+) -> footing.WallCommand:
+    return {
+        'layer': footing.LAYER_FOUNDATION_WALL,
+        'class': footing.CLASS_FOUNDATION_WALL,
+        'start': start,
+        'end': end,
+        'thickness': thickness,
+        'bottom_bound': {
+            'story_offset': 0, 'level': footing.LEVEL_GL, 'offset': bottom_offset},
+        'top_bound': {
+            'story_offset': 1, 'level': footing.LEVEL_BEAM_TOP, 'offset': top_offset},
+    }
+
+
+class TestMergeWallCommands:
+    """同一直線上・同一断面の立上りを 1 本に統合する。"""
+
+    def test_collinear_touching_merge_into_one(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0]),
+            _wall([1000.0, 0.0], [3000.0, 0.0]),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 1
+        assert merged[0]['start'] == [0.0, 0.0]
+        assert merged[0]['end'] == [3000.0, 0.0]
+        assert merged[0]['thickness'] == 120.0
+        assert merged[0]['bottom_bound']['offset'] == -100.0
+        assert merged[0]['top_bound']['offset'] == -190.0
+
+    def test_overlapping_segments_merge(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [2000.0, 0.0]),
+            _wall([1500.0, 0.0], [3000.0, 0.0]),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 1
+        assert merged[0]['start'] == [0.0, 0.0]
+        assert merged[0]['end'] == [3000.0, 0.0]
+
+    def test_chain_of_three_merges(self) -> None:
+        walls = [
+            _wall([0.0, 5.0], [0.0, 1000.0]),
+            _wall([0.0, 1000.0], [0.0, 2000.0]),
+            _wall([0.0, 2000.0], [0.0, 3000.0]),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 1
+        ys = sorted([merged[0]['start'][1], merged[0]['end'][1]])
+        assert ys == [5.0, 3000.0]
+        assert merged[0]['start'][0] == 0.0 and merged[0]['end'][0] == 0.0
+
+    def test_gap_between_collinear_segments_not_merged(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0]),
+            _wall([2000.0, 0.0], [3000.0, 0.0]),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 2
+
+    def test_parallel_offset_lines_not_merged(self) -> None:
+        # 平行だが別の線上(直交距離 = 壁厚分)は統合しない
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([0.0, 120.0], [3000.0, 120.0]),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 2
+
+    def test_perpendicular_touching_not_merged(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([3000.0, 0.0], [3000.0, 3000.0]),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 2
+
+    def test_different_thickness_not_merged(self) -> None:
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0], thickness=120.0),
+            _wall([1000.0, 0.0], [3000.0, 0.0], thickness=150.0),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 2
+
+    def test_different_height_not_merged(self) -> None:
+        # 同一直線・接触でも高さ(top_bound offset)が違えば別断面として残す
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0], top_offset=-190.0),
+            _wall([1000.0, 0.0], [3000.0, 0.0], top_offset=-540.0),
+        ]
+        merged = footing.merge_wall_commands(walls)
+        assert len(merged) == 2
+
+    def test_empty_returns_empty(self) -> None:
+        assert footing.merge_wall_commands([]) == []
 
 
 class TestNoFoundation:
