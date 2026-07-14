@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 17):
+スキーマ (version 18):
 
     {
-        "version": 17,
+        "version": 18,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -115,7 +115,12 @@
                 "class": "04構造-01基礎-02基礎スラブ",  # 割り当てるクラス名
                 # スラブ外形(平面ポリゴンの頂点列、mm・センタリング済み)。
                 "boundary": [[x1, y1], [x2, y2], [x3, y3], [x4, y4]],
-                "thickness": 150.0,       # スラブ厚 (mm)。スラブは基準面(天端)から下方に伸びる。
+                # スラブ天端の絶対 Z (mm)。描画フェーズが SetSlabHeight でスラブの
+                # 天端高さとして設定する。SetSlabHeight は厚みではなく高さ
+                # (Coordinate) を設定するため、厚みを渡すと天端が厚み分だけ高く
+                # 描画される(柱・梁の高さ二重加算と同種の不具合)。スラブ厚は
+                # スラブスタイルのコンポーネントが決めるため命令には持たせない。
+                "elevation": 50.0,
                 # 高さ基準(ストーリレベルへのバインド)。スラブ天端を基礎の底盤天端
                 # レベルにバインドする。offset は天端の絶対 Z と底盤天端の絶対 Z の差
                 # (主たる底盤は ≈0、地中梁は底盤天端より低いため負値)。
@@ -191,7 +196,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 17
+DOCUMENT_VERSION = 18
 
 
 class LevelCommand(TypedDict):
@@ -313,15 +318,18 @@ SlabCommand = TypedDict('SlabCommand', {
     'layer': str,
     'class': str,
     'boundary': list[list[float]],
-    'thickness': float,
+    'elevation': float,
     'bound': StoryBoundCommand,
 })
 """基礎の底盤・地中梁をスラブオブジェクトで描画する命令。
 
-boundary はスラブ外形(平面ポリゴンの頂点列)、thickness はスラブ厚。スラブは
-基準面(天端)から下方に thickness 分伸びる。bound はスラブ天端の高さ基準で、
-基礎の底盤天端レベルにバインドする(地中梁は底盤天端より低いため offset が負値)。
-class は割り当てる構造クラス名(基礎スラブ)。
+boundary はスラブ外形(平面ポリゴンの頂点列)、elevation はスラブ天端の絶対 Z。
+描画フェーズは SetSlabHeight に elevation を渡してスラブの天端高さを設定する
+(SetSlabHeight は厚みではなく高さ=Coordinate を設定するため、厚みを渡すと
+天端が厚み分だけ高く描画される)。スラブ厚はスラブスタイルが決めるため命令には
+持たせない。bound はスラブ天端の高さ基準で、基礎の底盤天端レベルにバインドする
+(地中梁は底盤天端より低いため offset が負値)。class は割り当てる構造クラス名
+(基礎スラブ)。
 """
 
 
@@ -553,8 +561,8 @@ def _validate_slab(index: int, command: Any) -> None:
     for j, point in enumerate(boundary):
         _require(_is_point(point),
                  f'{where}.boundary[{j}] は [x, y] の数値ペアである必要があります')
-    _require(_is_number(command.get('thickness')),
-             f'{where}.thickness は数値である必要があります')
+    _require(_is_number(command.get('elevation')),
+             f'{where}.elevation は数値である必要があります')
     _validate_story_bound(where, 'bound', command.get('bound'))
 
 
