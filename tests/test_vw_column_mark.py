@@ -27,8 +27,8 @@ def _make_vs_mock(existing_layers: set[str]) -> MagicMock:
         return ('HANDLE_' + name) if name in existing_layers else null_handle
 
     vs_mock.GetObject.side_effect = get_obj
-    # CreateCustomObject は生成した PIO ハンドル (非 NIL) を返す
-    vs_mock.CreateCustomObject.return_value = 'PIO_HANDLE'
+    # CreateCustomObjectN は生成した PIO ハンドル (非 NIL) を返す
+    vs_mock.CreateCustomObjectN.return_value = 'PIO_HANDLE'
     return vs_mock
 
 
@@ -49,10 +49,13 @@ class TestExecuteColumnMarks:
         assert count == 1
         # アクティブレイヤを下階柱レイヤに切り替えてから PIO を配置する
         vs_mock.Layer.assert_called_once_with('2-下階柱')
-        args = vs_mock.CreateCustomObject.call_args.args
+        args = vs_mock.CreateCustomObjectN.call_args.args
         assert args[0] == '柱束伏図記号'
         assert args[1] == (0.0, 0.0)
         assert args[2] == 0
+        # showPref=False で設定ダイアログを抑止する
+        # (インポート中の手動入力を不要にするため)
+        assert args[3] is False
         # 検索対象レイヤ・クラス・記号サイズをパラメータに設定する
         set_fields = {
             c.args[2]: c.args[3] for c in vs_mock.SetRField.call_args_list
@@ -87,12 +90,12 @@ class TestExecuteColumnMarks:
         count = vw_cm.execute_column_marks([make_command()])
 
         assert count == 0
-        vs_mock.CreateCustomObject.assert_not_called()
+        vs_mock.CreateCustomObjectN.assert_not_called()
 
     def test_skips_when_pio_cannot_be_created(self) -> None:
-        # プラグイン未登録などで CreateCustomObject が NIL を返す場合は数えない
+        # プラグイン未登録などで CreateCustomObjectN が NIL を返す場合は数えない
         vs_mock = _make_vs_mock({'2-下階柱'})
-        vs_mock.CreateCustomObject.return_value = vs_mock.Handle(0)
+        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
         vw_cm = _load(vs_mock)
 
         count = vw_cm.execute_column_marks([make_command()])

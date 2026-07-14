@@ -1,15 +1,25 @@
 """column_mark 命令の描画。下階柱記号(柱束伏図記号 PIO)を配置する。
 
 各命令について、配置先レイヤ(``n-下階柱``)をアクティブにしてから
-``vs.CreateCustomObject`` でカスタム PIO「柱束伏図記号」を挿入し、検索対象レイヤ・
-クラス・記号サイズをパラメータ(レコードフィールド)に設定して ``vs.ResetObject``
-でリセットする。PIO はリセット時に対象レイヤの柱(構造用途 4/5)を検索し各柱位置に
-記号を描く(実際の記号描画は PIO 側=姉妹プロジェクト
-vectorworks-plugin-column-under-mark が行う)。
+``vs.CreateCustomObjectN`` でカスタム PIO「柱束伏図記号」を挿入し、検索対象
+レイヤ・クラス・記号サイズをパラメータ(レコードフィールド)に設定して
+``vs.ResetObject`` でリセットする。PIO はリセット時に対象レイヤの柱
+(構造用途 4/5)を検索し各柱位置に記号を描く(実際の記号描画は PIO 側=姉妹
+プロジェクト vectorworks-plugin-column-under-mark が行う)。
+
+``CreateCustomObject`` ではなく ``CreateCustomObjectN`` を使い ``showPref=False``
+を渡すのは、**IFC インポート中に PIO の「オブジェクトの設定」ダイアログが
+開いて手動入力を求められるのを防ぐため**。ユーザーが VectorWorks に登録した
+「柱束伏図記号」ポイントオブジェクトは「図形の作成時に設定ダイアログを表示」
+する設定になっており、``CreateCustomObject`` はこのプラグイン設定に従って
+毎回ダイアログを表示してしまう(検索対象レイヤ・クラス・記号サイズはこの後
+``SetRField`` で自動設定するため、手動入力は不要)。``CreateCustomObjectN`` の
+``showPref`` 引数(=オブジェクトプロパティダイアログの表示)を ``False`` にする
+ことでプラグイン設定によらずダイアログを抑止する。
 
 配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
 PIO プラグイン「柱束伏図記号」が VectorWorks に登録されていない場合、
-``CreateCustomObject`` は NIL を返すためスキップする。
+``CreateCustomObjectN`` は NIL を返すためスキップする。
 """
 from __future__ import annotations
 
@@ -25,6 +35,9 @@ _PLUGIN_NAME = '柱束伏図記号'
 _PARAM_TARGET_LAYER = 'TargetLayer'
 _PARAM_TARGET_CLASS = 'TargetClass'
 _PARAM_MARK_SIZE = 'MarkSize'
+# CreateCustomObjectN の showPref 引数(オブジェクトプロパティダイアログの表示)。
+# インポート中にダイアログで手動入力を求められないよう常に非表示にする。
+_SHOW_PREF_DIALOG = False
 
 
 def _format_size(size: float) -> str:
@@ -39,12 +52,13 @@ def _format_size(size: float) -> str:
 def draw_column_mark(command: ColumnMarkCommand) -> bool:
     """column_mark 命令 1 件を柱束伏図記号 PIO として配置する。
 
-    ``vs.CreateCustomObject`` で PIO を挿入点に作り、検索対象レイヤ・クラス・記号
-    サイズをパラメータに設定して ``vs.ResetObject`` でリセットする。PIO が作れない
-    (プラグイン未登録等で NIL)場合は False。
+    ``vs.CreateCustomObjectN`` で PIO を挿入点に作り(``showPref=False`` で設定
+    ダイアログを抑止)、検索対象レイヤ・クラス・記号サイズをパラメータに設定して
+    ``vs.ResetObject`` でリセットする。PIO が作れない(プラグイン未登録等で NIL)
+    場合は False。
     """
     x, y = command['position']
-    obj = vs.CreateCustomObject(_PLUGIN_NAME, (x, y), 0)
+    obj = vs.CreateCustomObjectN(_PLUGIN_NAME, (x, y), 0, _SHOW_PREF_DIALOG)
     if obj == vs.Handle(0):
         return False
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_LAYER, command['target_layer'])
