@@ -86,7 +86,7 @@ FIXTURES = [
         anchor_bolts=96,
         fire_braces=66,
         sheets=5,
-        column_marks=3,
+        column_marks=5,
         moya_stories={'2階'},
     ),
     Expected(
@@ -102,7 +102,7 @@ FIXTURES = [
         anchor_bolts=110,
         fire_braces=35,
         sheets=5,
-        column_marks=3,
+        column_marks=5,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -117,7 +117,7 @@ FIXTURES = [
         anchor_bolts=85,
         fire_braces=28,
         sheets=5,
-        column_marks=3,
+        column_marks=5,
         moya_stories={'2階'},
     ),
     Expected(
@@ -133,7 +133,7 @@ FIXTURES = [
         anchor_bolts=60,
         fire_braces=28,
         sheets=6,
-        column_marks=4,
+        column_marks=7,
         moya_stories={'2階', '3階'},
     ),
     Expected(
@@ -149,7 +149,7 @@ FIXTURES = [
         anchor_bolts=30,
         fire_braces=2,
         sheets=6,
-        column_marks=4,
+        column_marks=7,
     ),
 ]
 

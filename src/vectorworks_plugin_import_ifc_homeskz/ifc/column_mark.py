@@ -10,7 +10,14 @@
    PIO はリセットで対象レイヤ(=直下階の ``n-柱`` レイヤ)の柱を検索し各柱位置に
    記号を描く。N 階の横架材天端の下に立つ柱は直下階(N-1)の柱であるため、
    ``n-下階柱`` レイヤの PIO は ``{N-1}-柱`` レイヤを検索対象にする。最下階
-   (1 階)は下に柱が無い(下は基礎)ため作らない。
+   (1 階)は下に柱が無い(下は基礎)ため作らない。**柱(×)と束(○)を別オブジェクトに
+   分けるため、下階柱記号は 1 階分につき 2 つの PIO を置く**: 管柱を記号化する
+   PIO(``target_class`` = 管柱クラス)と、直下階に架かる下屋根(下屋)の小屋束を
+   記号化する PIO(``target_class`` = 小屋束クラス)。**通し柱には記号を付けない**
+   (通し柱はこの階自身の柱レイヤにも立ち上がって描かれるため下階柱記号は不要)
+   ので、管柱・小屋束の 2 クラスだけを記号化する。柱束伏図記号 PIO の
+   ``TargetClass`` は 1 クラス完全一致でしか絞れないため、柱と束をそれぞれ別
+   クラスの別オブジェクトに分けることで描画設定を独立して調整できる。
 2. **小屋束記号**: 母屋伏図に最上階(屋根)の小屋束を記号化するため、母屋レイヤの
    直上の ``R-小屋束`` レイヤに PIO を置く。PIO は屋根の柱レイヤ ``R-柱`` を
    検索対象とし、**検索対象クラスを小屋束クラスに絞る**ことで小屋束(○)だけを
@@ -31,7 +38,7 @@ from .story import (
     collect_stories,
     layer_prefix_for,
 )
-from .structural_class import CLASS_KOYAZUKA
+from .structural_class import CLASS_KOYAZUKA, CLASS_KUDABASHIRA
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -39,9 +46,12 @@ if TYPE_CHECKING:
 # 記号の既定サイズ (mm)。柱束伏図記号 PIO の MarkSize に渡す。姉妹プロジェクトの
 # 既定値 (core/mark.py の DEFAULT_MARK_SIZE=300mm) に合わせる。
 DEFAULT_MARK_SIZE = 300.0
-# 下階柱記号の検索対象クラス(空=全クラス)。直下階の柱レイヤの柱をすべて記号化する
-# (直下階の柱レイヤには小屋束は含まれないため全クラスでよい)。
-TARGET_CLASS = ''
+# 下階柱記号の検索対象クラス。柱束伏図記号 PIO は 1 クラス完全一致でしか絞れず、
+# 柱(×)と束(○)を別オブジェクトに分けて描画設定を独立調整するため、下階柱記号は
+# 管柱クラスと小屋束クラスの 2 つの PIO に分ける。通し柱にはこの階自身の柱レイヤに
+# も柱が描かれるため下階柱記号を付けず、管柱・小屋束の 2 クラスだけを記号化する。
+TARGET_CLASS_KUDABASHIRA = CLASS_KUDABASHIRA  # 管柱(×)
+TARGET_CLASS_KOYAZUKA = CLASS_KOYAZUKA        # 下屋根の小屋束(○)
 # PIO の挿入点。記号は検索した柱のワールド位置に描かれ挿入点には依存しないため
 # 原点でよい(座標はセンタリング済み)。
 INSERTION_POINT: list[float] = [0.0, 0.0]
@@ -53,10 +63,11 @@ def build_column_mark_commands(
     """下階柱記号・小屋束記号(column_mark 命令)を組み立てて返す。
 
     FL ストーリごとに、直下階(N-1)の柱を記号化する下階柱記号 PIO を ``n-下階柱``
-    レイヤに 1 つ置く(最下階は下に柱が無いため作らない)。加えて最上階(屋根)が
-    あれば、屋根の小屋束を母屋伏図に記号化する小屋束記号 PIO を ``R-小屋束``
-    レイヤに 1 つ置く(検索対象クラスを小屋束クラスに絞る)。ストーリが無ければ
-    空リストを返す。
+    レイヤに置く(最下階は下に柱が無いため作らない)。柱(×)と束(○)を別オブジェクトに
+    分けるため 1 階分につき **管柱クラス**の PIO と**小屋束クラス**の PIO の 2 つを
+    置く(通し柱には記号を付けない)。加えて最上階(屋根)があれば、屋根の小屋束を
+    母屋伏図に記号化する小屋束記号 PIO を ``R-小屋束`` レイヤに 1 つ置く(検索対象
+    クラスを小屋束クラスに絞る)。ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
     commands: list[ColumnMarkCommand] = []
@@ -66,13 +77,19 @@ def build_column_mark_commands(
         prefix = layer_prefix_for(i, is_top)
         # 直下階(i-1)は最上階になり得ない(i <= n-1 なので i-1 <= n-2)
         lower_prefix = layer_prefix_for(i - 1, False)
-        commands.append({
-            'layer': f'{prefix}-{LEVEL_UNDER_COLUMN}',
-            'target_layer': f'{lower_prefix}-{LEVEL_COLUMN}',
-            'target_class': TARGET_CLASS,
-            'size': DEFAULT_MARK_SIZE,
-            'position': list(INSERTION_POINT),
-        })
+        under_layer = f'{prefix}-{LEVEL_UNDER_COLUMN}'
+        target_layer = f'{lower_prefix}-{LEVEL_COLUMN}'
+        # 管柱(×)と小屋束(○)を別クラスの別オブジェクトに分ける(通し柱は付けない)
+        for target_class in (
+            TARGET_CLASS_KUDABASHIRA, TARGET_CLASS_KOYAZUKA,
+        ):
+            commands.append({
+                'layer': under_layer,
+                'target_layer': target_layer,
+                'target_class': target_class,
+                'size': DEFAULT_MARK_SIZE,
+                'position': list(INSERTION_POINT),
+            })
     # 小屋束記号: 最上階(屋根)の小屋束を母屋伏図に記号化する。屋根の柱レイヤ
     # (R-柱)を検索対象にし、クラスを小屋束クラスに絞って小屋束(○)だけを記号化
     # する(柱の下階柱記号とは別オブジェクト)。

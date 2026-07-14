@@ -17,6 +17,7 @@ from vectorworks_plugin_import_ifc_homeskz.ifc.column_mark import (
 )
 from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import (
     CLASS_KOYAZUKA,
+    CLASS_KUDABASHIRA,
 )
 
 
@@ -51,17 +52,27 @@ class TestBuildColumnMarkCommands:
 
         commands = build_column_mark_commands(ifc)
 
-        # 最下階 (1階) の下階柱記号は作らないので 2 つ (2階・屋根)、
-        # 加えて屋根の小屋束記号 1 つ
+        # 最下階 (1階) の下階柱記号は作らない。2階・屋根の各階に管柱(×)と小屋束(○)の
+        # 2 つずつ (計 4 つ)、加えて屋根の小屋束記号 1 つ
         assert commands == [
             {
                 'layer': '2-下階柱', 'target_layer': '1-柱',
-                'target_class': '', 'size': DEFAULT_MARK_SIZE,
+                'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
+                'position': [0.0, 0.0],
+            },
+            {
+                'layer': '2-下階柱', 'target_layer': '1-柱',
+                'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
             {
                 'layer': 'R-下階柱', 'target_layer': '2-柱',
-                'target_class': '', 'size': DEFAULT_MARK_SIZE,
+                'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
+                'position': [0.0, 0.0],
+            },
+            {
+                'layer': 'R-下階柱', 'target_layer': '2-柱',
+                'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
             {
@@ -81,11 +92,17 @@ class TestBuildColumnMarkCommands:
 
         commands = build_column_mark_commands(ifc)
 
-        assert [(c['layer'], c['target_layer']) for c in commands] == [
-            ('2-下階柱', '1-柱'),
-            ('3-下階柱', '2-柱'),
-            ('R-下階柱', '3-柱'),
-            ('R-小屋束', 'R-柱'),
+        # 各下階柱記号は管柱(×)と小屋束(○)の 2 クラスに分かれる。末尾に屋根の小屋束記号。
+        assert [
+            (c['layer'], c['target_layer'], c['target_class']) for c in commands
+        ] == [
+            ('2-下階柱', '1-柱', CLASS_KUDABASHIRA),
+            ('2-下階柱', '1-柱', CLASS_KOYAZUKA),
+            ('3-下階柱', '2-柱', CLASS_KUDABASHIRA),
+            ('3-下階柱', '2-柱', CLASS_KOYAZUKA),
+            ('R-下階柱', '3-柱', CLASS_KUDABASHIRA),
+            ('R-下階柱', '3-柱', CLASS_KOYAZUKA),
+            ('R-小屋束', 'R-柱', CLASS_KOYAZUKA),
         ]
 
     def test_commands_are_json_serializable(self) -> None:
