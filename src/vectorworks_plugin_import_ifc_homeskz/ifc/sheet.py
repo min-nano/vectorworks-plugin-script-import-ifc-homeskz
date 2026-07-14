@@ -17,11 +17,14 @@
   最下階から ``1階床伏図``・``2階床伏図``・…、最上階は ``小屋伏図``。表示レイヤは
   各階の横架材(``n-横架材天端``、最上階は ``n-軒高``)・柱(``n-柱``)・通り芯(``共通``)。
   加えて一般階(最上階以外)は床(``n-FL``)も表示し、最下階には基礎がある場合に
-  アンカーボルト(``F-アンカーボルト``)も表示する。
+  アンカーボルト(``F-アンカーボルト``)も表示する。下屋根の小屋組(母屋・棟木)を
+  含む中間階は、その母屋レイヤ(``n-母屋``)も重ねて表示し、母屋が直下階の屋根に
+  当たるためタイトルを ``{n}階床・{n-1}階母屋伏図`` にする。
 - **母屋伏図**(``build_moya_sheet_commands``): 最上階(屋根)の母屋・棟木(と将来の
   垂木)を梁と分けて表示する 1 枚。シートレイヤ番号は柱梁伏図の最後(小屋伏図)に
   続けて振る。表示レイヤは母屋(``R-母屋``)・小屋束記号(``R-小屋束``)・通り芯
   (``共通``)。母屋を支える小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。
+  中間階の下屋根の母屋は専用シートにせず、その階の床伏図に重ねて表示する(上記)。
 """
 from __future__ import annotations
 
@@ -42,6 +45,7 @@ from .story import (
     LEVEL_MOYA,
     LEVEL_UNDER_COLUMN,
     collect_stories,
+    collect_story_moya_flags,
     layer_prefix_for,
 )
 
@@ -91,9 +95,18 @@ def build_foundation_sheet_commands(
     }]
 
 
-def floor_plan_title(index: int, is_top: bool) -> str:
-    """柱梁伏図シートのタイトルを返す(最上階は 小屋伏図、それ以外は n階床伏図)。"""
-    return FLOOR_PLAN_ROOF_TITLE if is_top else f'{index + 1}階床伏図'
+def floor_plan_title(index: int, is_top: bool, has_moya: bool = False) -> str:
+    """柱梁伏図シートのタイトルを返す。
+
+    最上階は ``小屋伏図``。それ以外は ``{n}階床伏図``(``n = index + 1``)を基本と
+    するが、下屋根の小屋組(母屋・棟木)を含む中間階(``has_moya``)は、その母屋が
+    直下階(``n - 1`` 階)の屋根に当たるため ``{n}階床・{n-1}階母屋伏図`` とする。
+    """
+    if is_top:
+        return FLOOR_PLAN_ROOF_TITLE
+    if has_moya:
+        return f'{index + 1}階床・{index}階母屋伏図'
+    return f'{index + 1}階床伏図'
 
 
 def build_floor_framing_sheet_commands(
@@ -108,24 +121,31 @@ def build_floor_framing_sheet_commands(
     """
     stories = collect_stories(ifc_file)
     foundation = has_foundation(ifc_file)
+    moya_flags = collect_story_moya_flags(ifc_file)
     commands: list[SheetCommand] = []
     n = len(stories)
     for i in range(n):
         is_top = i == n - 1
         prefix = layer_prefix_for(i, is_top)
+        # 中間階(最上階以外)に下屋根の小屋組(母屋・棟木)がある場合、その母屋は
+        # 専用レイヤ(n-母屋)に分離され、この階の床伏図に重ねて表示する。
+        has_moya = not is_top and moya_flags[i]
         # 横架材レイヤは一般階=横架材天端、最上階=軒高。
         beam_level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
         layers = [f'{prefix}-{beam_level}', f'{prefix}-{LEVEL_COLUMN}']
         # 最下階(i=0)以外は直下階の柱を記号化する下階柱記号レイヤを表示する。
         if i >= 1:
             layers.append(f'{prefix}-{LEVEL_UNDER_COLUMN}')
+        # 下屋根の母屋(n-母屋)を床伏図に重ねて表示する(直下階の屋根に当たる)。
+        if has_moya:
+            layers.append(f'{prefix}-{LEVEL_MOYA}')
         if not is_top:
             # 最下階には基礎(アンカーボルト)がある場合に表示する。
             if i == 0 and foundation:
                 layers.append(LAYER_FOUNDATION_ANCHOR)
             layers.append(f'{prefix}-{LEVEL_FL}')
         layers.append(TARGET_LAYER)
-        title = floor_plan_title(i, is_top)
+        title = floor_plan_title(i, is_top, has_moya)
         number = str(FLOOR_PLAN_START_NUMBER + i)
         commands.append({
             'number': number,

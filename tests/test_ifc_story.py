@@ -9,9 +9,26 @@ import ifcopenshell
 from vectorworks_plugin_import_ifc_homeskz.ifc.story import (
     build_story_commands,
     collect_stories,
+    collect_story_moya_flags,
     get_local_placement_z,
     resolve_beam_top_offset,
+    story_has_moya,
 )
+
+
+def add_named_beam(
+    ifc: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    name: str,
+) -> ifcopenshell.entity_instance:
+    """指定した ``Name`` を持つ IfcBeam を storey 配下に追加する。"""
+    beam = ifc.create_entity('IfcBeam', Name=name)
+    ifc.create_entity(
+        'IfcRelContainedInSpatialStructure',
+        RelatingStructure=storey,
+        RelatedElements=[beam],
+    )
+    return beam
 
 
 def make_storey(
@@ -122,7 +139,65 @@ class TestCollectStories:
         ]
 
 
+class TestStoryHasMoya:
+    def test_true_when_moya_named_beam_present(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '2FL', 3273.0)
+        add_named_beam(ifc, storey, '木梁:母屋:1_1')
+        assert story_has_moya(storey) is True
+
+    def test_true_when_munagi_named_beam_present(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '2FL', 3273.0)
+        add_named_beam(ifc, storey, '木梁:棟木:1_1')
+        assert story_has_moya(storey) is True
+
+    def test_false_when_only_ordinary_beams(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        add_named_beam(ifc, storey, '木梁:胴差:1_1')
+        add_named_beam(ifc, storey, '木梁:床大梁:1_1')
+        assert story_has_moya(storey) is False
+
+
+class TestCollectStoryMoyaFlags:
+    def test_flags_follow_elevation_order(self) -> None:
+        ifc = ifcopenshell.file()
+        # わざと逆順で作成
+        roof = make_storey(ifc, 'RFL', 5973.0)
+        make_storey(ifc, '1FL', 473.0, [('IfcColumn', -48.0)])
+        second = make_storey(ifc, '2FL', 3273.0, [('IfcSlab', -36.0)])
+        # 中間階(2FL)に下屋根の母屋、最上階(RFL)に主屋根の母屋
+        add_named_beam(ifc, second, '木梁:母屋:1_1')
+        add_named_beam(ifc, roof, '木梁:母屋:2_1')
+        # 1FL は母屋を持たない
+        assert collect_story_moya_flags(ifc) == [False, True, True]
+
+
 class TestBuildStoryCommands:
+    def test_intermediate_story_with_moya_gets_moya_level(self) -> None:
+        """下屋根の母屋を含む中間階には 母屋 レベルが横架材天端の直上に入る。"""
+        ifc = ifcopenshell.file()
+        make_storey(ifc, '1FL', 473.0, [('IfcColumn', -48.0)])
+        second = make_storey(ifc, '2FL', 3273.0, [('IfcSlab', -36.0)])
+        add_named_beam(ifc, second, '木梁:母屋:1_1')
+        make_storey(ifc, 'RFL', 5973.0)
+
+        commands = build_story_commands(ifc)
+
+        # 中間階(2階)は 母屋 レベルを横架材天端の直前に持ち、高さは横架材天端に揃える
+        assert commands[1]['name'] == '2階'
+        assert commands[1]['levels'] == [
+            {'type': '柱', 'offset': -36.0, 'layer': '2-柱'},
+            {'type': 'FL', 'offset': 0.0, 'layer': '2-FL'},
+            {'type': '下階柱', 'offset': -36.0, 'layer': '2-下階柱'},
+            {'type': '母屋', 'offset': -36.0, 'layer': '2-母屋'},
+            {'type': '横架材天端', 'offset': -36.0, 'layer': '2-横架材天端'},
+        ]
+        # 母屋を持たない 1 階は従来どおり
+        assert [lv['type'] for lv in commands[0]['levels']] == [
+            '柱', 'FL', '横架材天端']
+
     def test_builds_commands_for_three_stories(self) -> None:
         ifc = ifcopenshell.file()
         make_storey(ifc, '1FL', 473.0, [('IfcColumn', -48.0)])

@@ -49,11 +49,12 @@ class TestBuildFloorFramingSheetCommands:
         assert sheet.build_floor_framing_sheet_commands(empty) == []
 
     def test_one_sheet_per_story(self) -> None:
-        # フィクスチャは 2 階建て(1階・2階・屋根)なので 3 枚
+        # フィクスチャは 2 階建て(1階・2階・屋根)なので 3 枚。
+        # 2階は下屋根の母屋(下屋)を含むため 2階床・1階母屋伏図 になる。
         ifc = _open('伏図次郎【2階】.ifc')
         sheets = sheet.build_floor_framing_sheet_commands(ifc)
         assert [s['title'] for s in sheets] == [
-            '1階床伏図', '2階床伏図', '小屋伏図']
+            '1階床伏図', '2階床・1階母屋伏図', '小屋伏図']
         # シートレイヤ番号は基礎伏図(1)に続けて 2 から
         assert [s['number'] for s in sheets] == ['2', '3', '4']
 
@@ -67,13 +68,14 @@ class TestBuildFloorFramingSheetCommands:
         assert first['viewport']['layers'] == [
             '1-横架材天端', '1-柱', 'F-アンカーボルト', '1-FL', '共通']
 
-    def test_middle_floor_shows_beam_column_slab_grid(self) -> None:
+    def test_middle_floor_shows_beam_column_moya_slab_grid(self) -> None:
         ifc = _open('伏図次郎【2階】.ifc')
         middle = sheet.build_floor_framing_sheet_commands(ifc)[1]
-        assert middle['title'] == '2階床伏図'
-        # 中間階はアンカーボルトを含まない(横架材・柱・下階柱・床・通り芯)
+        # 2階は下屋根の母屋を含むため床・母屋伏図になり、母屋レイヤを重ねて表示する
+        assert middle['title'] == '2階床・1階母屋伏図'
+        # 中間階はアンカーボルトを含まない(横架材・柱・下階柱・母屋・床・通り芯)
         assert middle['viewport']['layers'] == [
-            '2-横架材天端', '2-柱', '2-下階柱', '2-FL', '共通']
+            '2-横架材天端', '2-柱', '2-下階柱', '2-母屋', '2-FL', '共通']
 
     def test_roof_shows_beam_column_grid(self) -> None:
         ifc = _open('伏図次郎【2階】.ifc')
@@ -109,5 +111,5 @@ class TestBuildSheetCommands:
         ifc = _open('伏図次郎【2階】.ifc')
         sheets = sheet.build_sheet_commands(ifc)
         assert [s['title'] for s in sheets] == [
-            '基礎伏図', '1階床伏図', '2階床伏図', '小屋伏図', '母屋伏図']
+            '基礎伏図', '1階床伏図', '2階床・1階母屋伏図', '小屋伏図', '母屋伏図']
         assert [s['number'] for s in sheets] == ['1', '2', '3', '4', '5']
