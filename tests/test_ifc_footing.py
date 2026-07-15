@@ -273,6 +273,55 @@ class TestMergeWallCommands:
         assert footing.merge_wall_commands([]) == []
 
 
+class TestExtendFreeWallEnds:
+    """他の立上りと交差しない端点を半壁厚だけ外側へ延長する。"""
+
+    def test_isolated_wall_extends_both_ends(self) -> None:
+        # どの立上りとも交差しない立上り → 両端を半壁厚(60)ずつ外側へ延長
+        walls = [_wall([0.0, 0.0], [3000.0, 0.0], thickness=120.0)]
+        ext = footing._extend_free_wall_ends(walls)
+        assert ext[0]['start'] == [-60.0, 0.0]
+        assert ext[0]['end'] == [3060.0, 0.0]
+
+    def test_extension_follows_wall_axis(self) -> None:
+        # 延長方向は壁芯(自分の軸)に沿う。始点は始点側・終点は終点側へ。
+        walls = [_wall([0.0, 0.0], [0.0, 2000.0], thickness=150.0)]
+        ext = footing._extend_free_wall_ends(walls)
+        assert ext[0]['start'] == [0.0, -75.0]
+        assert ext[0]['end'] == [0.0, 2075.0]
+
+    def test_l_corner_joined_ends_not_extended(self) -> None:
+        # コーナーで交わる端点は延長せず、反対側(自由端)だけ延長する
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([0.0, 0.0], [0.0, 3000.0]),
+        ]
+        ext = footing._extend_free_wall_ends(walls)
+        assert ext[0]['start'] == [0.0, 0.0]      # コーナー(交差)側は据え置き
+        assert ext[0]['end'] == [3060.0, 0.0]     # 自由端は延長
+        assert ext[1]['start'] == [0.0, 0.0]
+        assert ext[1]['end'] == [0.0, 3060.0]
+
+    def test_t_through_wall_ends_extended_stem_butt_not(self) -> None:
+        # 通し材に突き当たる stem の端点は据え置き、通し材の両自由端は延長
+        through = _wall([0.0, 0.0], [3000.0, 0.0])
+        stem = _wall([1500.0, 0.0], [1500.0, 2000.0])
+        ext = footing._extend_free_wall_ends([through, stem])
+        assert ext[0]['start'] == [-60.0, 0.0]    # 通し材の自由端
+        assert ext[0]['end'] == [3060.0, 0.0]
+        assert ext[1]['start'] == [1500.0, 0.0]   # 突き当て側(交差)は据え置き
+        assert ext[1]['end'] == [1500.0, 2060.0]  # 反対の自由端は延長
+
+    def test_zero_length_wall_unchanged(self) -> None:
+        walls = [_wall([100.0, 100.0], [100.0, 100.0])]
+        ext = footing._extend_free_wall_ends(walls)
+        assert ext[0]['start'] == [100.0, 100.0]
+        assert ext[0]['end'] == [100.0, 100.0]
+
+    def test_empty_returns_empty(self) -> None:
+        assert footing._extend_free_wall_ends([]) == []
+
+
 class TestBuildWallJoinCommands:
     """交差する立上り同士の壁結合(JoinWalls)命令を組み立てる。"""
 
