@@ -184,8 +184,11 @@ def _resolve_slab_style_ref(
     **リソースの複製は ``vs.GetParent`` で得た親コンテナへ挿入し、直後にユニークな
     名前を付ける**。nil コンテナへ複製すると無名の不正リソースがアクティブレイヤに
     作られてドキュメントを壊す(VW 公式ドキュメントの ``CreateDuplicateObject`` の
-    注意書き)。ref 番号は名前付きリソースの参照規約に従い ``-Name2Index(name)``
-    (負の内部インデックス)。作成・取得できない・名前が解決できない場合は None。
+    注意書き)。``SetSlabStyle`` に渡す ref 番号は**スタイル名の正の内部インデックス
+    ``Name2Index(name)``**(VW 上で確認: 負値=``-Name2Index`` はスタイルなしのまま
+    適用されず、正値でのみ適用され ``GetSlabStyle`` も同じ正値を返す。線種等の名前付き
+    リソースは負値だがスラブスタイルは正値)。作成・取得できない・名前が解決できない
+    (Name2Index=0)場合は None。
     """
     target = _derive_style_name(base_name, concrete_mm)
     if target not in styles:
@@ -199,7 +202,7 @@ def _resolve_slab_style_ref(
         vs.SetName(dup, target)
         vs.SetComponentWidth(dup, _CONCRETE_COMPONENT_INDEX, float(concrete_mm))
         styles[target] = dup
-    ref = -vs.Name2Index(target)
+    ref = vs.Name2Index(target)
     return ref if ref != 0 else None
 
 

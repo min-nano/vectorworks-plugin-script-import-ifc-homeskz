@@ -268,8 +268,8 @@ class TestSlabStyles:
         vw_footing.execute_slabs([make_slab_command()])
 
         vs_mock.CreateDuplicateObject.assert_not_called()
-        # ref 番号は -Name2Index(スタイル名)
-        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', -42)
+        # ref 番号は正の Name2Index(スタイル名)(VW でスラブスタイルは正値のみ適用)
+        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', 42)
 
     def test_creates_style_for_non_default_thickness(self) -> None:
         # 180mm は既定スタイルを複製し、コンクリート厚(#1)を 180 にして適用する
@@ -287,7 +287,7 @@ class TestSlabStyles:
         vs_mock.SetName.assert_called_once_with('DUP', target)
         # 最上層(#1)= コンクリートの厚みを 180 に設定
         vs_mock.SetComponentWidth.assert_called_once_with('DUP', 1, 180.0)
-        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', -42)
+        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', 42)
 
     def test_finds_base_style_regardless_of_blinding_gravel_thickness(self) -> None:
         # 捨てコン・砕石の厚みが既定と違っても既定スタイルを見つけ、派生名にも引き継ぐ
