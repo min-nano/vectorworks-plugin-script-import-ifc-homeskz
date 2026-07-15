@@ -144,9 +144,15 @@
                 # スラブ天端の絶対 Z (mm)。描画フェーズが SetSlabHeight でスラブの
                 # 天端高さとして設定する。SetSlabHeight は厚みではなく高さ
                 # (Coordinate) を設定するため、厚みを渡すと天端が厚み分だけ高く
-                # 描画される(柱・梁の高さ二重加算と同種の不具合)。スラブ厚は
-                # スラブスタイルのコンポーネントが決めるため命令には持たせない。
+                # 描画される(柱・梁の高さ二重加算と同種の不具合)。
                 "elevation": 50.0,
+                # スラブスタイルのコンクリート厚 (mm)。底盤(基礎底盤系)にだけ
+                # 設定し、描画フェーズが「基礎スラブ - コンクリート {厚}mm / …」の
+                # スラブスタイルを適用する(既定=150mm はそのまま、それ以外は既定
+                # スタイルを複製してコンクリート厚を変更する)。地中梁など、スラブ
+                # スタイルを適用しないスラブは None(スタイル無し、実厚はスタイルの
+                # コンポーネントには依存しない)。
+                "thickness": 150.0,
                 # 高さ基準(ストーリレベルへのバインド)。スラブ天端を基礎の底盤天端
                 # レベルにバインドする。offset は天端の絶対 Z と底盤天端の絶対 Z の差
                 # (主たる底盤は ≈0、地中梁は底盤天端より低いため負値)。
@@ -264,9 +270,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, TypedDict
+from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 22
+DOCUMENT_VERSION = 23
 
 
 class LevelCommand(TypedDict):
@@ -423,6 +429,7 @@ SlabCommand = TypedDict('SlabCommand', {
     'class': str,
     'boundary': list[list[float]],
     'elevation': float,
+    'thickness': Optional[float],
     'bound': StoryBoundCommand,
 })
 """基礎の底盤・地中梁をスラブオブジェクトで描画する命令。
@@ -430,10 +437,16 @@ SlabCommand = TypedDict('SlabCommand', {
 boundary はスラブ外形(平面ポリゴンの頂点列)、elevation はスラブ天端の絶対 Z。
 描画フェーズは SetSlabHeight に elevation を渡してスラブの天端高さを設定する
 (SetSlabHeight は厚みではなく高さ=Coordinate を設定するため、厚みを渡すと
-天端が厚み分だけ高く描画される)。スラブ厚はスラブスタイルが決めるため命令には
-持たせない。bound はスラブ天端の高さ基準で、基礎の底盤天端レベルにバインドする
-(地中梁は底盤天端より低いため offset が負値)。class は割り当てる構造クラス名
-(基礎スラブ)。
+天端が厚み分だけ高く描画される)。bound はスラブ天端の高さ基準で、基礎の底盤天端
+レベルにバインドする(地中梁は底盤天端より低いため offset が負値)。class は割り
+当てる構造クラス名(基礎スラブ)。
+
+thickness はスラブスタイルのコンクリート厚 (mm)。底盤(基礎底盤系)にだけ厚みを
+設定し、描画フェーズが「基礎スラブ - コンクリート {厚}mm / 捨てコン …mm /
+砕石 …mm」のスラブスタイルを適用する(既定=150mm はその既存スタイルをそのまま、
+それ以外の厚みは既定スタイルを複製して最上層のコンクリート厚を変更する)。
+地中梁など、スラブスタイルを適用しないスラブは None にする(実際の厚みはスラブ
+スタイルのコンポーネントが決めるため、スタイルを適用しないスラブでは意味を持たない)。
 """
 
 
@@ -725,6 +738,9 @@ def _validate_slab(index: int, command: Any) -> None:
                  f'{where}.boundary[{j}] は [x, y] の数値ペアである必要があります')
     _require(_is_number(command.get('elevation')),
              f'{where}.elevation は数値である必要があります')
+    thickness = command.get('thickness')
+    _require(thickness is None or _is_number(thickness),
+             f'{where}.thickness は数値または None である必要があります')
     _validate_story_bound(where, 'bound', command.get('bound'))
 
 

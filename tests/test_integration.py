@@ -239,6 +239,8 @@ def make_vs_mock() -> MagicMock:
     vs_mock.CreateCustomObjectPath.return_value = None
     vs_mock.GetStoryElevationN.return_value = 0.0
     vs_mock.GetLayerElevationN.return_value = (0.0, 0.0)
+    # スラブスタイル列挙(BuildResourceList)は空リストを返す(スタイル解決しない)
+    vs_mock.BuildResourceList.return_value = (0, 0)
     # ビューポートの全クラス表示ループ用(クラス無し扱いで空ループにする)
     vs_mock.ClassNum.return_value = 0
     return vs_mock

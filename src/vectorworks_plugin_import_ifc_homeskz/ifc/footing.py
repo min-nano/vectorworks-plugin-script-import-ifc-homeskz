@@ -970,8 +970,12 @@ def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
     加えて天端を底盤天端レベルにバインドする(bound.offset は実天端 Z と底盤天端の
     絶対 Z の差)。基礎ストーリは GL=0 のため elevation はストーリ基準高さとも一致する。
     地中梁は底盤の下にぶら下がるため天端が底盤天端より低く offset が負値になる。
-    スラブ厚は SetSlabHeight では設定できず(高さを設定する関数のため)スラブ
-    スタイルが決めるので、命令には厚みを持たせない。
+
+    ``thickness`` は底盤(基礎底盤系)にだけ設定するスラブスタイルのコンクリート厚
+    (mm、Z 方向の厚みを整数 mm に丸めた値)。描画フェーズがこの厚みからスラブ
+    スタイルを選ぶ(``vw/footing.py`` 参照)。地中梁はスラブスタイルを適用しない
+    ため ``thickness=None`` にする(スラブ厚は SetSlabHeight では設定できず=高さを
+    設定する関数のため、スラブスタイルのコンポーネントが決める)。
     """
     slab_top = resolve_slab_top_elevation(ifc_file)
     slab_top_abs = slab_top if slab_top is not None else 0.0
@@ -986,16 +990,20 @@ def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
         solid = _world_solid(element)
         if solid is None:
             continue
-        top_abs, _thickness = _z_top_and_thickness(solid)
+        top_abs, thickness = _z_top_and_thickness(solid)
         boundary = [[x - center_x, y - center_y] for x, y in _footprint(solid)]
         bound: StoryBoundCommand = {
             'story_offset': 0, 'level': LEVEL_SLAB_TOP,
             'offset': top_abs - slab_top_abs}
+        # 底盤(基礎底盤系)だけスラブスタイルのコンクリート厚を持たせる。
+        # 地中梁はスラブスタイルを適用しないため None。
+        style_thickness = float(round(thickness)) if _is_base_slab(name) else None
         commands.append({
             'layer': LAYER_FOUNDATION_SLAB,
             'class': CLASS_FOUNDATION_SLAB,
             'boundary': boundary,
             'elevation': top_abs,
+            'thickness': style_thickness,
             'bound': bound,
         })
     return commands

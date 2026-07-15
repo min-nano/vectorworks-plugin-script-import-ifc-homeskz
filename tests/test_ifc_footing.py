@@ -166,10 +166,16 @@ class TestBuildFromFixture:
             # elevation は天端の絶対 Z、bound.offset は底盤天端(絶対)との差
             assert math.isclose(
                 slab['elevation'], slab_top + slab['bound']['offset'])
+            # thickness は None(地中梁)か正の数(底盤のコンクリート厚、整数 mm)
+            thickness = slab['thickness']
+            assert thickness is None or (thickness > 0.0
+                                         and thickness == round(thickness))
         # 主たる底盤は天端=底盤天端 (offset≈0)、地中梁は底盤天端より低い (offset<0)
         offsets = [round(s['bound']['offset'], 1) for s in slabs]
         assert 0.0 in offsets
         assert any(o < 0.0 for o in offsets)
+        # 底盤(基礎底盤系)はスラブスタイル用のコンクリート厚を持つ
+        assert any(s['thickness'] is not None for s in slabs)
 
 
 def _wall(
