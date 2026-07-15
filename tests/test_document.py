@@ -122,6 +122,16 @@ def make_valid_document() -> dict[str, Any]:
                 'target_class': '', 'size': 300.0, 'position': [0.0, 0.0],
             },
         ],
+        'legends': [
+            {
+                'number': '1', 'position': [0.0, 0.0],
+                'items': [
+                    {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
+                    {'symbol': 'アンカーボルト_M16',
+                     'label': 'ホールダウン用アンカーボルトM16'},
+                ],
+            },
+        ],
     }
 
 
@@ -138,7 +148,7 @@ class TestValidateDocument:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
                     'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
-                    'sheets': [], 'tags': [], 'column_marks': []}
+                    'sheets': [], 'tags': [], 'column_marks': [], 'legends': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -160,7 +170,7 @@ class TestValidateDocument:
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
                                      'walls', 'wall_joins', 'slabs',
                                      'anchor_bolts', 'fire_braces', 'sheets',
-                                     'tags', 'column_marks'])
+                                     'tags', 'column_marks', 'legends'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -575,6 +585,48 @@ class TestValidateDocument:
         document['column_marks'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
+
+    def test_rejects_legend_without_number(self) -> None:
+        document = make_valid_document()
+        del document['legends'][0]['number']
+        with pytest.raises(DocumentValidationError, match='number'):
+            validate_document(document)
+
+    def test_rejects_legend_with_empty_number(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['number'] = ''
+        with pytest.raises(DocumentValidationError, match='number'):
+            validate_document(document)
+
+    def test_rejects_legend_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_legend_with_non_list_items(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['items'] = 'x'
+        with pytest.raises(DocumentValidationError, match='items'):
+            validate_document(document)
+
+    def test_rejects_legend_item_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['items'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_legend_item_with_empty_label(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['items'][0]['label'] = ''
+        with pytest.raises(DocumentValidationError, match='label'):
+            validate_document(document)
+
+    def test_accepts_legend_with_empty_items(self) -> None:
+        # items が空(載せるシンボルが無い)場合も凡例命令自体は許容する
+        document = make_valid_document()
+        document['legends'][0]['items'] = []
+        validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:
         """スキーマ検証を通る位置 (未知キー) に非直列化オブジェクトが混入しても拒否する。"""

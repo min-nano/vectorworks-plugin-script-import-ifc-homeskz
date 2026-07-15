@@ -29,12 +29,24 @@
   レイヤは母屋(``R-母屋``)・小屋束記号(``R-小屋束``)・通り芯(``共通``)。母屋を
   支える小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。中間階の下屋根の母屋は
   専用シートにせず、1 つ上の階の柱梁伏図に重ねて表示する(上記)。
+
+さらに ``build_legend_commands`` は基礎伏図に **グラフィック凡例**(VW 標準の
+「グラフィック凡例」PIO)を配置する legend 命令を組み立てる。基礎伏図ビューポートに
+表示されるシンボル(既定ではアンカーボルト)を対象にし、実際に配置された
+アンカーボルトのシンボル(M12/M16)を ``土台用アンカーボルトM12`` /
+``ホールダウン用アンカーボルトM16`` のラベル(コード内の固定マッピング)で並べる。
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..document import SheetCommand
+from ..document import (
+    AnchorBoltCommand,
+    LegendCommand,
+    LegendItemCommand,
+    SheetCommand,
+)
+from .anchor_bolt import SYMBOL_M12, SYMBOL_M16
 from .footing import has_foundation
 from .grid import TARGET_LAYER
 from .story import (
@@ -66,6 +78,19 @@ FOUNDATION_PLAN_LAYERS = [
     LAYER_FOUNDATION_ANCHOR,
     TARGET_LAYER,
 ]
+
+# 基礎伏図のグラフィック凡例の構成。基礎伏図ビューポートに表示されるシンボル
+# (既定ではアンカーボルト)の凡例を配置する。
+# シンボル名 → 表示ラベルのコード内固定マッピング(要件どおり)。
+ANCHOR_BOLT_LEGEND_LABELS = {
+    SYMBOL_M12: '土台用アンカーボルトM12',
+    SYMBOL_M16: 'ホールダウン用アンカーボルトM16',
+}
+# 凡例に並べるシンボルの順序(M12 → M16)。実際に配置されたシンボルのうち
+# この順で載せる。
+ANCHOR_BOLT_LEGEND_ORDER = [SYMBOL_M12, SYMBOL_M16]
+# 凡例のシートレイヤ上の配置点 (mm)。VW 上で最終調整する。
+FOUNDATION_LEGEND_POSITION = [0.0, 0.0]
 
 # 柱梁伏図(各階)シートの構成
 # タイトルの種別ラベル。一般階は "床"、最上階は主屋根の "小屋"。いずれも階番号と
@@ -208,6 +233,36 @@ def build_moya_sheet_commands(
                 TARGET_LAYER,
             ],
         },
+    }]
+
+
+def build_legend_commands(
+    ifc_file: ifcopenshell.file,
+    anchor_bolts: list[AnchorBoltCommand],
+) -> list[LegendCommand]:
+    """基礎伏図のグラフィック凡例の legend 命令を組み立てて返す。
+
+    基礎伏図ビューポートに表示されるシンボル(既定ではアンカーボルト)の凡例を
+    1 つ返す。凡例に載せるシンボルは **実際に配置されたアンカーボルト**
+    (``anchor_bolts`` に現れるシンボル)のうち ``ANCHOR_BOLT_LEGEND_LABELS`` に
+    対応があるものだけを ``ANCHOR_BOLT_LEGEND_ORDER`` の順で採り、表示ラベルは
+    コード内の固定マッピングで決める。基礎が無い(基礎伏図が作られない)場合や
+    載せるシンボルが 1 つも無い場合は空リストを返す。
+    """
+    if not has_foundation(ifc_file):
+        return []
+    present = {command['symbol'] for command in anchor_bolts}
+    items: list[LegendItemCommand] = [
+        {'symbol': symbol, 'label': ANCHOR_BOLT_LEGEND_LABELS[symbol]}
+        for symbol in ANCHOR_BOLT_LEGEND_ORDER
+        if symbol in present and symbol in ANCHOR_BOLT_LEGEND_LABELS
+    ]
+    if not items:
+        return []
+    return [{
+        'number': FOUNDATION_PLAN_SHEET_NUMBER,
+        'position': list(FOUNDATION_LEGEND_POSITION),
+        'items': items,
     }]
 
 

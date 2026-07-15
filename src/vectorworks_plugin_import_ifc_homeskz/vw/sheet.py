@@ -13,6 +13,11 @@
 ビューポートの図面タイトル・図番は オブジェクト変数(``SetObjectVariableString`` の
 selector)で設定する。selector 値は VectorWorks 公式のオブジェクト変数一覧に基づく
 (``document.py`` のスキーマ参照)。
+
+さらに legend 命令を渡すと、番号が一致するシートレイヤ上にグラフィック凡例(VW 標準の
+「グラフィック凡例」PIO)を配置する(基礎伏図のアンカーボルト凡例)。凡例のデータ
+ソース・行ラベルの詳細設定は PIO の設定 API が未公開のため、配置後に VW 上で最終
+調整する(描画フェーズは他要素と同じく VW 上で検証する方針)。
 """
 from __future__ import annotations
 
@@ -20,10 +25,16 @@ from typing import Any
 
 import vs
 
-from ..document import SheetCommand, TagCommand, ViewportCommand
+from ..document import LegendCommand, SheetCommand, TagCommand, ViewportCommand
 
 # データタグの内部プラグイン名(VW の Data Tag ツール)。VW で最終確認する。
 _DATA_TAG_PLUGIN = 'Data Tag'
+
+# グラフィック凡例の内部プラグイン名(VW 標準の「グラフィック凡例」ツール)。
+# VW 上で最終確認する。グラフィック凡例のデータソース(基礎伏図ビューポート)・
+# 行ごとのラベルテキストの詳細設定は PIO の設定 API が未公開のため、配置後に
+# VW 上で最終調整する(描画フェーズは他要素と同じく VW 上で検証する方針)。
+_GRAPHIC_LEGEND_PLUGIN = 'Graphic Legend'
 
 # データタグの「引出線を表示」パラメータ(オブジェクト情報パレットのチェックボックス)。
 # 既定 ON で、部材に接して置いても引出線が描かれてしまうため per-instance で OFF に
@@ -154,22 +165,25 @@ def draw_viewport(
     return obj
 
 
-def draw_sheet(command: SheetCommand) -> Any:
-    """sheet 命令 1 件をシートレイヤ + ビューポートとして描画し、ビューポートを返す。
+def draw_sheet(command: SheetCommand) -> tuple[Any, Any]:
+    """sheet 命令 1 件をシートレイヤ + ビューポートとして描画する。
 
     シートレイヤ(プレゼンテーションレイヤ)を **シートレイヤ番号を名前として**
     作成し(VW ではシートレイヤ番号はレイヤ名が担う)、シートレイヤタイトルを
     設定してから、その上にビューポートを配置する。同じ番号のシートレイヤが既にある
-    場合は再利用する。ビューポート(またはシートレイヤ)が作れない場合は None を返す。
+    場合は再利用する。``(シートレイヤ, ビューポート)`` のタプルを返す(グラフィック
+    凡例はシートレイヤ上に置くため、呼び出し側がシートレイヤハンドルも使う)。
+    シートレイヤが作れない場合は ``(None, None)``、ビューポートが作れない場合は
+    ``(シートレイヤ, None)`` を返す。
     """
     number = command['number']
     sheet_layer = vs.GetObject(number)
     if sheet_layer == vs.Handle(0):
         sheet_layer = vs.CreateLayer(number, _SHEET_LAYER_TYPE)
     if sheet_layer == vs.Handle(0):
-        return None
+        return None, None
     vs.SetObjectVariableString(sheet_layer, _OV_SHEET_TITLE, command['title'])
-    return draw_viewport(command['viewport'], sheet_layer)
+    return sheet_layer, draw_viewport(command['viewport'], sheet_layer)
 
 
 def draw_tag(tag: TagCommand, member_handle: Any, viewport: Any) -> bool:
@@ -196,11 +210,31 @@ def draw_tag(tag: TagCommand, member_handle: Any, viewport: Any) -> bool:
     return True
 
 
+def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
+    """legend 命令 1 件をシートレイヤ上のグラフィック凡例として配置する。
+
+    配置先シートレイヤ(``legend['number']`` = レイヤ名)をアクティブにしてから、
+    ``vs.CreateCustomObjectN`` でグラフィック凡例 PIO を挿入位置に作る。第 4 引数
+    ``showPref=False`` でインポート中に設定ダイアログが開くのを防ぐ。凡例のデータ
+    ソース(基礎伏図ビューポート)と行ごとのラベルテキスト(命令の ``items`` が
+    示すシンボル → ラベルの固定マッピング)は PIO の設定 API が未公開のため、配置後に
+    VW 上で最終調整する。PIO が作れない場合は False を返す。
+    """
+    x, y = legend['position']
+    # シートレイヤ番号はレイヤ名が担うため、番号でシートレイヤをアクティブにする
+    vs.Layer(legend['number'])
+    obj = vs.CreateCustomObjectN(_GRAPHIC_LEGEND_PLUGIN, (x, y), 0, False)
+    if obj == vs.Handle(0):
+        return False
+    return True
+
+
 def execute_sheets(
     commands: list[SheetCommand],
     tags: list[TagCommand] | None = None,
     member_handles: dict[int, Any] | None = None,
     counters: dict[str, int] | None = None,
+    legends: list[LegendCommand] | None = None,
 ) -> int:
     """sheet 命令のリストを実行し、作成シート数を返す。
 
@@ -208,15 +242,20 @@ def execute_sheets(
     (タグの ``layer`` がビューポートの ``layers`` に含まれるもの)のデータタグを
     注釈として配置する。横架材レイヤは階ごとに固有なので、タグは対応する 1 枚の
     床伏図・小屋伏図にのみ載る。``member_handles`` は横架材命令のインデックス →
-    構造材ハンドルの対応で、タグを対象横架材に関連付けるのに使う。``counters`` を
-    渡すと配置したタグ数を ``counters['tags']`` に記録する。
+    構造材ハンドルの対応で、タグを対象横架材に関連付けるのに使う。``legends`` を
+    渡すと、シートレイヤ番号(``number``)が一致するシートのシートレイヤ上に
+    グラフィック凡例(基礎伏図のアンカーボルト凡例)を配置する。``counters`` を
+    渡すと配置したタグ数・凡例数を ``counters['tags']`` / ``counters['legends']`` に
+    記録する。
     """
     tags = tags or []
     member_handles = member_handles or {}
+    legends = legends or []
     count = 0
     tag_count = 0
+    legend_count = 0
     for command in commands:
-        viewport = draw_sheet(command)
+        sheet_layer, viewport = draw_sheet(command)
         if viewport is not None and viewport != vs.Handle(0):
             vp_layers = set(command['viewport']['layers'])
             for tag in tags:
@@ -225,7 +264,16 @@ def execute_sheets(
                 handle = member_handles.get(tag['member_index'])
                 if draw_tag(tag, handle, viewport):
                     tag_count += 1
+        # グラフィック凡例はシートレイヤ上に置く(ビューポート注釈ではない)ため、
+        # シートレイヤが作れていれば番号が一致する凡例を配置する。
+        if sheet_layer is not None and sheet_layer != vs.Handle(0):
+            for legend in legends:
+                if legend['number'] != command['number']:
+                    continue
+                if draw_legend(legend, sheet_layer):
+                    legend_count += 1
         count += 1
     if counters is not None:
         counters['tags'] = tag_count
+        counters['legends'] = legend_count
     return count

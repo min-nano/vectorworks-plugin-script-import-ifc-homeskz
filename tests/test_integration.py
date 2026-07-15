@@ -50,6 +50,7 @@ class Expected:
         sheets: int,
         column_marks: int,
         moya_stories: set[str] | None = None,
+        legends: int = 1,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -64,6 +65,8 @@ class Expected:
         self.fire_braces = fire_braces
         self.sheets = sheets
         self.column_marks = column_marks
+        # 基礎伏図のグラフィック凡例数(基礎があれば 1)。
+        self.legends = legends
         # 下屋根の小屋組(母屋・棟木)を含む中間階のストーリ名の集合。
         # 該当階は 母屋 レベル(n-母屋 レイヤ)を持ち、床伏図に母屋を重ねて
         # 表示し、タイトルが {n}階床・{n-1}階母屋伏図 になる。
@@ -335,6 +338,7 @@ class TestSampleIfcAnalysis:
         assert len(document['fire_braces']) == exp.fire_braces
         assert len(document['sheets']) == exp.sheets
         assert len(document['column_marks']) == exp.column_marks
+        assert len(document['legends']) == exp.legends
 
     def test_foundation_plan_sheet_references_foundation_layers(
             self, exp: Expected) -> None:
@@ -473,6 +477,7 @@ class TestFullPipeline:
         assert counts['fire_braces'] == len(document['fire_braces'])
         assert counts['column_marks'] == len(document['column_marks'])
         assert counts['sheets'] == len(document['sheets'])
+        assert counts['legends'] == len(document['legends'])
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
         assert counts['members'] == exp.members
@@ -483,6 +488,7 @@ class TestFullPipeline:
         assert counts['fire_braces'] == exp.fire_braces
         assert counts['column_marks'] == exp.column_marks
         assert counts['sheets'] == exp.sheets
+        assert counts['legends'] == exp.legends
 
     def test_each_story_is_created(self, exp: Expected) -> None:
         document = build_fixture_document(exp.filename)
