@@ -318,8 +318,42 @@ class TestExtendFreeWallEnds:
         assert ext[0]['start'] == [100.0, 100.0]
         assert ext[0]['end'] == [100.0, 100.0]
 
+    def test_walls_on_different_layers_do_not_interact(self) -> None:
+        # レイヤが違う立上りは交差判定の対象外。同レイヤなら交差する端点でも
+        # 別レイヤなら自由端扱いになり、両方とも全端が延長される。
+        a = _wall([0.0, 0.0], [3000.0, 0.0])
+        b = _wall([0.0, 0.0], [0.0, 3000.0])
+        b['layer'] = 'F-別レイヤ'
+        ext = footing._extend_free_wall_ends([a, b])
+        assert ext[0]['start'] == [-60.0, 0.0]
+        assert ext[0]['end'] == [3060.0, 0.0]
+        assert ext[1]['start'] == [0.0, -60.0]
+        assert ext[1]['end'] == [0.0, 3060.0]
+
     def test_empty_returns_empty(self) -> None:
         assert footing._extend_free_wall_ends([]) == []
+
+
+class TestDegenerateGeometryGuards:
+    """長さ 0 の壁に対する各ジオメトリ関数のガード(縮退入力の契約)。"""
+
+    def test_connected_collinear_false_for_zero_length(self) -> None:
+        a = _wall([0.0, 0.0], [0.0, 0.0])
+        b = _wall([0.0, 0.0], [1000.0, 0.0])
+        assert footing._walls_connected_collinear(a, b) is False
+
+    def test_intersection_none_for_zero_length(self) -> None:
+        a = _wall([0.0, 0.0], [0.0, 0.0])
+        b = _wall([0.0, 0.0], [1000.0, 0.0])
+        assert footing._wall_intersection(a, b) is None
+
+    def test_point_at_end_true_for_zero_length(self) -> None:
+        w = _wall([100.0, 100.0], [100.0, 100.0])
+        assert footing._wall_point_at_end(w, 100.0, 100.0) is True
+
+    def test_kept_side_pick_returns_junction_for_zero_length(self) -> None:
+        w = _wall([100.0, 100.0], [100.0, 100.0])
+        assert footing._kept_side_pick(w, 100.0, 100.0, 120.0) == [100.0, 100.0]
 
 
 class TestBuildWallJoinCommands:
