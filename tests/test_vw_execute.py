@@ -82,6 +82,8 @@ def _make_stateful_vs_mock() -> MagicMock:
     vs_mock.LNewObj.return_value = object()
     vs_mock.CreateCustomObjectPath.return_value = object()
     vs_mock.CreateSlab.return_value = object()
+    # スラブスタイル列挙(BuildResourceList)は空リストを返す(スタイル解決しない)
+    vs_mock.BuildResourceList.return_value = (0, 0)
     # ビューポートの全クラス表示ループ用(クラス無し扱いで空ループにする)
     vs_mock.ClassNum.return_value = 0
     return vs_mock
@@ -168,7 +170,7 @@ def make_document() -> dict[str, Any]:
         'slabs': [
             {'layer': 'F-底盤', 'class': '04構造-01基礎-02基礎スラブ',
              'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0], [0.0, 2000.0]],
-             'elevation': 50.0,
+             'elevation': 50.0, 'thickness': 150.0,
              'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0}},
         ],
         'anchor_bolts': [

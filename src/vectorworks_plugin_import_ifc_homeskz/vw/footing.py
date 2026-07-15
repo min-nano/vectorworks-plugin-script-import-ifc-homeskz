@@ -5,6 +5,14 @@
 ``SetObjectStoryBound`` でストーリレベルにバインドする(梁・柱と同じ規約)。
 立上りには壁スタイル(``WALL_STYLE_NAME``)を ``SetWallStyle`` で適用する
 (オフセットは 0/0 で壁芯に揃える)。
+
+底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
+捨てコン …mm / 砕石 …mm``)を適用する。既定=150mm はその既存スタイルをそのまま、
+それ以外の厚みは既定スタイルを複製して最上層(#1)のコンクリート厚を変更した
+スタイルを作って適用する(``_resolve_slab_style_ref``)。既定スタイルの探索は、
+捨てコン・砕石の既定厚が将来変わりうるため、コンクリート厚(150mm)だけを固定して
+残りを任意の文字列にマッチさせる(``_find_base_slab_style``)。地中梁は
+スタイルを適用しない(命令の ``thickness`` が None)。
 """
 from __future__ import annotations
 
@@ -15,6 +23,25 @@ import vs
 from ..document import SlabCommand, WallCommand, WallJoinCommand
 
 WALL_STYLE_NAME = '基礎 - 木造ベタ基礎150mm'
+
+# --- スラブスタイル(基礎底盤)の関連付け ---
+# BuildResourceList のスラブスタイル種別 ID(Vectorworks 公式の未公開一覧より)。
+_SLAB_STYLE_RESOURCE_TYPE = 107
+# BuildResourceList の folderIndex。0=現在のドキュメント内のリソースのみ。
+_SLAB_STYLE_FOLDER = 0
+# 既定スタイルのコンクリート厚 (mm)。この厚みのスラブは既存スタイルをそのまま使う。
+_BASE_SLAB_CONCRETE_MM = 150
+# スラブスタイル名を 3 分割する区切り(``基礎スラブ - コンクリート 150mm /
+# 捨てコン 30mm / 砕石 100mm`` を先頭部・捨てコン・砕石に分ける)。
+_SLAB_STYLE_SEP = ' / '
+# 先頭部(コンクリート層)の接頭辞。厚みの直前まで固定し、``{接頭辞}{厚}mm`` になる。
+_SLAB_STYLE_HEAD_PREFIX = '基礎スラブ - コンクリート '
+# 2 番目(捨てコン)・3 番目(砕石)の部分の接頭辞。厚みの数値は将来変わりうるため
+# 接頭辞だけで既定スタイルを識別し、数値部分は固定しない。
+_SLAB_STYLE_BLINDING_PREFIX = '捨てコン'
+_SLAB_STYLE_GRAVEL_PREFIX = '砕石'
+# スラブスタイルの最上層(#1)= コンクリートのコンポーネント番号。
+_CONCRETE_COMPONENT_INDEX = 1
 
 # 壁結合(JoinWalls)の引数。capped(結合部を閉じるか)は命令ごとに指定する
 # (天端高さの異なる立上りは低いほうを閉じて高いほうに結合する=capped=True、
@@ -64,13 +91,119 @@ def draw_wall(command: WallCommand) -> Any:
     return None
 
 
-def draw_slab(command: SlabCommand) -> None:
+def _slab_style_head(concrete_mm: int) -> str:
+    """コンクリート厚 ``concrete_mm`` に対応する先頭部(コンクリート層)名を返す。"""
+    return f'{_SLAB_STYLE_HEAD_PREFIX}{concrete_mm}mm'
+
+
+def _is_foundation_slab_style(name: str | None) -> bool:
+    """スラブスタイル名が基礎底盤スタイル(コンクリート/捨てコン/砕石)の形式か。
+
+    名前を ``' / '`` で 3 分割し、先頭が ``基礎スラブ - コンクリート …mm``、
+    2 番目が ``捨てコン`` 始まり、3 番目が ``砕石`` 始まりのものを対象とする。
+    捨てコン・砕石の厚みは接頭辞のみで判定し、数値部分は固定しない。
+    """
+    if not name:
+        return False
+    parts = name.split(_SLAB_STYLE_SEP)
+    if len(parts) != 3:
+        return False
+    return (parts[0].startswith(_SLAB_STYLE_HEAD_PREFIX)
+            and parts[0].endswith('mm')
+            and parts[1].startswith(_SLAB_STYLE_BLINDING_PREFIX)
+            and parts[2].startswith(_SLAB_STYLE_GRAVEL_PREFIX))
+
+
+def _find_base_slab_style() -> str | None:
+    """既定の基礎スラブスタイル(コンクリート 150mm)の名前を返す。無ければ None。
+
+    現在のドキュメントのスラブスタイルを列挙し、先頭部が
+    ``基礎スラブ - コンクリート 150mm`` で、捨てコン・砕石の部分を持つスタイルを
+    既定スタイルとみなす。捨てコン・砕石の厚みは将来変わりうるため、コンクリート厚
+    (150mm)だけを固定して探す(要件)。
+    """
+    list_id, num = vs.BuildResourceList(
+        _SLAB_STYLE_RESOURCE_TYPE, _SLAB_STYLE_FOLDER, '')
+    head = _slab_style_head(_BASE_SLAB_CONCRETE_MM)
+    for i in range(int(num)):
+        name = vs.GetNameFromResourceList(list_id, i + 1)
+        if (_is_foundation_slab_style(name)
+                and name.split(_SLAB_STYLE_SEP)[0] == head):
+            return name
+    return None
+
+
+def _derive_style_name(base_name: str, concrete_mm: int) -> str:
+    """既定スタイル名の先頭部(コンクリート厚)を ``concrete_mm`` に置換した名前。
+
+    捨てコン・砕石の部分は既定スタイルから引き継ぐため、既定名を分割して先頭部
+    だけを差し替える(例: 既定 ``… 150mm / 捨てコン 30mm / 砕石 100mm`` から
+    180mm なら ``… 180mm / 捨てコン 30mm / 砕石 100mm``)。
+    """
+    parts = base_name.split(_SLAB_STYLE_SEP)
+    parts[0] = _slab_style_head(concrete_mm)
+    return _SLAB_STYLE_SEP.join(parts)
+
+
+def _resolve_slab_style_ref(base_name: str, concrete_mm: int) -> int | None:
+    """コンクリート厚 ``concrete_mm`` のスラブスタイルの ref 番号を返す。
+
+    目的の名前(既定名のコンクリート厚部分を ``concrete_mm`` に置換したもの)の
+    スタイルが既にあればそれを使い、無ければ既定スタイルを複製して最上層(#1)の
+    コンクリート厚を変更した新スタイルを作る。ref 番号は名前付きリソースの規約に
+    従い ``-Name2Index(name)``(負の内部インデックス)。作成・取得できなければ None。
+    """
+    target = _derive_style_name(base_name, concrete_mm)
+    if vs.GetObject(target) == vs.Handle(0):
+        base_handle = vs.GetObject(base_name)
+        # 目的スタイルが未作成で複製元(既定スタイル)も無ければスタイルを付けない。
+        if base_handle == vs.Handle(0):
+            return None
+        dup = vs.CreateDuplicateObject(base_handle, vs.Handle(0))
+        if dup == vs.Handle(0):
+            return None
+        vs.SetName(dup, target)
+        vs.SetComponentWidth(dup, _CONCRETE_COMPONENT_INDEX, float(concrete_mm))
+    return -vs.Name2Index(target)
+
+
+def _apply_slab_style(
+    slab: Any, command: SlabCommand, base_style: str | None,
+    style_cache: dict[int, int | None] | None,
+) -> None:
+    """底盤スラブに厚みに応じたスラブスタイルを適用する。
+
+    命令の ``thickness`` が None(スタイル対象外=地中梁等)、または既定スタイルが
+    見つからない場合は何もしない。同一厚みのスタイル ref は ``style_cache`` に
+    キャッシュし、同じ厚みの底盤ごとにリソース列挙・複製を繰り返さない。
+    """
+    thickness = command['thickness']
+    if thickness is None or base_style is None:
+        return
+    concrete_mm = int(round(thickness))
+    if style_cache is not None and concrete_mm in style_cache:
+        ref = style_cache[concrete_mm]
+    else:
+        ref = _resolve_slab_style_ref(base_style, concrete_mm)
+        if style_cache is not None:
+            style_cache[concrete_mm] = ref
+    if ref is not None:
+        vs.SetSlabStyle(slab, ref)
+
+
+def draw_slab(
+    command: SlabCommand,
+    base_style: str | None = None,
+    style_cache: dict[int, int | None] | None = None,
+) -> None:
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
     外形ポリゴンを閉じた多角形として作成し、``CreateSlab`` でスラブにする。
-    スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の高さ基準を底盤天端
-    レベルにバインドする。スラブが生成できない場合は外形ポリゴンにフォールバック
-    する。
+    底盤(``thickness`` を持つ)にはコンクリート厚に応じたスラブスタイルを適用する
+    (``_apply_slab_style``。既定スタイル名は ``base_style``、厚み→ref のキャッシュは
+    ``style_cache``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の高さ
+    基準を底盤天端レベルにバインドする。スラブが生成できない場合は外形ポリゴンに
+    フォールバックする。
 
     **``SetSlabHeight`` はスラブ厚ではなく天端高さ(Coordinate)を設定する**。
     以前はここに厚みを渡していたため天端が厚み分だけ高く描画されていた
@@ -91,6 +224,7 @@ def draw_slab(command: SlabCommand) -> None:
     slab = vs.CreateSlab(poly_h)
     if slab != vs.Handle(0):
         vs.SetClass(slab, command['class'])
+        _apply_slab_style(slab, command, base_style, style_cache)
         vs.SetSlabHeight(slab, command['elevation'])
         bound = command['bound']
         vs.SetObjectStoryBound(
@@ -159,13 +293,21 @@ def execute_slabs(commands: list[SlabCommand]) -> int:
     """slab 命令のリストを描画し、配置数を返す。
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
+
+    スタイルを適用する底盤(``thickness`` を持つ命令)がある場合のみ、既定スラブ
+    スタイル名を一度だけ探して(``_find_base_slab_style``)全命令で共有し、厚み→ref
+    のキャッシュ(``style_cache``)で同一厚みのスタイル生成・列挙を繰り返さない。
     """
+    needs_style = any(command.get('thickness') is not None
+                      for command in commands)
+    base_style = _find_base_slab_style() if needs_style else None
+    style_cache: dict[int, int | None] = {}
     count = 0
     for command in commands:
         layer = command['layer']
         if vs.GetObject(layer) == vs.Handle(0):
             continue
         vs.Layer(layer)
-        draw_slab(command)
+        draw_slab(command, base_style, style_cache)
         count += 1
     return count
