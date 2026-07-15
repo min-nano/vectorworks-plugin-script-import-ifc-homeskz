@@ -49,6 +49,16 @@ def make_tag(layer: str = '1-横架材天端', member_index: int = 0) -> TagComm
     }
 
 
+def make_legend(number: str = '1') -> dict[str, Any]:
+    return {
+        'number': number,
+        'position': [0.0, 0.0],
+        'items': [
+            {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
+        ],
+    }
+
+
 def _handle(name: str) -> str:
     return 'HANDLE_' + name
 
@@ -100,6 +110,7 @@ def _make_vs_mock(
     vs_mock.CreateLayer.side_effect = create_layer
     vs_mock.CreateVP.return_value = 'VP_HANDLE'
     vs_mock.CreateCustomObject.return_value = 'TAG_HANDLE'
+    vs_mock.CreateCustomObjectN.return_value = 'LEGEND_HANDLE'
     # デザインレイヤの縮尺(1:50 相当)
     vs_mock.GetLScale.return_value = 50.0
     return vs_mock
@@ -337,3 +348,66 @@ class TestExecuteSheetsWithTags:
         assert count == 1
         assert counters['tags'] == 0
         vs_mock.CreateCustomObject.assert_not_called()
+
+
+class TestExecuteSheetsWithLegends:
+    def test_places_legend_on_matching_sheet(self) -> None:
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend()], counters=counters)
+
+        # 配置先シートレイヤ(番号 1)をアクティブにしてグラフィック凡例 PIO を
+        # 挿入位置・showPref=False で作る
+        vs_mock.Layer.assert_any_call('1')
+        vs_mock.CreateCustomObjectN.assert_called_once_with(
+            vw_sheet._GRAPHIC_LEGEND_PLUGIN, (0.0, 0.0), 0, False)
+        assert counters['legends'] == 1
+
+    def test_legend_not_placed_on_non_matching_sheet(self) -> None:
+        # シートレイヤ番号が一致しない凡例は載せない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend('2')], counters=counters)
+
+        vs_mock.CreateCustomObjectN.assert_not_called()
+        assert counters['legends'] == 0
+
+    def test_no_legend_when_list_empty(self) -> None:
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        vw_sheet.execute_sheets([make_command()])
+
+        vs_mock.CreateCustomObjectN.assert_not_called()
+
+    def test_legend_not_counted_when_creation_fails(self) -> None:
+        # PIO が作れない(プラグイン未登録等)場合はカウントしない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend()], counters=counters)
+
+        assert counters['legends'] == 0
+
+    def test_no_legend_when_sheet_layer_creation_fails(self) -> None:
+        # シートレイヤが作れない場合は凡例を載せない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vs_mock.CreateLayer.side_effect = None
+        vs_mock.CreateLayer.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend()], counters=counters)
+
+        assert counters['legends'] == 0
+        vs_mock.CreateCustomObjectN.assert_not_called()

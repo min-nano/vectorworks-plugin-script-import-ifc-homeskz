@@ -37,10 +37,12 @@ def execute_document(document: Any) -> dict[str, int]:
     立上りの壁ハンドルを参照するため、立上りをすべて配置した直後に実行する。
 
     Returns: {'stories', 'grids', 'members', 'columns', 'walls', 'wall_joins',
-        'slabs', 'anchor_bolts', 'fire_braces', 'column_marks', 'sheets', 'tags'}
+        'slabs', 'anchor_bolts', 'fire_braces', 'column_marks', 'sheets', 'tags',
+        'legends'}
         各命令の実行数。wall_joins は交差する立上りを結合した回数、fire_braces は
         横架材レイヤに配置した火打シンボル数、column_marks は下階柱レイヤに配置した
-        柱束伏図記号 PIO 数、tags は伏図ビューポートに配置した断面寸法データタグ数。
+        柱束伏図記号 PIO 数、tags は伏図ビューポートに配置した断面寸法データタグ数、
+        legends は基礎伏図に配置したグラフィック凡例数。
     """
     validated = validate_document(document)
     # 横架材のハンドルを記録し、断面寸法データタグ(シートフェーズ)の関連付けに使う
@@ -64,6 +66,8 @@ def execute_document(document: Any) -> dict[str, int]:
     reorder_story_layers(validated['stories'])
     counters: dict[str, int] = {}
     counts['sheets'] = execute_sheets(
-        validated['sheets'], validated['tags'], member_handles, counters)
+        validated['sheets'], validated['tags'], member_handles, counters,
+        validated['legends'])
     counts['tags'] = counters.get('tags', 0)
+    counts['legends'] = counters.get('legends', 0)
     return counts

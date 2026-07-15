@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 22):
+スキーマ (version 24):
 
     {
-        "version": 22,
+        "version": 24,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -264,6 +264,24 @@
                 "size": 300.0,
                 "position": [0.0, 0.0]
             }
+        ],
+        "legends": [
+            {
+                # シートレイヤ上にグラフィック凡例(VW 標準の「グラフィック凡例」
+                # PIO)を配置する命令。基礎伏図ビューポートに表示されるシンボル
+                # (既定ではアンカーボルト)の凡例を表す。凡例の対象シンボルと
+                # 表示ラベルは items に持たせる(ラベルはコード内の固定マッピング)。
+                # グラフィック凡例のデータソース(基礎伏図ビューポート)・行ごとの
+                # ラベルテキストの詳細設定は VW 上で最終調整する(PIO の設定 API が
+                # 未公開のため。描画フェーズは他要素と同じく VW 上で検証する方針)。
+                "number": "1",            # 配置先シートレイヤ番号(基礎伏図=1)
+                "position": [0.0, 0.0],   # シートレイヤ上の配置点 (mm)
+                "items": [
+                    # 凡例に並べるシンボルと表示ラベル(並び順どおりに表示する)。
+                    {"symbol": "アンカーボルト_M12", "label": "土台用アンカーボルトM12"},
+                    {"symbol": "アンカーボルト_M16", "label": "ホールダウン用アンカーボルトM16"}
+                ]
+            }
         ]
     }
 """
@@ -272,7 +290,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 23
+DOCUMENT_VERSION = 24
 
 
 class LevelCommand(TypedDict):
@@ -562,6 +580,34 @@ ColumnMarkCommand = TypedDict('ColumnMarkCommand', {
 """
 
 
+class LegendItemCommand(TypedDict):
+    """グラフィック凡例の 1 行分(シンボルと表示ラベル)。
+
+    symbol は凡例に載せるハイブリッドシンボル名(例 ``アンカーボルト_M12``)、
+    label はその行に表示するラベルテキスト(コード内の固定マッピングで決める。
+    例 ``土台用アンカーボルトM12``)。
+    """
+
+    symbol: str
+    label: str
+
+
+class LegendCommand(TypedDict):
+    """シートレイヤ上にグラフィック凡例を配置する命令。
+
+    VW 標準の「グラフィック凡例」PIO をシートレイヤ(``number``)上の
+    ``position`` に置く。凡例は対象シートのビューポートに表示されるシンボル
+    (既定ではアンカーボルト)を表し、載せるシンボルと表示ラベルは ``items`` に
+    並び順どおり持たせる。グラフィック凡例のデータソース・行ラベルの詳細設定は
+    PIO の設定 API が未公開のため VW 上で最終調整する(描画フェーズは他要素と
+    同じく VW 上で検証する方針)。
+    """
+
+    number: str
+    position: list[float]
+    items: list[LegendItemCommand]
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -578,6 +624,7 @@ class Document(TypedDict):
     sheets: list[SheetCommand]
     tags: list[TagCommand]
     column_marks: list[ColumnMarkCommand]
+    legends: list[LegendCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -829,6 +876,25 @@ def _validate_column_mark(index: int, command: Any) -> None:
              f'{where}.position は [x, y] の数値ペアである必要があります')
 
 
+def _validate_legend(index: int, command: Any) -> None:
+    where = f'legends[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('number'), str) and command['number'],
+             f'{where}.number は非空文字列である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+    items = command.get('items')
+    _require(isinstance(items, list),
+             f'{where}.items はリストである必要があります')
+    for j, item in enumerate(items):
+        _require(isinstance(item, dict),
+                 f'{where}.items[{j}] は dict である必要があります')
+        _require(isinstance(item.get('symbol'), str) and item['symbol'],
+                 f'{where}.items[{j}].symbol は非空文字列である必要があります')
+        _require(isinstance(item.get('label'), str) and item['label'],
+                 f'{where}.items[{j}].label は非空文字列である必要があります')
+
+
 def _validate_story_bound(where: str, key: str, bound: Any) -> None:
     field = f'{where}.{key}'
     _require(isinstance(bound, dict), f'{field} は dict である必要があります')
@@ -848,7 +914,7 @@ def validate_document(document: Any) -> Document:
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'columns', 'walls', 'wall_joins',
                 'slabs', 'anchor_bolts', 'fire_braces', 'sheets', 'tags',
-                'column_marks'):
+                'column_marks', 'legends'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -875,6 +941,8 @@ def validate_document(document: Any) -> Document:
         _validate_tag(i, command)
     for i, command in enumerate(document['column_marks']):
         _validate_column_mark(i, command)
+    for i, command in enumerate(document['legends']):
+        _validate_legend(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

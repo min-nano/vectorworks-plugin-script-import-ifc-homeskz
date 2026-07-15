@@ -9,6 +9,7 @@ import os
 
 import ifcopenshell
 
+from vectorworks_plugin_import_ifc_homeskz.document import AnchorBoltCommand
 from vectorworks_plugin_import_ifc_homeskz.ifc import open_ifc, sheet
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
@@ -107,6 +108,60 @@ class TestBuildMoyaSheetCommands:
         assert command['viewport']['drawing_title'] == '2階母屋伏図'
         assert command['viewport']['drawing_number'] == '5'
         assert command['viewport']['layers'] == ['R-母屋', 'R-小屋束', '共通']
+
+
+def _anchor_bolt(symbol: str) -> AnchorBoltCommand:
+    return {'layer': 'F-アンカーボルト', 'symbol': symbol, 'position': [0.0, 0.0]}
+
+
+class TestBuildLegendCommands:
+    def test_no_legend_without_foundation(self) -> None:
+        # 基礎が無ければ基礎伏図が作られないため凡例も作らない
+        empty = ifcopenshell.file()
+        assert sheet.build_legend_commands(empty, []) == []
+
+    def test_no_legend_without_anchor_bolt_symbols(self) -> None:
+        # 基礎はあるがアンカーボルトが 1 本も無ければ載せるものが無く空
+        ifc = _open('伏図次郎【2階】.ifc')
+        assert sheet.build_legend_commands(ifc, []) == []
+
+    def test_legend_lists_present_symbols_with_labels(self) -> None:
+        ifc = _open('伏図次郎【2階】.ifc')
+        anchor_bolts = [
+            _anchor_bolt('アンカーボルト_M12'),
+            _anchor_bolt('アンカーボルト_M16'),
+        ]
+        legends = sheet.build_legend_commands(ifc, anchor_bolts)
+        assert len(legends) == 1
+        legend = legends[0]
+        # 基礎伏図(番号 1)のシートレイヤ上に配置する
+        assert legend['number'] == '1'
+        # M12→土台用・M16→ホールダウン用のラベル(固定マッピング)
+        assert legend['items'] == [
+            {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
+            {'symbol': 'アンカーボルト_M16', 'label': 'ホールダウン用アンカーボルトM16'},
+        ]
+
+    def test_legend_includes_only_present_symbols(self) -> None:
+        # M12 のみ配置されていれば M12 だけを載せる
+        ifc = _open('伏図次郎【2階】.ifc')
+        legend = sheet.build_legend_commands(
+            ifc, [_anchor_bolt('アンカーボルト_M12')])[0]
+        assert legend['items'] == [
+            {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
+        ]
+
+    def test_legend_orders_m12_before_m16(self) -> None:
+        # 入力順が M16→M12 でも並びは M12→M16(重複入力も 1 行にまとめる)
+        ifc = _open('伏図次郎【2階】.ifc')
+        anchor_bolts = [
+            _anchor_bolt('アンカーボルト_M16'),
+            _anchor_bolt('アンカーボルト_M12'),
+            _anchor_bolt('アンカーボルト_M16'),
+        ]
+        legend = sheet.build_legend_commands(ifc, anchor_bolts)[0]
+        assert [item['symbol'] for item in legend['items']] == [
+            'アンカーボルト_M12', 'アンカーボルト_M16']
 
 
 class TestBuildSheetCommands:
