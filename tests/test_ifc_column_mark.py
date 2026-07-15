@@ -13,6 +13,7 @@ import ifcopenshell
 
 from vectorworks_plugin_import_ifc_homeskz.ifc.column_mark import (
     DEFAULT_MARK_SIZE,
+    MARK_CLASS,
     build_column_mark_commands,
 )
 from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import (
@@ -38,7 +39,7 @@ class TestBuildColumnMarkCommands:
         make_storey(ifc, 'RFL', 0.0)
         assert build_column_mark_commands(ifc) == [
             {
-                'layer': 'R-小屋束', 'target_layer': 'R-柱',
+                'layer': 'R-小屋束', 'class': MARK_CLASS, 'target_layer': 'R-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
@@ -56,27 +57,27 @@ class TestBuildColumnMarkCommands:
         # 2 つずつ (計 4 つ)、加えて屋根の小屋束記号 1 つ
         assert commands == [
             {
-                'layer': '2-下階柱', 'target_layer': '1-柱',
+                'layer': '2-下階柱', 'class': MARK_CLASS, 'target_layer': '1-柱',
                 'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
             {
-                'layer': '2-下階柱', 'target_layer': '1-柱',
+                'layer': '2-下階柱', 'class': MARK_CLASS, 'target_layer': '1-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
             {
-                'layer': 'R-下階柱', 'target_layer': '2-柱',
+                'layer': 'R-下階柱', 'class': MARK_CLASS, 'target_layer': '2-柱',
                 'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
             {
-                'layer': 'R-下階柱', 'target_layer': '2-柱',
+                'layer': 'R-下階柱', 'class': MARK_CLASS, 'target_layer': '2-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },
             {
-                'layer': 'R-小屋束', 'target_layer': 'R-柱',
+                'layer': 'R-小屋束', 'class': MARK_CLASS, 'target_layer': 'R-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
                 'position': [0.0, 0.0],
             },

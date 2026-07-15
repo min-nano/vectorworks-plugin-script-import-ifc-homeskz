@@ -1,9 +1,11 @@
 """column_mark 命令の描画。下階柱記号(柱束伏図記号 PIO)を配置する。
 
 各命令について、配置先レイヤ(``n-下階柱``)をアクティブにしてから
-``vs.CreateCustomObjectN`` でカスタム PIO「柱束伏図記号」を挿入し、検索対象
-レイヤ・クラス・記号サイズをパラメータ(レコードフィールド)に設定して
-``vs.ResetObject`` でリセットする。PIO はリセット時に対象レイヤの柱
+``vs.CreateCustomObjectN`` でカスタム PIO「柱束伏図記号」を挿入し、PIO 本体
+(=描かれる記号)のクラスを ``vs.SetClass`` で命令の ``class``
+(柱・束の伏図記号の作図クラス)に設定してから、検索対象レイヤ・クラス・記号
+サイズをパラメータ(レコードフィールド)に設定して ``vs.ResetObject`` でリセット
+する。PIO はリセット時に対象レイヤの柱
 (構造用途 4/5)を検索し各柱位置に記号を描く(実際の記号描画は PIO 側=姉妹
 プロジェクト vectorworks-plugin-column-under-mark が行う)。
 
@@ -61,6 +63,7 @@ def draw_column_mark(command: ColumnMarkCommand) -> bool:
     obj = vs.CreateCustomObjectN(_PLUGIN_NAME, (x, y), 0, _SHOW_PREF_DIALOG)
     if obj == vs.Handle(0):
         return False
+    vs.SetClass(obj, command['class'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_LAYER, command['target_layer'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_CLASS, command['target_class'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_MARK_SIZE, _format_size(command['size']))

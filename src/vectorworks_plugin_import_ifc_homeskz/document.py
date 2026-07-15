@@ -219,6 +219,7 @@
                 # (通し柱には記号を付けない)。これは管柱(×)を記号化する PIO。
                 "layer": "2-下階柱",       # PIO を配置するデザインレイヤ名
                                           # (横架材天端の直上・既存のみ・なければスキップ)
+                "class": "01作図-04記号-04構造-一般",  # PIO 本体(記号)を作図するクラス
                 "target_layer": "1-柱",    # PIO が柱を検索する対象レイヤ(直下階の柱レイヤ)
                 "target_class": "04構造-02木造-03柱-02管柱",  # 管柱クラスに絞る(×)
                 "size": 300.0,            # 記号サイズ (mm)。PIO の MarkSize に渡す。
@@ -230,6 +231,7 @@
                 # 同じ 2-下階柱 レイヤに、直下階に架かる下屋根(下屋)の小屋束を
                 # 記号化する PIO(小屋束クラスに絞る)。柱(×)とは別オブジェクト。
                 "layer": "2-下階柱",
+                "class": "01作図-04記号-04構造-一般",
                 "target_layer": "1-柱",
                 "target_class": "04構造-02木造-05小屋組-02小屋束",  # 小屋束クラスに絞る(○)
                 "size": 300.0,
@@ -241,6 +243,7 @@
                 # 絞ることで小屋束(○)だけを記号化する(柱の下階柱記号とはクラスで
                 # 分けた別オブジェクト)。
                 "layer": "R-小屋束",      # PIO を配置するデザインレイヤ名(母屋の直上)
+                "class": "01作図-04記号-04構造-一般",  # PIO 本体(記号)を作図するクラス
                 "target_layer": "R-柱",   # PIO が小屋束を検索する対象レイヤ
                 "target_class": "04構造-02木造-05小屋組-02小屋束",  # 小屋束クラスに絞る
                 "size": 300.0,
@@ -489,34 +492,37 @@ class TagCommand(TypedDict):
     angle: float
 
 
-class ColumnMarkCommand(TypedDict):
-    """柱束伏図記号 PIO(下階柱記号・小屋束記号)を配置する命令。
+ColumnMarkCommand = TypedDict('ColumnMarkCommand', {
+    'layer': str,
+    'class': str,
+    'target_layer': str,
+    'target_class': str,
+    'size': float,
+    'position': list[float],
+})
+"""柱束伏図記号 PIO(下階柱記号・小屋束記号)を配置する命令。
 
-    カスタム PIO「柱束伏図記号」を ``layer`` に置く。PIO はリセット時に
-    ``target_layer`` の構造用途 4/5 の構造材を検索し、柱は ×・小屋束は ○ の記号を
-    各位置に描く。用途は 2 種類:
+カスタム PIO「柱束伏図記号」を ``layer`` に置く。PIO はリセット時に
+``target_layer`` の構造用途 4/5 の構造材を検索し、柱は ×・小屋束は ○ の記号を
+各位置に描く。用途は 2 種類:
 
-    - **下階柱記号**: 各階の伏図に直下階(N-1)の柱を記号化する。``layer`` は
-      横架材天端(最上階は軒高)レイヤの直上の ``n-下階柱``、``target_layer`` は
-      直下階の ``n-柱`` レイヤ。柱(×)と束(○)を別オブジェクトに分けて描画設定を
-      独立調整するため、1 階分につき ``target_class`` を管柱クラスに絞った PIO と
-      小屋束クラス(直下階に架かる下屋根の小屋束)に絞った PIO の 2 つを置く
-      (通し柱には記号を付けない)。
-    - **小屋束記号**: 母屋伏図に最上階(屋根)の小屋束を記号化する。``layer`` は
-      母屋レイヤの直上の ``R-小屋束``、``target_layer`` は屋根の ``R-柱`` レイヤ、
-      ``target_class`` は小屋束クラス(小屋束だけに絞り、柱の下階柱記号とは別
-      オブジェクトにする)。
+- **下階柱記号**: 各階の伏図に直下階(N-1)の柱を記号化する。``layer`` は
+  横架材天端(最上階は軒高)レイヤの直上の ``n-下階柱``、``target_layer`` は
+  直下階の ``n-柱`` レイヤ。柱(×)と束(○)を別オブジェクトに分けて描画設定を
+  独立調整するため、1 階分につき ``target_class`` を管柱クラスに絞った PIO と
+  小屋束クラス(直下階に架かる下屋根の小屋束)に絞った PIO の 2 つを置く
+  (通し柱には記号を付けない)。
+- **小屋束記号**: 母屋伏図に最上階(屋根)の小屋束を記号化する。``layer`` は
+  母屋レイヤの直上の ``R-小屋束``、``target_layer`` は屋根の ``R-柱`` レイヤ、
+  ``target_class`` は小屋束クラス(小屋束だけに絞り、柱の下階柱記号とは別
+  オブジェクトにする)。
 
-    ``target_class`` は検索対象クラス(空=全クラス)、``size`` は記号サイズ
-    (mm、PIO の MarkSize に渡す)、``position`` は PIO の挿入点(記号は検索した
-    柱のワールド位置に描かれ挿入点には依存しないため原点でよい)。
-    """
-
-    layer: str
-    target_layer: str
-    target_class: str
-    size: float
-    position: list[float]
+``class`` は PIO 本体(=描かれる記号)を作図するクラス名(``vs.SetClass`` で
+設定する。記号=柱・束の伏図記号の作図クラス)で、検索対象クラス ``target_class``
+とは別物。``target_class`` は検索対象クラス(空=全クラス)、``size`` は記号サイズ
+(mm、PIO の MarkSize に渡す)、``position`` は PIO の挿入点(記号は検索した
+柱のワールド位置に描かれ挿入点には依存しないため原点でよい)。
+"""
 
 
 class Document(TypedDict):
@@ -764,6 +770,8 @@ def _validate_column_mark(index: int, command: Any) -> None:
     _require(isinstance(command, dict), f'{where} は dict である必要があります')
     _require(isinstance(command.get('layer'), str) and command['layer'],
              f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('class'), str) and command['class'],
+             f'{where}.class は非空文字列である必要があります')
     _require(isinstance(command.get('target_layer'), str)
              and command['target_layer'],
              f'{where}.target_layer は非空文字列である必要があります')

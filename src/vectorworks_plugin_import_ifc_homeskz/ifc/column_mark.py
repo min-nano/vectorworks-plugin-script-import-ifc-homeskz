@@ -46,6 +46,9 @@ if TYPE_CHECKING:
 # 記号の既定サイズ (mm)。柱束伏図記号 PIO の MarkSize に渡す。姉妹プロジェクトの
 # 既定値 (core/mark.py の DEFAULT_MARK_SIZE=300mm) に合わせる。
 DEFAULT_MARK_SIZE = 300.0
+# 柱・束の伏図記号(柱束伏図記号 PIO 本体)を作図するクラス。描画フェーズが
+# vs.SetClass で PIO に設定する。検索対象クラス(target_class)とは別物。
+MARK_CLASS = '01作図-04記号-04構造-一般'
 # 下階柱記号の検索対象クラス。柱束伏図記号 PIO は 1 クラス完全一致でしか絞れず、
 # 柱(×)と束(○)を別オブジェクトに分けて描画設定を独立調整するため、下階柱記号は
 # 管柱クラスと小屋束クラスの 2 つの PIO に分ける。通し柱にはこの階自身の柱レイヤに
@@ -85,6 +88,7 @@ def build_column_mark_commands(
         ):
             commands.append({
                 'layer': under_layer,
+                'class': MARK_CLASS,
                 'target_layer': target_layer,
                 'target_class': target_class,
                 'size': DEFAULT_MARK_SIZE,
@@ -97,6 +101,7 @@ def build_column_mark_commands(
         top_prefix = layer_prefix_for(n - 1, True)
         commands.append({
             'layer': f'{top_prefix}-{LEVEL_KOYAZUKA_MARK}',
+            'class': MARK_CLASS,
             'target_layer': f'{top_prefix}-{LEVEL_COLUMN}',
             'target_class': CLASS_KOYAZUKA,
             'size': DEFAULT_MARK_SIZE,
