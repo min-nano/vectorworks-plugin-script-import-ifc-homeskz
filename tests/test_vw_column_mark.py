@@ -11,6 +11,7 @@ from vectorworks_plugin_import_ifc_homeskz.document import ColumnMarkCommand
 def make_command() -> ColumnMarkCommand:
     return {
         'layer': '2-下階柱',
+        'class': '01作図-04記号-04構造-一般',
         'target_layer': '1-柱',
         'target_class': '',
         'size': 300.0,
@@ -56,6 +57,9 @@ class TestExecuteColumnMarks:
         # showPref=False で設定ダイアログを抑止する
         # (インポート中の手動入力を不要にするため)
         assert args[3] is False
+        # PIO 本体 (記号) を命令の class (柱・束の伏図記号の作図クラス) に設定する
+        vs_mock.SetClass.assert_called_once_with(
+            'PIO_HANDLE', '01作図-04記号-04構造-一般')
         # 検索対象レイヤ・クラス・記号サイズをパラメータに設定する
         set_fields = {
             c.args[2]: c.args[3] for c in vs_mock.SetRField.call_args_list

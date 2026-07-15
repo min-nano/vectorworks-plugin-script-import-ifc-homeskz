@@ -114,7 +114,8 @@ def make_valid_document() -> dict[str, Any]:
         ],
         'column_marks': [
             {
-                'layer': '2-下階柱', 'target_layer': '1-柱',
+                'layer': '2-下階柱', 'class': '01作図-04記号-04構造-一般',
+                'target_layer': '1-柱',
                 'target_class': '', 'size': 300.0, 'position': [0.0, 0.0],
             },
         ],
@@ -498,6 +499,12 @@ class TestValidateDocument:
         document = make_valid_document()
         del document['column_marks'][0]['layer']
         with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_column_mark_with_empty_class(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['class'] = ''
+        with pytest.raises(DocumentValidationError, match='class'):
             validate_document(document)
 
     def test_rejects_column_mark_with_empty_target_layer(self) -> None:
