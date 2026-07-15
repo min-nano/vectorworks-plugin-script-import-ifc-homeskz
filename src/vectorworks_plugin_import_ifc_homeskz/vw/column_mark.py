@@ -3,9 +3,10 @@
 各命令について、配置先レイヤ(``n-下階柱``)をアクティブにしてから
 ``vs.CreateCustomObjectN`` でカスタム PIO「柱束伏図記号」を挿入し、PIO 本体
 (=描かれる記号)のクラスを ``vs.SetClass`` で命令の ``class``
-(柱・束の伏図記号の作図クラス)に設定してから、検索対象レイヤ・クラス・記号
-サイズをパラメータ(レコードフィールド)に設定して ``vs.ResetObject`` でリセット
-する。PIO はリセット時に対象レイヤの柱
+(柱・束の伏図記号の作図クラス)に設定し、描画属性(線の太さ・色・パターン・
+透明度等)を属性ごとの by-class 設定関数(``_set_all_attributes_by_class``)で
+すべてクラス属性に従わせてから、検索対象レイヤ・クラス・記号サイズをパラメータ
+(レコードフィールド)に設定して ``vs.ResetObject`` でリセットする。PIO はリセット時に対象レイヤの柱
 (構造用途 4/5)を検索し各柱位置に記号を描く(実際の記号描画は PIO 側=姉妹
 プロジェクト vectorworks-plugin-column-under-mark が行う)。
 
@@ -24,6 +25,8 @@ PIO プラグイン「柱束伏図記号」が VectorWorks に登録されてい
 ``CreateCustomObjectN`` は NIL を返すためスキップする。
 """
 from __future__ import annotations
+
+from typing import Any
 
 import vs
 
@@ -51,6 +54,30 @@ def _format_size(size: float) -> str:
     return f'{size:g}'
 
 
+def _set_all_attributes_by_class(obj: Any) -> None:
+    """オブジェクトの描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+
+    ``SetClass`` はクラスを割り当てるだけで、各描画属性は by-instance の既定値の
+    まま残る。VectorWorks には属性一括の「すべてクラス属性に」関数が無いため、
+    属性ごとの by-class 設定関数(いずれも対象ハンドルを取る)を個別に呼ぶ:
+
+    - 線色 → ``SetPenColorByClass`` / 塗色 → ``SetFillColorByClass``
+    - 線の太さ → ``SetLWByClass`` / 線種 → ``SetLSByClass``
+    - 塗りパターン → ``SetFPatByClass`` / マーカー(矢印) → ``SetMarkerByClass``
+    - 透明度 → ``SetOpacityByClass``
+
+    リセットで再描画される記号は PIO の属性を継承するため、``ResetObject`` より前に
+    設定する。
+    """
+    vs.SetPenColorByClass(obj)
+    vs.SetFillColorByClass(obj)
+    vs.SetLWByClass(obj)
+    vs.SetLSByClass(obj)
+    vs.SetFPatByClass(obj)
+    vs.SetMarkerByClass(obj)
+    vs.SetOpacityByClass(obj)
+
+
 def draw_column_mark(command: ColumnMarkCommand) -> bool:
     """column_mark 命令 1 件を柱束伏図記号 PIO として配置する。
 
@@ -64,6 +91,7 @@ def draw_column_mark(command: ColumnMarkCommand) -> bool:
     if obj == vs.Handle(0):
         return False
     vs.SetClass(obj, command['class'])
+    _set_all_attributes_by_class(obj)
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_LAYER, command['target_layer'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_CLASS, command['target_class'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_MARK_SIZE, _format_size(command['size']))

@@ -60,6 +60,14 @@ class TestExecuteColumnMarks:
         # PIO 本体 (記号) を命令の class (柱・束の伏図記号の作図クラス) に設定する
         vs_mock.SetClass.assert_called_once_with(
             'PIO_HANDLE', '01作図-04記号-04構造-一般')
+        # 描画属性 (太さ・色・パターン・透明度等) をすべてクラス属性に従わせる
+        vs_mock.SetPenColorByClass.assert_called_once_with('PIO_HANDLE')
+        vs_mock.SetFillColorByClass.assert_called_once_with('PIO_HANDLE')
+        vs_mock.SetLWByClass.assert_called_once_with('PIO_HANDLE')
+        vs_mock.SetLSByClass.assert_called_once_with('PIO_HANDLE')
+        vs_mock.SetFPatByClass.assert_called_once_with('PIO_HANDLE')
+        vs_mock.SetMarkerByClass.assert_called_once_with('PIO_HANDLE')
+        vs_mock.SetOpacityByClass.assert_called_once_with('PIO_HANDLE')
         # 検索対象レイヤ・クラス・記号サイズをパラメータに設定する
         set_fields = {
             c.args[2]: c.args[3] for c in vs_mock.SetRField.call_args_list
