@@ -308,6 +308,37 @@ class TestMergeSlabCommands:
         merged = footing.merge_slab_commands([slab])
         assert merged == [slab]
 
+    def test_chamfered_slab_merges_with_diagonal_edge(self) -> None:
+        # 斜め辺(45 度取合い)を持つ底盤も、連続する矩形底盤と 1 枚に統合される
+        # (任意向きの多角形和のため、軸平行以外の辺も扱える)。
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 2000.0, 2000.0)),
+            _slab(_rect_boundary(2000.0, 0.0, 4000.0, 2000.0)),
+            # 上に載る五角形(右上が 45 度に欠けた形)
+            _slab([[0.0, 2000.0], [2000.0, 2000.0], [2000.0, 3000.0],
+                   [1000.0, 3000.0]]),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 1
+        pts = merged[0]['boundary']
+        # 斜め辺(x も y も動く辺)が外形に含まれる
+        assert any(a[0] != b[0] and a[1] != b[1]
+                   for a, b in zip(pts, pts[1:] + pts[:1]))
+
+    def test_rotated_group_merges(self) -> None:
+        # グリッドごと回転した底盤群(斜めの建物)も連続していれば統合される。
+        def rot(boundary: list[list[float]], deg: float) -> list[list[float]]:
+            a = math.radians(deg)
+            c, s = math.cos(a), math.sin(a)
+            return [[x * c - y * s, x * s + y * c] for x, y in boundary]
+
+        slabs = [
+            _slab(rot(_rect_boundary(0.0, 0.0, 2000.0, 1000.0), 30.0)),
+            _slab(rot(_rect_boundary(2000.0, 0.0, 4000.0, 1000.0), 30.0)),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 1
+
     def test_disjoint_groups_stay_separate(self) -> None:
         # 連続する 2 枚 + 離れた 1 枚 → 統合 1 枚 + 単独 1 枚 = 2 枚
         slabs = [
