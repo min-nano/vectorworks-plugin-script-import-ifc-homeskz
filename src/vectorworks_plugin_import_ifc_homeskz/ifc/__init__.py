@@ -63,7 +63,7 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'columns': build_column_commands(ifc_file),
         'walls': walls,
         'wall_joins': build_wall_join_commands(walls),
-        'slabs': build_slab_commands(ifc_file),
+        'slabs': build_slab_commands(ifc_file, walls),
         'anchor_bolts': build_anchor_bolt_commands(ifc_file),
         'fire_braces': build_fire_brace_commands(ifc_file),
         'sheets': build_sheet_commands(ifc_file),
