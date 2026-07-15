@@ -147,7 +147,30 @@ class TestExecuteSheets:
         ov_calls = [c.args for c in vs_mock.SetObjectVariableString.call_args_list]
         assert ('VP_HANDLE', vw_sheet._OV_VP_DRAWING_TITLE, _TITLE) in ov_calls
         assert ('VP_HANDLE', vw_sheet._OV_VP_DRAWING_NUMBER, '1') in ov_calls
-        vs_mock.UpdateVP.assert_called_once_with('VP_HANDLE')
+        # ビューを 2D/平面 に確定させる過程(force_plan_view)と最終描画で
+        # UpdateVP が同じビューポートに呼ばれる
+        update_calls = [c.args for c in vs_mock.UpdateVP.call_args_list]
+        assert ('VP_HANDLE',) in update_calls
+
+    def test_forces_plan_view_projection(self) -> None:
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        vw_sheet.execute_sheets([make_command()])
+
+        # ビューを「上」にしたうえで Project 2D を OFF→更新→ON と切り替えて
+        # 2D/平面 のキャッシュを作り直す(手動対処と同じトグル)
+        vs_mock.SetObjectVariableInt.assert_any_call(
+            'VP_HANDLE', vw_sheet._OV_VP_VIEW_TYPE, vw_sheet._VP_VIEW_TOP)
+        bool_calls = [c.args for c in vs_mock.SetObjectVariableBoolean.call_args_list]
+        assert bool_calls == [
+            ('VP_HANDLE', vw_sheet._OV_VP_PROJECT_2D, False),
+            ('VP_HANDLE', vw_sheet._OV_VP_PROJECT_2D, True),
+        ]
+        # Project 2D OFF のあと(3D「上」の描画)と最終描画で UpdateVP が 2 回呼ばれ、
+        # 最終状態は Project 2D ON(=2D/平面)になる
+        update_calls = [c.args for c in vs_mock.UpdateVP.call_args_list]
+        assert update_calls == [('VP_HANDLE',), ('VP_HANDLE',)]
 
     def test_shows_only_target_layers(self) -> None:
         extras = ['1-FL', '1-横架材天端']
