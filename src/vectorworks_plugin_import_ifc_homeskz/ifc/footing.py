@@ -74,6 +74,12 @@ _JOIN_X = 3
 # これに相手壁の半壁厚を足した値(_wall_intersection 参照。立上りは相手壁の
 # 外面まで伸びるためコーナーの交点が端から半壁厚離れる)。
 _JOIN_ENDPOINT_TOL = 1.0
+# 複数の立上りが集まる交点を同一ジャンクションとみなすクラスタリング許容値 (mm)。
+# 同一点に集まる立上りは壁芯どうしの交点が数学的に一致するため小さくてよい。
+_JOIN_CLUSTER_TOL = 1.0
+# 天端高さ(top_bound.offset)が同一とみなせる許容値 (mm)。これを超える差の壁は
+# 「天端高さの異なる壁」として capped で結合する(低い壁を高い壁に結合する)。
+_WALL_HEIGHT_TOL = _WALL_MERGE_DIST_TOL
 
 # 3 次元ベクトル(ワールド座標)
 _Vec = tuple[float, float, float]
@@ -647,29 +653,181 @@ def _wall_intersection(
     return px, py, a_at_end, b_at_end
 
 
-def _wall_join_command(
-    i: int, a: WallCommand, j: int, b: WallCommand,
-) -> WallJoinCommand | None:
-    """立上り a(index i)・b(index j)が交差すれば壁結合命令を返す。無ければ None。
+def _line_dir(wall: WallCommand) -> tuple[float, float, float]:
+    """立上りの壁芯方向ベクトル (dx, dy) と長さを返す。"""
+    x1, y1 = wall['start']
+    x2, y2 = wall['end']
+    dx, dy = x2 - x1, y2 - y1
+    return dx, dy, math.hypot(dx, dy)
 
-    交点が両壁芯の端点なら L 結合、片方の端点+片方の内部なら T 結合(端点側の壁を
-    延長される stem= a に、通し側の壁を through= b にする)、両方の内部なら X 結合。
-    配置レイヤが違う立上りは結合しない(現状すべて同一レイヤだが念のため)。
+
+def _wall_top(wall: WallCommand) -> float:
+    """立上りの天端高さの比較値(top_bound の offset)を返す。
+
+    基礎の立上りはすべて同じレベル(1 階横架材天端・story_offset=1)に上端を
+    バインドするため、offset だけで天端の絶対高さを比較できる。offset が大きい
+    立上りほど天端が高い。
     """
-    if a['layer'] != b['layer']:
-        return None
-    result = _wall_intersection(a, b)
-    if result is None:
-        return None
-    px, py, a_at_end, b_at_end = result
-    if a_at_end and b_at_end:
-        return {'a': i, 'b': j, 'point': [px, py], 'join_type': _JOIN_L}
-    if a_at_end and not b_at_end:
-        return {'a': i, 'b': j, 'point': [px, py], 'join_type': _JOIN_T}
-    if b_at_end and not a_at_end:
-        # b の端点が a の内部で交わる T 結合。stem(延長される側)= b を先にする。
-        return {'a': j, 'b': i, 'point': [px, py], 'join_type': _JOIN_T}
-    return {'a': i, 'b': j, 'point': [px, py], 'join_type': _JOIN_X}
+    return wall['top_bound']['offset']
+
+
+def _wall_point_at_end(wall: WallCommand, px: float, py: float) -> bool:
+    """壁芯上の点 (px, py) が立上り ``wall`` の端点とみなせるか。
+
+    始点からの正規化パラメータ t(0=始点・1=終点)を求め、端からの距離が
+    半壁厚 + ``_JOIN_ENDPOINT_TOL`` 以内なら端点とみなす(立上りは相手壁の外面まで
+    伸びるためコーナーの交点が壁の端から半壁厚離れる。_wall_intersection と同じ考え)。
+    """
+    x1, y1 = wall['start']
+    x2, y2 = wall['end']
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    if length <= 0.0:
+        return True
+    t = ((px - x1) * dx + (py - y1) * dy) / (length * length)
+    frac = (wall['thickness'] / 2.0 + _JOIN_ENDPOINT_TOL) / length
+    return t <= frac or t >= 1.0 - frac
+
+
+def _wall_junctions(
+    walls: list[WallCommand],
+) -> list[tuple[tuple[float, float], list[int]]]:
+    """交差する立上りのペアから、同一交点に集まる立上りの集合を作る。
+
+    全ペアの壁芯交点(``_wall_intersection``)を求め、交点が
+    ``_JOIN_CLUSTER_TOL`` 以内で近いものを 1 つのジャンクションにまとめる
+    (union-find)。3 本以上の立上りが 1 点に集まる場合、その 3 本の全ペアの交点は
+    数学的に同一点になるため 1 つのジャンクションに束ねられる。
+
+    Returns: ``(交点 (x, y), その点に集まる立上りの walls 内インデックス昇順)`` の
+    リスト。ジャンクションは代表エッジのインデックス昇順で並び、入力順に対して決定的。
+    """
+    edges: list[tuple[int, int, float, float]] = []
+    n = len(walls)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if walls[i]['layer'] != walls[j]['layer']:
+                continue
+            result = _wall_intersection(walls[i], walls[j])
+            if result is None:
+                continue
+            px, py, _ae, _be = result
+            edges.append((i, j, px, py))
+
+    m = len(edges)
+    parent = list(range(m))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for p in range(m):
+        for q in range(p + 1, m):
+            if math.hypot(edges[p][2] - edges[q][2],
+                          edges[p][3] - edges[q][3]) <= _JOIN_CLUSTER_TOL:
+                rp, rq = find(p), find(q)
+                if rp != rq:
+                    parent[max(rp, rq)] = min(rp, rq)
+
+    clusters: dict[int, list[int]] = {}
+    for p in range(m):
+        clusters.setdefault(find(p), []).append(p)
+
+    junctions: list[tuple[tuple[float, float], list[int]]] = []
+    for root in sorted(clusters):
+        eids = clusters[root]
+        indices: set[int] = set()
+        for eid in eids:
+            indices.add(edges[eid][0])
+            indices.add(edges[eid][1])
+        rep = edges[min(eids)]
+        junctions.append(((rep[2], rep[3]), sorted(indices)))
+    return junctions
+
+
+def _emit_junction_joins(
+    walls: list[WallCommand], indices: list[int], point: tuple[float, float],
+) -> list[WallJoinCommand]:
+    """1 つのジャンクション(同一交点に集まる立上り)の壁結合命令を組み立てる。
+
+    - **天端高さによる capped**(要件1): 結合する 2 壁の天端高さが異なるときは
+      低いほうの壁を高いほうに結合し(低い壁を ``a``)、``capped=True`` にする。
+      同じ高さなら ``capped=False``。
+    - **3 本以上の交点**(要件2): 天端高さが最も高い立上りをバックボーンにして
+      まず ``capped=False`` で繋ぎ、それより低い立上りを ``capped=True`` で繋ぐ。
+      命令は ``capped=False`` を先に並べる。
+    - **3 本以上の端点コーナー**(要件3): はじめの 2 本を L で繋ぎ、それ以降の
+      立上りを T で繋ぐ(バックボーンへ突き当てる)。
+    """
+    px, py = point
+    at_end = {idx: _wall_point_at_end(walls[idx], px, py) for idx in indices}
+    tops = {idx: _wall_top(walls[idx]) for idx in indices}
+    interiors = [idx for idx in indices if not at_end[idx]]
+    ends = [idx for idx in indices if at_end[idx]]
+
+    def height_order(idx: int) -> tuple[float, int]:
+        # 天端高さ降順・インデックス昇順(バックボーンに最も高い立上りを選ぶ)
+        return (-tops[idx], idx)
+
+    def make_lx(low_or_other: int, root: int, join_type: int) -> WallJoinCommand:
+        """L / X 結合の命令を作る。``root`` は高い(または同高でルート)側。"""
+        capped = abs(tops[low_or_other] - tops[root]) > _WALL_HEIGHT_TOL
+        if capped and tops[low_or_other] > tops[root]:
+            a, b = root, low_or_other       # 低いほうを a(高いほうに結合)
+        elif capped:
+            a, b = low_or_other, root        # low_or_other が低い → a
+        else:
+            a, b = root, low_or_other        # 同高: ルートを a(既存挙動)
+        return {'a': a, 'b': b, 'point': [px, py],
+                'join_type': join_type, 'capped': capped}
+
+    def make_t(stem: int, through: int) -> WallJoinCommand:
+        """T 結合の命令を作る。stem(端点側=延長される)を ``a`` にする。"""
+        capped = abs(tops[stem] - tops[through]) > _WALL_HEIGHT_TOL
+        return {'a': stem, 'b': through, 'point': [px, py],
+                'join_type': _JOIN_T, 'capped': capped}
+
+    def pick_through(stem: int, candidates: list[int]) -> int:
+        """stem が T 結合する通し壁を candidates から選ぶ。
+
+        stem に最も直交する(単位方向ベクトルの外積 |sin| が最大の)壁を選び、
+        同点なら天端が高いほう、さらに同点ならインデックスの小さいほうを選ぶ。
+        """
+        sdx, sdy, sl = _line_dir(walls[stem])
+        best = candidates[0]
+        best_key: tuple[float, float, int] | None = None
+        for c in candidates:
+            cdx, cdy, cl = _line_dir(walls[c])
+            perp = (abs(sdx * cdy - sdy * cdx) / (sl * cl)
+                    if sl > 0.0 and cl > 0.0 else 0.0)
+            key = (perp, tops[c], -c)
+            if best_key is None or key > best_key:
+                best, best_key = c, key
+        return best
+
+    commands: list[WallJoinCommand] = []
+    if interiors:
+        # 交点(T/X): 通し壁(内部で交わる壁)をバックボーンにする
+        ordered_int = sorted(interiors, key=height_order)
+        root = ordered_int[0]
+        for other in ordered_int[1:]:
+            commands.append(make_lx(other, root, _JOIN_X))
+        for stem in sorted(ends, key=height_order):
+            commands.append(make_t(stem, pick_through(stem, interiors)))
+    else:
+        # 端点コーナー: 天端高さ降順ではじめの 2 本を L、それ以降を T
+        ordered = sorted(ends, key=height_order)
+        root = ordered[0]
+        if len(ordered) >= 2:
+            commands.append(make_lx(ordered[1], root, _JOIN_L))
+        for stem in ordered[2:]:
+            commands.append(make_t(stem, pick_through(stem, ordered[:2])))
+
+    # 要件2: capped=False(高い立上り同士)を先に、capped=True を後に並べる
+    commands.sort(key=lambda c: c['capped'])
+    return commands
 
 
 def build_wall_join_commands(walls: list[WallCommand]) -> list[WallJoinCommand]:
@@ -677,16 +835,17 @@ def build_wall_join_commands(walls: list[WallCommand]) -> list[WallJoinCommand]:
 
     ``walls`` は ``build_wall_commands`` が返す(マージ済みの)wall 命令リストで、
     その並び順が document の ``walls`` と一致するため、命令の ``a`` / ``b`` は
-    そのインデックスをそのまま指す。全ペアを走査し、壁芯が交差する組(L/T/X)を
-    結合命令にする。同一直線上(平行)の立上りは merge_wall_commands が 1 本に
-    統合済みで結合対象にしない。判定は入力順に対して決定的。
+    そのインデックスをそのまま指す。壁芯が交差する立上りを同一交点ごとに
+    ジャンクションにまとめ(``_wall_junctions``)、ジャンクションごとに結合命令を
+    組み立てる(``_emit_junction_joins``。要件1〜3 の高さ・capped・L/T/X 判定)。
+    同一直線上(平行)の立上りは merge_wall_commands が 1 本に統合済みで結合対象に
+    しない。判定は入力順に対して決定的。
     """
     commands: list[WallJoinCommand] = []
-    for i in range(len(walls)):
-        for j in range(i + 1, len(walls)):
-            command = _wall_join_command(i, walls[i], j, walls[j])
-            if command is not None:
-                commands.append(command)
+    for point, indices in _wall_junctions(walls):
+        if len(indices) < 2:
+            continue
+        commands.extend(_emit_junction_joins(walls, indices, point))
     return commands
 
 

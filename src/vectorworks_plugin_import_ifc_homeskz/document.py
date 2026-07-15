@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 21):
+スキーマ (version 22):
 
     {
-        "version": 21,
+        "version": 22,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -122,7 +122,11 @@
                 # 結合種別(JoinWalls の joinModifier)。1=T 結合・2=L 結合・
                 # 3=X 結合。両壁の端点/内部のどちらで交わるかで解析フェーズが判定する
                 # (両端点=L、片端点+片内部=T、両内部=X)。
-                "join_type": 2
+                "join_type": 2,
+                # JoinWalls の capped 引数(結合部を閉じるか)。天端高さの異なる
+                # 立上りは低いほうを高いほうに結合して閉じる(capped=True)。同じ
+                # 天端高さはコンクリート一体のため閉じない(capped=False)。
+                "capped": False
             }
         ],
         "slabs": [
@@ -257,7 +261,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
-DOCUMENT_VERSION = 21
+DOCUMENT_VERSION = 22
 
 
 class LevelCommand(TypedDict):
@@ -385,12 +389,19 @@ class WallJoinCommand(TypedDict):
     joinModifier(1=T 結合・2=L 結合・3=X 結合)で、両壁が端点同士で交われば L、
     片方の端点と他方の内部で交われば T(``a`` を延長される stem、``b`` を通し
     through にする)、両方の内部で交われば X と解析フェーズが判定する。
+
+    ``capped`` は JoinWalls の capped 引数(結合部を閉じるか)。天端高さの異なる
+    立上り同士は低いほうを高いほうに結合して端部を閉じる(``a``=低い壁・
+    ``capped=True``)。同じ天端高さの立上り同士はコンクリートで一体のため閉じない
+    (``capped=False``)。3 本以上が集まる交点では天端が最も高い立上り同士を
+    ``capped=False`` で先に繋ぎ、それより低い立上りを ``capped=True`` で繋ぐ。
     """
 
     a: int
     b: int
     point: list[float]
     join_type: int
+    capped: bool
 
 
 # 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
@@ -679,6 +690,8 @@ def _validate_wall_join(index: int, command: Any) -> None:
     # joinModifier: 1=T / 2=L / 3=X / 4=auto
     _require(command.get('join_type') in (1, 2, 3, 4),
              f'{where}.join_type は 1/2/3/4 のいずれかである必要があります')
+    _require(isinstance(command.get('capped'), bool),
+             f'{where}.capped は真偽値である必要があります')
 
 
 def _validate_slab(index: int, command: Any) -> None:

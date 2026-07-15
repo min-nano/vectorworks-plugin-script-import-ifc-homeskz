@@ -75,7 +75,8 @@ def make_valid_document() -> dict[str, Any]:
             },
         ],
         'wall_joins': [
-            {'a': 0, 'b': 1, 'point': [0.0, 0.0], 'join_type': 2},
+            {'a': 0, 'b': 1, 'point': [0.0, 0.0], 'join_type': 2,
+             'capped': False},
         ],
         'slabs': [
             {
@@ -337,6 +338,18 @@ class TestValidateDocument:
         document = make_valid_document()
         document['wall_joins'][0]['join_type'] = 9
         with pytest.raises(DocumentValidationError, match='join_type'):
+            validate_document(document)
+
+    def test_rejects_wall_join_without_capped(self) -> None:
+        document = make_valid_document()
+        del document['wall_joins'][0]['capped']
+        with pytest.raises(DocumentValidationError, match='capped'):
+            validate_document(document)
+
+    def test_rejects_wall_join_with_non_bool_capped(self) -> None:
+        document = make_valid_document()
+        document['wall_joins'][0]['capped'] = 1
+        with pytest.raises(DocumentValidationError, match='capped'):
             validate_document(document)
 
     def test_rejects_slab_without_elevation(self) -> None:

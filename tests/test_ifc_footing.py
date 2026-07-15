@@ -288,6 +288,8 @@ class TestBuildWallJoinCommands:
         assert joins[0]['b'] == 1
         assert joins[0]['join_type'] == footing._JOIN_L
         assert joins[0]['point'] == [0.0, 0.0]
+        # 同じ天端高さ同士はコンクリート一体で閉じない
+        assert joins[0]['capped'] is False
 
     def test_overhanging_corner_is_l_not_x(self) -> None:
         # ホームズ君 IFC の外周コーナー: 各壁が相手壁の外面まで伸びるため、壁芯
@@ -325,6 +327,7 @@ class TestBuildWallJoinCommands:
         assert joins[0]['a'] == 1  # stem(index 1)が先
         assert joins[0]['b'] == 0  # through(index 0)が後
         assert joins[0]['point'] == [1500.0, 0.0]
+        assert joins[0]['capped'] is False
 
     def test_x_join_at_interior_crossing(self) -> None:
         # 両方の内部で交わる十字 → X 結合(3)
@@ -336,6 +339,7 @@ class TestBuildWallJoinCommands:
         assert len(joins) == 1
         assert joins[0]['join_type'] == footing._JOIN_X
         assert joins[0]['point'] == [1500.0, 0.0]
+        assert joins[0]['capped'] is False
 
     def test_non_touching_walls_not_joined(self) -> None:
         walls = [
@@ -378,6 +382,64 @@ class TestBuildWallJoinCommands:
 
     def test_empty_returns_empty(self) -> None:
         assert footing.build_wall_join_commands([]) == []
+
+    def test_different_height_corner_caps_lower_to_higher(self) -> None:
+        # 天端高さの異なる立上りがコーナーで交わる → 低いほうを高いほうに結合し
+        # capped=True。低い壁(index 0)が a になる。
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0], top_offset=-540.0),  # 低い
+            _wall([0.0, 0.0], [0.0, 3000.0], top_offset=-190.0),  # 高い
+        ]
+        joins = footing.build_wall_join_commands(walls)
+        assert len(joins) == 1
+        assert joins[0]['capped'] is True
+        assert joins[0]['a'] == 0  # 低いほうが a(高いほうへ結合)
+        assert joins[0]['b'] == 1
+
+    def test_different_height_t_caps_stem(self) -> None:
+        # 低い立上りが高い通し材の側面に突き当たる T → 端部を閉じる(capped=True)
+        through = _wall([0.0, 0.0], [3000.0, 0.0], top_offset=-190.0)  # 高い通し
+        stem = _wall([1500.0, 0.0], [1500.0, 2000.0], top_offset=-540.0)  # 低い
+        joins = footing.build_wall_join_commands([through, stem])
+        assert len(joins) == 1
+        assert joins[0]['join_type'] == footing._JOIN_T
+        assert joins[0]['a'] == 1  # stem(低い側)が a
+        assert joins[0]['b'] == 0
+        assert joins[0]['capped'] is True
+
+    def test_three_walls_at_endpoint_first_two_l_rest_t(self) -> None:
+        # 3 本の立上りが 1 点で端点を突き合わせる → はじめの 2 本を L、残りを T
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0]),
+            _wall([0.0, 0.0], [0.0, 3000.0]),
+            _wall([0.0, 0.0], [3000.0, 3000.0]),
+        ]
+        joins = footing.build_wall_join_commands(walls)
+        # 3 本 → 結合は 2 件(スパニングツリー)。全ペア 3 件にはしない。
+        assert len(joins) == 2
+        assert sorted(j['join_type'] for j in joins) == [
+            footing._JOIN_T, footing._JOIN_L]  # T=1, L=2
+        corner = next(j for j in joins if j['join_type'] == footing._JOIN_L)
+        assert {corner['a'], corner['b']} == {0, 1}  # はじめの 2 本を L
+        butt = next(j for j in joins if j['join_type'] == footing._JOIN_T)
+        assert butt['a'] == 2  # 3 本目を T で突き当てる
+        assert all(j['capped'] is False for j in joins)  # 同一高さ
+
+    def test_three_walls_crossing_high_uncapped_first_then_capped(self) -> None:
+        # 3 本が 1 点で内部交差(交点)。天端が最も高い 2 本を capped=False で先に
+        # 繋ぎ、低い 1 本を capped=True で繋ぐ。
+        walls = [
+            _wall([0.0, 0.0], [3000.0, 0.0], top_offset=-190.0),        # 高い(通し)
+            _wall([1500.0, -1500.0], [1500.0, 1500.0], top_offset=-190.0),  # 高い(通し)
+            _wall([0.0, -1500.0], [3000.0, 1500.0], top_offset=-540.0),  # 低い(通し)
+        ]
+        joins = footing.build_wall_join_commands(walls)
+        assert len(joins) == 2
+        # capped=False(高い立上り同士)が先、capped=True(低い立上り)が後
+        assert joins[0]['capped'] is False
+        assert {joins[0]['a'], joins[0]['b']} == {0, 1}
+        assert joins[1]['capped'] is True
+        assert joins[1]['a'] == 2  # 低いほうが a(高いほうへ結合)
 
 
 class TestNoFoundation:

@@ -16,10 +16,10 @@ from ..document import SlabCommand, WallCommand, WallJoinCommand
 
 WALL_STYLE_NAME = '基礎 - 木造ベタ基礎150mm'
 
-# 壁結合(JoinWalls)の引数。基礎立上りはコンクリートで一体のため capped=False
-# (結合部を閉じない=貫通)にする。showAlerts=False で結合失敗時のダイアログを
-# 抑止する(インポート中に手動操作を求められないように)。
-_JOIN_CAPPED = False
+# 壁結合(JoinWalls)の引数。capped(結合部を閉じるか)は命令ごとに指定する
+# (天端高さの異なる立上りは低いほうを閉じて高いほうに結合する=capped=True、
+# 同じ高さはコンクリート一体のため閉じない=capped=False)。showAlerts=False で
+# 結合失敗時のダイアログを抑止する(インポート中に手動操作を求められないように)。
 _JOIN_SHOW_ALERTS = False
 
 
@@ -135,7 +135,8 @@ def execute_wall_joins(
     各命令の ``a`` / ``b`` で 2 つの壁ハンドルを引き、``vs.JoinWalls`` で結合する。
     どちらかの壁が未配置(レイヤ未生成・フォールバック描画でハンドル未記録)の
     命令はスキップする。ピック点(どの端を結合するか)は両壁とも交点を渡し、
-    結合種別は命令の ``join_type``(1=T・2=L・3=X)を joinModifier に渡す。
+    結合種別は命令の ``join_type``(1=T・2=L・3=X)を joinModifier に、
+    命令の ``capped``(天端高さの異なる立上りは結合部を閉じる)を capped に渡す。
     """
     count = 0
     for command in commands:
@@ -146,7 +147,7 @@ def execute_wall_joins(
         px, py = command['point']
         vs.JoinWalls(
             first, second, (px, py), (px, py),
-            command['join_type'], _JOIN_CAPPED, _JOIN_SHOW_ALERTS)
+            command['join_type'], command['capped'], _JOIN_SHOW_ALERTS)
         count += 1
     return count
 

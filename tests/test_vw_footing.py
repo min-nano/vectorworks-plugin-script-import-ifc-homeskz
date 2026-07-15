@@ -22,7 +22,7 @@ def make_wall_command() -> WallCommand:
 
 
 def make_wall_join_command() -> WallJoinCommand:
-    return {'a': 0, 'b': 1, 'point': [0.0, 0.0], 'join_type': 2}
+    return {'a': 0, 'b': 1, 'point': [0.0, 0.0], 'join_type': 2, 'capped': False}
 
 
 def make_slab_command() -> SlabCommand:
@@ -131,8 +131,21 @@ class TestExecuteWallJoins:
         assert args[2] == (0.0, 0.0)
         assert args[3] == (0.0, 0.0)
         assert args[4] == 2       # join_type (L)
-        assert args[5] is False   # capped(コンクリート一体のため閉じない)
+        assert args[5] is False   # capped(同じ天端高さ=コンクリート一体で閉じない)
         assert args[6] is False   # showAlerts
+
+    def test_passes_capped_true_for_height_difference(self) -> None:
+        vs_mock = _make_vs_mock(set())
+        vw_footing = _load(vs_mock)
+
+        command = make_wall_join_command()
+        command['capped'] = True
+        handles = {0: 'WALL_A', 1: 'WALL_B'}
+        count = vw_footing.execute_wall_joins([command], handles)
+
+        assert count == 1
+        # 天端高さの異なる立上りは capped=True で結合する
+        assert vs_mock.JoinWalls.call_args.args[5] is True
 
     def test_skips_when_handle_missing(self) -> None:
         vs_mock = _make_vs_mock(set())
