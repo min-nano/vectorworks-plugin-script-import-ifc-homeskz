@@ -13,6 +13,11 @@
 捨てコン・砕石の既定厚が将来変わりうるため、コンクリート厚(150mm)だけを固定して
 残りを任意の文字列にマッチさせる(``_find_base_slab_style``)。地中梁は
 スタイルを適用しない(命令の ``thickness`` が None)。
+
+スタイルのハンドルは ``BuildResourceList`` の列挙結果から ``GetResourceFromList``
+で取得する(``vs.GetObject`` はリソースマネージャのリソースを確実には返さない)。
+複製は ``vs.GetParent`` で得た親コンテナへ挿入する(nil コンテナへの複製は不正な
+無名リソースを作るため)。
 """
 from __future__ import annotations
 
@@ -114,19 +119,40 @@ def _is_foundation_slab_style(name: str | None) -> bool:
             and parts[2].startswith(_SLAB_STYLE_GRAVEL_PREFIX))
 
 
-def _find_base_slab_style() -> str | None:
+def _slab_style_handles() -> dict[str, Any]:
+    """現在ドキュメントのスラブスタイル名→ハンドルの dict を返す。
+
+    ``BuildResourceList``(種別 107)でスラブスタイルを列挙し、各スタイルの
+    ハンドルを ``GetResourceFromList`` で引く(folderIndex=0 なので列挙されるのは
+    現在ドキュメントのスタイルで、``GetResourceFromList`` はそのハンドルを返す)。
+
+    **リソース(スラブスタイル)のハンドルは ``vs.GetObject`` では確実に取得できない**
+    (``GetObject`` は名前リスト・レイヤリストを引くもので、リソースマネージャの
+    リソースは対象外のことがある)。以前は ``GetObject`` で存在確認・複製元取得を
+    していたため、既定 150mm スタイルが見つからず(NIL 扱いで)スタイルが一切
+    適用されなかった。列挙結果のハンドルを使うことでこれを回避する。
+    """
+    list_id, num = vs.BuildResourceList(
+        _SLAB_STYLE_RESOURCE_TYPE, _SLAB_STYLE_FOLDER, '')
+    handles: dict[str, Any] = {}
+    for i in range(int(num)):
+        name = vs.GetNameFromResourceList(list_id, i + 1)
+        handle = vs.GetResourceFromList(list_id, i + 1)
+        if name and handle != vs.Handle(0):
+            handles[name] = handle
+    return handles
+
+
+def _find_base_slab_style(styles: dict[str, Any]) -> str | None:
     """既定の基礎スラブスタイル(コンクリート 150mm)の名前を返す。無ければ None。
 
-    現在のドキュメントのスラブスタイルを列挙し、先頭部が
+    ``styles``(``_slab_style_handles`` が返す名前→ハンドル)の名前のうち、先頭部が
     ``基礎スラブ - コンクリート 150mm`` で、捨てコン・砕石の部分を持つスタイルを
     既定スタイルとみなす。捨てコン・砕石の厚みは将来変わりうるため、コンクリート厚
     (150mm)だけを固定して探す(要件)。
     """
-    list_id, num = vs.BuildResourceList(
-        _SLAB_STYLE_RESOURCE_TYPE, _SLAB_STYLE_FOLDER, '')
     head = _slab_style_head(_BASE_SLAB_CONCRETE_MM)
-    for i in range(int(num)):
-        name = vs.GetNameFromResourceList(list_id, i + 1)
+    for name in styles:
         if (_is_foundation_slab_style(name)
                 and name.split(_SLAB_STYLE_SEP)[0] == head):
             return name
@@ -145,48 +171,54 @@ def _derive_style_name(base_name: str, concrete_mm: int) -> str:
     return _SLAB_STYLE_SEP.join(parts)
 
 
-def _resolve_slab_style_ref(base_name: str, concrete_mm: int) -> int | None:
+def _resolve_slab_style_ref(
+    base_name: str, concrete_mm: int, styles: dict[str, Any],
+) -> int | None:
     """コンクリート厚 ``concrete_mm`` のスラブスタイルの ref 番号を返す。
 
     目的の名前(既定名のコンクリート厚部分を ``concrete_mm`` に置換したもの)の
-    スタイルが既にあればそれを使い、無ければ既定スタイルを複製して最上層(#1)の
-    コンクリート厚を変更した新スタイルを作る。ref 番号は名前付きリソースの規約に
-    従い ``-Name2Index(name)``(負の内部インデックス)。作成・取得できなければ None。
+    スタイルが ``styles`` にあればそれを使い、無ければ既定スタイルのハンドルを複製して
+    最上層(#1)のコンクリート厚を変更した新スタイルを作る。作った新スタイルは
+    ``styles`` に登録するため、同一厚みの底盤が複数あっても複製は 1 回で済む。
+
+    **リソースの複製は ``vs.GetParent`` で得た親コンテナへ挿入し、直後にユニークな
+    名前を付ける**。nil コンテナへ複製すると無名の不正リソースがアクティブレイヤに
+    作られてドキュメントを壊す(VW 公式ドキュメントの ``CreateDuplicateObject`` の
+    注意書き)。ref 番号は名前付きリソースの参照規約に従い ``-Name2Index(name)``
+    (負の内部インデックス)。作成・取得できない・名前が解決できない場合は None。
     """
     target = _derive_style_name(base_name, concrete_mm)
-    if vs.GetObject(target) == vs.Handle(0):
-        base_handle = vs.GetObject(base_name)
-        # 目的スタイルが未作成で複製元(既定スタイル)も無ければスタイルを付けない。
-        if base_handle == vs.Handle(0):
+    if target not in styles:
+        base_handle = styles.get(base_name)
+        # 複製元(既定スタイル)が無ければスタイルを付けない。
+        if base_handle is None:
             return None
-        dup = vs.CreateDuplicateObject(base_handle, vs.Handle(0))
+        dup = vs.CreateDuplicateObject(base_handle, vs.GetParent(base_handle))
         if dup == vs.Handle(0):
             return None
         vs.SetName(dup, target)
         vs.SetComponentWidth(dup, _CONCRETE_COMPONENT_INDEX, float(concrete_mm))
-    return -vs.Name2Index(target)
+        styles[target] = dup
+    ref = -vs.Name2Index(target)
+    return ref if ref != 0 else None
 
 
 def _apply_slab_style(
     slab: Any, command: SlabCommand, base_style: str | None,
-    style_cache: dict[int, int | None] | None,
+    styles: dict[str, Any] | None,
 ) -> None:
     """底盤スラブに厚みに応じたスラブスタイルを適用する。
 
-    命令の ``thickness`` が None(スタイル対象外=地中梁等)、または既定スタイルが
-    見つからない場合は何もしない。同一厚みのスタイル ref は ``style_cache`` に
-    キャッシュし、同じ厚みの底盤ごとにリソース列挙・複製を繰り返さない。
+    命令の ``thickness`` が None(スタイル対象外=地中梁等)、既定スタイルが
+    見つからない、またはスタイル一覧が無い場合は何もしない。``styles`` は
+    ``_slab_style_handles`` が返す名前→ハンドルで、新規作成したスタイルの登録先も
+    兼ねる(同一厚みの複製の重複防止)。
     """
     thickness = command['thickness']
-    if thickness is None or base_style is None:
+    if thickness is None or base_style is None or styles is None:
         return
     concrete_mm = int(round(thickness))
-    if style_cache is not None and concrete_mm in style_cache:
-        ref = style_cache[concrete_mm]
-    else:
-        ref = _resolve_slab_style_ref(base_style, concrete_mm)
-        if style_cache is not None:
-            style_cache[concrete_mm] = ref
+    ref = _resolve_slab_style_ref(base_style, concrete_mm, styles)
     if ref is not None:
         vs.SetSlabStyle(slab, ref)
 
@@ -194,14 +226,14 @@ def _apply_slab_style(
 def draw_slab(
     command: SlabCommand,
     base_style: str | None = None,
-    style_cache: dict[int, int | None] | None = None,
+    styles: dict[str, Any] | None = None,
 ) -> None:
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
     外形ポリゴンを閉じた多角形として作成し、``CreateSlab`` でスラブにする。
     底盤(``thickness`` を持つ)にはコンクリート厚に応じたスラブスタイルを適用する
-    (``_apply_slab_style``。既定スタイル名は ``base_style``、厚み→ref のキャッシュは
-    ``style_cache``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の高さ
+    (``_apply_slab_style``。既定スタイル名は ``base_style``、スタイル名→ハンドルの
+    一覧は ``styles``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の高さ
     基準を底盤天端レベルにバインドする。スラブが生成できない場合は外形ポリゴンに
     フォールバックする。
 
@@ -224,7 +256,7 @@ def draw_slab(
     slab = vs.CreateSlab(poly_h)
     if slab != vs.Handle(0):
         vs.SetClass(slab, command['class'])
-        _apply_slab_style(slab, command, base_style, style_cache)
+        _apply_slab_style(slab, command, base_style, styles)
         vs.SetSlabHeight(slab, command['elevation'])
         bound = command['bound']
         vs.SetObjectStoryBound(
@@ -294,20 +326,21 @@ def execute_slabs(commands: list[SlabCommand]) -> int:
 
     配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
 
-    スタイルを適用する底盤(``thickness`` を持つ命令)がある場合のみ、既定スラブ
-    スタイル名を一度だけ探して(``_find_base_slab_style``)全命令で共有し、厚み→ref
-    のキャッシュ(``style_cache``)で同一厚みのスタイル生成・列挙を繰り返さない。
+    スタイルを適用する底盤(``thickness`` を持つ命令)がある場合のみ、現在ドキュメントの
+    スラブスタイル一覧(名前→ハンドル)を一度だけ取得し(``_slab_style_handles``)、
+    既定スタイル名を探して(``_find_base_slab_style``)全命令で共有する。新規作成した
+    スタイルは一覧に登録されるため、同一厚みのスタイル生成・列挙は繰り返さない。
     """
     needs_style = any(command.get('thickness') is not None
                       for command in commands)
-    base_style = _find_base_slab_style() if needs_style else None
-    style_cache: dict[int, int | None] = {}
+    styles = _slab_style_handles() if needs_style else {}
+    base_style = _find_base_slab_style(styles) if needs_style else None
     count = 0
     for command in commands:
         layer = command['layer']
         if vs.GetObject(layer) == vs.Handle(0):
             continue
         vs.Layer(layer)
-        draw_slab(command, base_style, style_cache)
+        draw_slab(command, base_style, styles)
         count += 1
     return count
