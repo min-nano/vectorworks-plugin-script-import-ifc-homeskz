@@ -421,9 +421,11 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
     の幅(XDim)、上下端は実形状の絶対 Z。下端は基礎の GL、上端は 1 階の横架材天端に
     バインドし、offset はそれぞれの実 Z とバインド先レベルの絶対 Z の差。
 
-    最後に ``merge_wall_commands`` で、同一直線上にあり同一断面形状(壁厚・高さ基準)
-    の立上りを 1 本の壁に統合する(ホームズ君 IFC では通り芯の交点等で立上りが細かく
-    分断されているため、できるだけマージした形状で壁を作る)。
+    ``merge_wall_commands`` で、同一直線上にあり同一断面形状(壁厚・高さ基準)の
+    立上りを 1 本の壁に統合する(ホームズ君 IFC では通り芯の交点等で立上りが細かく
+    分断されているため、できるだけマージした形状で壁を作る)。最後に
+    ``_extend_free_wall_ends`` で、他の立上りと交差しない端点を半壁厚だけ外側へ
+    延長して実形状に合わせる。
     """
     storey = _first_fl_storey(ifc_file)
     if storey is None:
@@ -469,7 +471,7 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
             'bottom_bound': bottom_bound,
             'top_bound': top_bound,
         })
-    return merge_wall_commands(commands)
+    return _extend_free_wall_ends(merge_wall_commands(commands))
 
 
 def _wall_section_key(wall: WallCommand) -> tuple[object, ...]:
@@ -651,6 +653,73 @@ def _wall_intersection(
     a_at_end = t <= frac_a or t >= 1.0 - frac_a
     b_at_end = u <= frac_b or u >= 1.0 - frac_b
     return px, py, a_at_end, b_at_end
+
+
+def _extend_free_wall_ends(walls: list[WallCommand]) -> list[WallCommand]:
+    """他の立上りと交差しない端点を半壁厚だけ壁芯方向へ外側に延長する。
+
+    ホームズ君 IFC では、他の立上りと交差しない立上りの端点は**柱芯までの長さ**で
+    入力されているが、実際の基礎立上りはそこから**半壁厚だけ長い**(端面が柱芯より
+    半壁厚外側にある)。交差する端点は相手壁の外面までモデル化済みで、コーナーで
+    既に半壁厚のオーバーハングを持つ(``_wall_intersection`` の端点許容参照)ため
+    触らず、どの立上りとも交差しない端点だけを ``thickness/2`` 延長して実形状に
+    合わせる。延長は壁芯方向(自分の軸)に沿って外側(始点は始点側・終点は終点側)へ
+    行うため、交差しない側並び・平行の関係を新たに作らない。
+
+    交差の有無は ``_wall_intersection`` で判定する(交点が壁芯の端点にあれば
+    ``a_at_end`` / ``b_at_end``)。交点に最も近い端点を「交差する端点」として除外し、
+    残った端点だけを延長する。判定は入力順に対して決定的で命令の並び順に依存しない。
+    """
+    n = len(walls)
+    # 各壁の始点・終点が他の立上りとの交点に関与するか
+    start_joined = [False] * n
+    end_joined = [False] * n
+
+    def mark(idx: int, px: float, py: float) -> None:
+        x1, y1 = walls[idx]['start']
+        x2, y2 = walls[idx]['end']
+        if math.hypot(x1 - px, y1 - py) <= math.hypot(x2 - px, y2 - py):
+            start_joined[idx] = True
+        else:
+            end_joined[idx] = True
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if walls[i]['layer'] != walls[j]['layer']:
+                continue
+            result = _wall_intersection(walls[i], walls[j])
+            if result is None:
+                continue
+            px, py, a_at_end, b_at_end = result
+            if a_at_end:
+                mark(i, px, py)
+            if b_at_end:
+                mark(j, px, py)
+
+    extended: list[WallCommand] = []
+    for i, wall in enumerate(walls):
+        x1, y1 = wall['start']
+        x2, y2 = wall['end']
+        length = math.hypot(x2 - x1, y2 - y1)
+        if length <= 0.0:
+            extended.append(wall)
+            continue
+        half = wall['thickness'] / 2.0
+        ux, uy = (x2 - x1) / length, (y2 - y1) / length
+        start = ([x1 - ux * half, y1 - uy * half]
+                 if not start_joined[i] else [x1, y1])
+        end = ([x2 + ux * half, y2 + uy * half]
+               if not end_joined[i] else [x2, y2])
+        extended.append({
+            'layer': wall['layer'],
+            'class': wall['class'],
+            'start': start,
+            'end': end,
+            'thickness': wall['thickness'],
+            'bottom_bound': wall['bottom_bound'],
+            'top_bound': wall['top_bound'],
+        })
+    return extended
 
 
 def _line_dir(wall: WallCommand) -> tuple[float, float, float]:
