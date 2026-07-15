@@ -4,7 +4,9 @@
 指定したデザインレイヤ群を表示するビューポートを 1 つ配置する。ビューポートには
 命令の ``layers`` に挙げたデザインレイヤだけを表示し、それ以外のデザインレイヤは
 非表示にする。クラスは伏図に必要な要素が欠けないよう全クラスを表示にする。
-ビューポートの縮尺は表示するデザインレイヤの縮尺に合わせる。
+ビューポートの縮尺は表示するデザインレイヤの縮尺に合わせる。ビューは 2D/平面
+(Top/Plan)投影に確定させる(``force_plan_view``。インポート直後に 3D の「上」
+ビューのように描画される不具合を防ぐ)。
 
 シートレイヤ番号は VectorWorks ではシートレイヤ(=レイヤ)の名前がそのまま担うため、
 ``vs.CreateLayer`` に番号を渡してレイヤ名=シートレイヤ番号にする。シートレイヤタイトル・
@@ -51,6 +53,19 @@ _VP_LAYER_HIDDEN = 1
 
 # ビューポートのクラス表示種別(SetVPClassVisibility): 0=表示, 1=非表示, 2=グレー
 _VP_CLASS_VISIBLE = 0
+
+# ビューポートのビュー(投影)を制御するオブジェクト変数 selector(公式のオブジェクト
+# セレクタ一覧より)。「2D/平面」(Top/Plan)は View Type の列挙値ではなく
+# 「Project 2D」ブール(1005)が担う(True=2D/平面, False=3D ビュー)。
+# CreateVP はビューを Top/Plan(2D/平面)で作るためオブジェクト情報パレット上は
+# 「2D/平面」と表示されるが、インポート直後はレンダーキャッシュが古いまま 3D の
+# 「上」ビューのように描画され、表示と食い違う。ユーザーの手動対処(一度「上」に
+# 切り替えてから「2D/平面」に戻すと正しく描画される)と同じく Project 2D を
+# いったん OFF(=「上」)にして更新し、再度 ON(=「2D/平面」)に戻すことで
+# 2D/平面 のキャッシュを作り直す。
+_OV_VP_PROJECT_2D = 1005  # Project 2D(BOOLEAN): True=2D/平面(Top/Plan), False=3D
+_OV_VP_VIEW_TYPE = 1007   # View Type(INTEGER): 3D ビューの向き
+_VP_VIEW_TOP = 7          # viewTop(「上」)
 
 
 def configure_viewport_layers(
@@ -99,14 +114,31 @@ def configure_viewport_scale(viewport: Any, target_layers: list[str]) -> None:
             return
 
 
+def force_plan_view(viewport: Any) -> None:
+    """ビューポートを 2D/平面(Top/Plan)投影で正しく描画させる。
+
+    ``CreateVP`` はビューを Top/Plan(2D/平面)で作るためオブジェクト情報パレット上は
+    「2D/平面」と表示されるが、インポート直後はレンダーキャッシュが古いまま 3D の
+    「上」ビューのように描画され、表示と食い違う。ユーザーの手動対処(一度「上」に
+    切り替えてから「2D/平面」に戻す)と同じく、View Type を「上」にして Project 2D を
+    いったん OFF(=「上」)にし ``vs.UpdateVP`` で更新してから、再度 ON(=「2D/平面」)に
+    戻すことで 2D/平面 のキャッシュを作り直す。最終的な ``vs.UpdateVP`` は
+    ``draw_viewport`` が呼ぶため、この関数を抜けた時点の投影は 2D/平面 になっている。
+    """
+    vs.SetObjectVariableInt(viewport, _OV_VP_VIEW_TYPE, _VP_VIEW_TOP)
+    vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, False)
+    vs.UpdateVP(viewport)
+    vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, True)
+
+
 def draw_viewport(
     viewport: ViewportCommand, sheet_layer: Any,
 ) -> Any:
     """シートレイヤ上にビューポートを 1 つ生成し、生成したビューポートハンドルを返す。
 
     ``vs.CreateVP`` でシートレイヤ上にビューポートを作り、表示レイヤを絞り込み、
-    図面タイトル・図番を設定してから ``vs.UpdateVP`` で描画を更新する。
-    ビューポートが生成できない場合は None を返す。
+    ビューを 2D/平面(Top/Plan)投影に確定させ、図面タイトル・図番を設定してから
+    ``vs.UpdateVP`` で描画を更新する。ビューポートが生成できない場合は None を返す。
     """
     obj = vs.CreateVP(sheet_layer)
     if obj == vs.Handle(0):
@@ -115,6 +147,7 @@ def draw_viewport(
     configure_viewport_layers(obj, viewport['layers'], sheet_layer)
     configure_viewport_classes(obj)
     configure_viewport_scale(obj, viewport['layers'])
+    force_plan_view(obj)
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_TITLE, viewport['drawing_title'])
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_NUMBER, viewport['drawing_number'])
     vs.UpdateVP(obj)
