@@ -76,10 +76,14 @@ class TestRoofCommandForPlane:
         # slope = rise/run = dh/nz = tan(勾配角)。この面は y 方向に 1/3 勾配。
         assert math.isclose(cmd['rise'] / cmd['run'], 1.0 / 3.0, rel_tol=1e-9)
 
-    def test_elevation_is_absolute_eaves_top(self) -> None:
+    def test_elevation_is_rafter_top_plus_sheathing(self) -> None:
         cmd = self._command(storey_elevation=6300.0)
-        # 軒(最も低い辺)の天端 Z 絶対値 = 1000 + ストーリ Elevation。
-        assert math.isclose(cmd['elevation'], 1000.0 + 6300.0, abs_tol=1e-6)
+        # 軒の目標 Z = 屋根版の平面(1000 + ストーリ Elevation)から
+        # 垂木せい(45)+野地板厚(12)を鉛直換算(÷cosθ=nz)して持ち上げた値
+        # (野地板下端=垂木上端。垂木下端=屋根版の平面は VW 上の実測で確認)。
+        lift = (45.0 + 12.0) / self.NZ
+        assert math.isclose(
+            cmd['elevation'], 1000.0 + 6300.0 + lift, abs_tol=1e-6)
 
     def test_center_offset_subtracted_from_xy(self) -> None:
         cmd = self._command(center_x=100.0, center_y=200.0)
