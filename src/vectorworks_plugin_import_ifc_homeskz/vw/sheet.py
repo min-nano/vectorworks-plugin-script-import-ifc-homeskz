@@ -38,6 +38,17 @@ _DATA_TAG_PLUGIN = 'Data Tag'
 # VW 上で最終調整する(描画フェーズは他要素と同じく VW 上で検証する方針)。
 _GRAPHIC_LEGEND_PLUGIN = 'GraphicLegend'
 
+# グラフィック凡例の箱幅パラメータ。グラフィック凡例は矩形モード PIO で、対話的に
+# 作成するときはユーザーが描いた矩形の幅にレイアウトが追従する(サイズは OIP に
+# 出ない)。CreateCustomObjectN は点でしか生成できず、そのままだと箱幅 0 =
+# サイズ 0 でリサイズハンドルを掴めない。そこで生成後に箱幅フィールド BoxWidth を
+# 既定値に設定し、ResetObject で反映してから可視化する(高さは行内容から自動決定
+# されるため設定しない)。フィールド名 'BoxWidth' は VW 上で実オブジェクトの
+# パラメトリックレコードから確認済み。既定幅はシートレイヤ上(用紙、ドキュメント単位
+# =mm)の適当な大きさで、VW 上で最終調整する。SetRField には文字列で渡す。
+_LEGEND_WIDTH_FIELD = 'BoxWidth'
+_LEGEND_BOX_WIDTH = '150'
+
 # データタグの「引出線を表示」パラメータ(オブジェクト情報パレットのチェックボックス)。
 # 既定 ON で、部材に接して置いても引出線が描かれてしまうため per-instance で OFF に
 # する。フィールド名 'Use Leader'・Boolean 値 'False' は VW が描画したデータタグの
@@ -217,10 +228,13 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
 
     配置先シートレイヤ(``legend['number']`` = レイヤ名)をアクティブにしてから、
     ``vs.CreateCustomObjectN`` でグラフィック凡例 PIO を挿入位置に作る。第 4 引数
-    ``showPref=False`` でインポート中に設定ダイアログが開くのを防ぐ。凡例のデータ
-    ソース(基礎伏図ビューポート)と行ごとのラベルテキスト(命令の ``items`` が
-    示すシンボル → ラベルの固定マッピング)は PIO の設定 API が未公開のため、配置後に
-    VW 上で最終調整する。PIO が作れない場合は False を返す。
+    ``showPref=False`` でインポート中に設定ダイアログが開くのを防ぐ。生成直後は
+    矩形モード PIO の箱幅が 0 でサイズ 0(リサイズハンドルを掴めない)ため、箱幅
+    フィールド ``BoxWidth`` を既定値に設定し ``vs.ResetObject`` で反映して可視化する
+    (高さは行内容から自動決定される)。凡例のデータソース(基礎伏図ビューポート)と
+    行ごとのラベルテキスト(命令の ``items`` が示すシンボル → ラベルの固定マッピング)は
+    PIO の設定 API が未公開のため、配置後に VW 上で最終調整する。PIO が作れない場合は
+    False を返す。
     """
     x, y = legend['position']
     # シートレイヤ番号はレイヤ名が担うため、番号でシートレイヤをアクティブにする
@@ -228,6 +242,10 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     obj = vs.CreateCustomObjectN(_GRAPHIC_LEGEND_PLUGIN, (x, y), 0, False)
     if obj == vs.Handle(0):
         return False
+    # 点で生成すると箱幅 0 = サイズ 0 でハンドルを掴めないため、既定の箱幅を与えて
+    # 可視化する(矩形を描いて作るときの幅に相当。レイアウトが幅に追従する)。
+    vs.SetRField(obj, _GRAPHIC_LEGEND_PLUGIN, _LEGEND_WIDTH_FIELD, _LEGEND_BOX_WIDTH)
+    vs.ResetObject(obj)
     return True
 
 
