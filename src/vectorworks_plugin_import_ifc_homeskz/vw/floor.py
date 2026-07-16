@@ -21,6 +21,22 @@ import vs
 from ..document import FloorCommand
 
 
+def _set_all_attributes_by_class(obj: Any) -> None:
+    """オブジェクトの描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+
+    ``SetClass`` はクラスを割り当てるだけで各描画属性は by-instance の既定値のまま残る
+    ため、属性ごとの by-class 設定関数を個別に呼ぶ(``vw/column_mark.py``・
+    ``vw/rebar.py`` と同じ規約)。
+    """
+    vs.SetPenColorByClass(obj)
+    vs.SetFillColorByClass(obj)
+    vs.SetLWByClass(obj)
+    vs.SetLSByClass(obj)
+    vs.SetFPatByClass(obj)
+    vs.SetMarkerByClass(obj)
+    vs.SetOpacityByClass(obj)
+
+
 def draw_floor(command: FloorCommand) -> None:
     """floor 命令 1 件を床ツール(Floor オブジェクト)として描画する。
 
@@ -47,6 +63,8 @@ def draw_floor(command: FloorCommand) -> None:
         # 置くため、Move3D で実際の高さへ移動する(構造材の Move3D と同じ規約)。
         vs.Move3D(0.0, 0.0, command['elevation'])
         vs.SetClass(floor, command['class'])
+        # 描画属性(カラー・透明度等)をすべてクラス属性に従わせる。
+        _set_all_attributes_by_class(floor)
         bound = command['bound']
         vs.SetObjectStoryBound(
             floor, 0, 2, bound['story_offset'], bound['level'], bound['offset'])
@@ -61,6 +79,7 @@ def draw_floor(command: FloorCommand) -> None:
         vs.EndPoly()
         poly_h = vs.LNewObj()
         vs.SetClass(poly_h, command['class'])
+        _set_all_attributes_by_class(poly_h)
 
 
 def execute_floors(commands: list[FloorCommand]) -> int:
