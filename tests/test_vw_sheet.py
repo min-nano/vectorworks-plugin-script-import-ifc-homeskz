@@ -364,6 +364,10 @@ class TestExecuteSheetsWithLegends:
         vs_mock.Layer.assert_any_call('1')
         vs_mock.CreateCustomObjectN.assert_called_once_with(
             vw_sheet._GRAPHIC_LEGEND_PLUGIN, (0.0, 0.0), 0, False)
+        # ソース定義(シンボル + 基礎伏図ビューポートフィルタ)を持つプラグイン
+        # スタイルを関連付ける
+        vs_mock.SetPluginStyle.assert_any_call(
+            'LEGEND_HANDLE', vw_sheet._GRAPHIC_LEGEND_STYLE)
         # 箱幅を既定値に設定して可視化し(サイズ 0 でハンドルを掴めないのを防ぐ)、
         # ResetObject で反映する
         vs_mock.SetRField.assert_called_once_with(
