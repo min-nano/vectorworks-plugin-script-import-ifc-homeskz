@@ -134,6 +134,12 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [1200.0, -800.0], 'angle': -45.0,
             },
         ],
+        'joints': [
+            {
+                'layer': '1-横架材天端', 'symbol': '仕口',
+                'position': [1500.0, 60.0], 'angle': 90.0,
+            },
+        ],
         'sheets': [
             {
                 'number': '1', 'title': '基礎伏図',
@@ -204,8 +210,8 @@ class TestValidateDocument:
                     'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [], 'fire_braces': [],
-                    'sheets': [], 'tags': [], 'column_marks': [], 'legends': [],
-                    'rebars': []}
+                    'joints': [], 'sheets': [], 'tags': [], 'column_marks': [],
+                    'legends': [], 'rebars': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -229,7 +235,7 @@ class TestValidateDocument:
                                      'columns', 'walls', 'wall_joins', 'slabs',
                                      'floors',
                                      'anchor_bolts', 'floor_posts',
-                                     'fire_braces', 'sheets',
+                                     'fire_braces', 'joints', 'sheets',
                                      'tags', 'column_marks', 'legends',
                                      'rebars'])
     def test_rejects_missing_command_list(self, key: str) -> None:
@@ -638,6 +644,36 @@ class TestValidateDocument:
     def test_rejects_fire_brace_with_non_number_angle(self) -> None:
         document = make_valid_document()
         document['fire_braces'][0]['angle'] = 'x'
+        with pytest.raises(DocumentValidationError, match='angle'):
+            validate_document(document)
+
+    def test_rejects_joint_without_symbol(self) -> None:
+        document = make_valid_document()
+        del document['joints'][0]['symbol']
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_joint_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['joints'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_joint_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['joints'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_joint_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['joints'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_joint_with_non_number_angle(self) -> None:
+        document = make_valid_document()
+        document['joints'][0]['angle'] = 'x'
         with pytest.raises(DocumentValidationError, match='angle'):
             validate_document(document)
 

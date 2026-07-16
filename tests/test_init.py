@@ -95,6 +95,7 @@ def _reload_vw_modules() -> None:
     import vectorworks_plugin_import_ifc_homeskz.vw.fire_brace as vw_fire
     import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
     import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
+    import vectorworks_plugin_import_ifc_homeskz.vw.joint as vw_joint
     import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
     import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
     import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
@@ -107,6 +108,7 @@ def _reload_vw_modules() -> None:
     importlib.reload(vw_footing)
     importlib.reload(vw_anchor)
     importlib.reload(vw_fire)
+    importlib.reload(vw_joint)
     importlib.reload(vw_sheet)
     importlib.reload(vw)
 

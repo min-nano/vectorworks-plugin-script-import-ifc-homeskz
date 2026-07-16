@@ -96,6 +96,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
         import vectorworks_plugin_import_ifc_homeskz.vw.fire_brace as vw_fire
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
+        import vectorworks_plugin_import_ifc_homeskz.vw.joint as vw_joint
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
@@ -109,6 +110,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         importlib.reload(vw_footing)
         importlib.reload(vw_anchor)
         importlib.reload(vw_fire)
+        importlib.reload(vw_joint)
         importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
@@ -208,6 +210,10 @@ def make_document() -> dict[str, Any]:
             {'layer': '1-横架材天端', 'symbol': '鋼製火打',
              'position': [500.0, -500.0], 'angle': -45.0},
         ],
+        'joints': [
+            {'layer': '1-横架材天端', 'symbol': '仕口',
+             'position': [3000.0, 0.0], 'angle': 180.0},
+        ],
         'sheets': [
             {'number': '1', 'title': '基礎伏図',
              'viewport': {'drawing_title': '基礎伏図', 'drawing_number': '1',
@@ -245,6 +251,7 @@ class TestExecuteDocument:
                           'columns': 1, 'walls': 1, 'wall_joins': 0, 'slabs': 1,
                           'floors': 1, 'rebars': 1,
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
+                          'joints': 1,
                           'column_marks': 1, 'sheets': 1, 'tags': 0,
                           'legends': 1}
 
@@ -255,7 +262,7 @@ class TestExecuteDocument:
                     'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [],
-                    'fire_braces': [], 'sheets': [], 'tags': [],
+                    'fire_braces': [], 'joints': [], 'sheets': [], 'tags': [],
                     'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
@@ -263,6 +270,7 @@ class TestExecuteDocument:
                           'columns': 0, 'walls': 0, 'wall_joins': 0, 'slabs': 0,
                           'floors': 0, 'rebars': 0,
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
+                          'joints': 0,
                           'column_marks': 0, 'sheets': 0, 'tags': 0,
                           'legends': 0}
 

@@ -22,6 +22,7 @@ from .footing import (
     build_wall_join_commands,
 )
 from .grid import build_grid_commands
+from .joint import build_joint_commands
 from .loader import open_ifc
 from .member import build_member_commands
 from .rafter import build_rafter_commands
@@ -39,7 +40,8 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_document', 'build_fire_brace_commands',
            'build_floor_commands',
            'build_floor_post_commands', 'build_foundation_story_command',
-           'build_grid_commands', 'build_legend_commands',
+           'build_grid_commands', 'build_joint_commands',
+           'build_legend_commands',
            'build_member_commands', 'build_rafter_commands',
            'build_rebar_commands', 'build_roof_commands',
            'build_sheet_commands', 'build_slab_commands',
@@ -81,6 +83,9 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'anchor_bolts': anchor_bolts,
         'floor_posts': build_floor_post_commands(ifc_file),
         'fire_braces': build_fire_brace_commands(ifc_file),
+        # 仕口は横架材命令(食い込み調整済み)から受ける材のある端部を判定するため
+        # 一度だけ組み立てた members を渡す
+        'joints': build_joint_commands(members),
         'sheets': build_sheet_commands(ifc_file),
         'tags': build_tag_commands(members),
         'column_marks': build_column_mark_commands(ifc_file),

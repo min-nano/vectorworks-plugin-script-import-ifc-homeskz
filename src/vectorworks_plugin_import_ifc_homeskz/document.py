@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 29):
+スキーマ (version 30):
 
     {
-        "version": 29,
+        "version": 30,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -271,6 +271,24 @@
                 "angle": 0.0
             }
         ],
+        "joints": [
+            {
+                # 仕口(受ける材のある横架材端部)をハイブリッドシンボル "仕口" に
+                # 置換して横架材レイヤに配置する命令。横架材の端部が別の横架材
+                # (受ける材)に取り付く場合にだけ、その端部に置く(取り付かない
+                # 自由端には置かない)。
+                "layer": "1-横架材天端",   # 配置先デザインレイヤ名(横架材レイヤ・既存のみ)
+                "symbol": "仕口",          # 置換するハイブリッドシンボル名
+                # 2D 基準位置は梁端の中央上端(member 命令の start/end は断面の
+                # 左右中央・上端が通る線なので、その端点をそのまま使う。mm・
+                # センタリング済み)。高さの基準は配置先レイヤ(横架材天端 / 最上階は
+                # 軒高、母屋は母屋)のストーリレベルが担う。
+                "position": [x, y],
+                # 梁端の向きに合わせた回転角(度)。梁軸に沿って端部から部材内側へ
+                # 向かう方向で、シンボルが梁と揃うようにする。
+                "angle": 0.0
+            }
+        ],
         "sheets": [
             {
                 # シートレイヤとビューポートを生成する命令。特定のデザインレイヤ群を
@@ -411,7 +429,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 29
+DOCUMENT_VERSION = 30
 
 
 class LevelCommand(TypedDict):
@@ -709,6 +727,25 @@ class FireBraceCommand(TypedDict):
     angle: float
 
 
+class JointCommand(TypedDict):
+    """仕口(受ける材のある横架材端部)をハイブリッドシンボルに置換して配置する命令。
+
+    横架材の端部が別の横架材(受ける材)に取り付く場合にだけ、その端部に仕口
+    シンボルを置く(取り付かない自由端には置かない)。layer は配置先デザイン
+    レイヤ名(横架材が乗るレイヤ=横架材天端、最上階は軒高、母屋は母屋)。symbol は
+    置換するハイブリッドシンボル名(仕口)。position は梁端の中央上端の 2D 座標
+    (member 命令の start/end=断面の左右中央・上端が通る線の端点、センタリング済み)
+    で、これがシンボルの基準点になる。angle は梁端の向きに合わせた回転角(度)で、
+    梁軸に沿って端部から部材内側へ向かう方向。高さの基準(横架材天端 / 軒高 / 母屋)は
+    配置先レイヤのストーリレベルが担うため、命令には高さ情報を持たせない。
+    """
+
+    layer: str
+    symbol: str
+    position: list[float]
+    angle: float
+
+
 class _ViewportBase(TypedDict):
     drawing_title: str
     drawing_number: str
@@ -874,6 +911,7 @@ class Document(TypedDict):
     anchor_bolts: list[AnchorBoltCommand]
     floor_posts: list[FloorPostCommand]
     fire_braces: list[FireBraceCommand]
+    joints: list[JointCommand]
     sheets: list[SheetCommand]
     tags: list[TagCommand]
     column_marks: list[ColumnMarkCommand]
@@ -1144,6 +1182,19 @@ def _validate_fire_brace(index: int, command: Any) -> None:
              f'{where}.angle は数値である必要があります')
 
 
+def _validate_joint(index: int, command: Any) -> None:
+    where = f'joints[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('symbol'), str) and command['symbol'],
+             f'{where}.symbol は非空文字列である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+    _require(_is_number(command.get('angle')),
+             f'{where}.angle は数値である必要があります')
+
+
 def _validate_viewport(where: str, viewport: Any) -> None:
     field = f'{where}.viewport'
     _require(isinstance(viewport, dict), f'{field} は dict である必要があります')
@@ -1275,8 +1326,8 @@ def validate_document(document: Any) -> Document:
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'rafters', 'roofs', 'columns',
                 'walls', 'wall_joins', 'slabs', 'floors', 'anchor_bolts',
-                'floor_posts', 'fire_braces', 'sheets', 'tags', 'column_marks',
-                'legends', 'rebars'):
+                'floor_posts', 'fire_braces', 'joints', 'sheets', 'tags',
+                'column_marks', 'legends', 'rebars'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -1305,6 +1356,8 @@ def validate_document(document: Any) -> Document:
         _validate_floor_post(i, command)
     for i, command in enumerate(document['fire_braces']):
         _validate_fire_brace(i, command)
+    for i, command in enumerate(document['joints']):
+        _validate_joint(i, command)
     for i, command in enumerate(document['sheets']):
         _validate_sheet(i, command)
     for i, command in enumerate(document['tags']):

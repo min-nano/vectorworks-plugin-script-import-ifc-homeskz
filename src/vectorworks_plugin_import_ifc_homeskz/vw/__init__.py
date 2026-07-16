@@ -17,6 +17,7 @@ from .floor import execute_floors
 from .floor_post import execute_floor_posts
 from .footing import execute_slabs, execute_wall_joins, execute_walls
 from .grid import execute_grids
+from .joint import execute_joints
 from .member import execute_members
 from .rafter import execute_rafters
 from .rebar import execute_rebars
@@ -26,14 +27,15 @@ from .story import execute_stories, reorder_story_layers
 
 __all__ = ['execute_anchor_bolts', 'execute_column_marks', 'execute_columns',
            'execute_document', 'execute_fire_braces', 'execute_floor_posts',
-           'execute_floors', 'execute_grids', 'execute_members',
-           'execute_rafters', 'execute_rebars', 'execute_roofs',
-           'execute_sheets', 'execute_slabs', 'execute_stories',
-           'execute_wall_joins', 'execute_walls', 'reorder_story_layers']
+           'execute_floors', 'execute_grids', 'execute_joints',
+           'execute_members', 'execute_rafters', 'execute_rebars',
+           'execute_roofs', 'execute_sheets', 'execute_slabs',
+           'execute_stories', 'execute_wall_joins', 'execute_walls',
+           'reorder_story_layers']
 
 
 def execute_document(document: Any) -> dict[str, int]:
-    """命令セットを検証し、ストーリ → 通り芯 → 構造材 → 垂木 → 野地板 → 柱 → 立上り → 壁結合 → 底盤 → アンカーボルト → 床束 → 火打 → 下階柱記号 → シートの順で描画する。
+    """命令セットを検証し、ストーリ → 通り芯 → 構造材 → 垂木 → 野地板 → 柱 → 立上り → 壁結合 → 底盤 → アンカーボルト → 床束 → 火打 → 仕口 → 下階柱記号 → シートの順で描画する。
 
     構造材などの描画後に reorder_story_layers でデザインレイヤのスタック順を整える。
     通り芯レイヤ(共通)を最上段に積むため、その生成(通り芯描画)後に並べ替える
@@ -44,14 +46,15 @@ def execute_document(document: Any) -> dict[str, int]:
 
     Returns: {'stories', 'grids', 'members', 'rafters', 'roofs', 'columns',
         'walls', 'wall_joins', 'slabs', 'floors', 'rebars', 'anchor_bolts',
-        'floor_posts', 'fire_braces', 'column_marks', 'sheets', 'tags',
-        'legends'}
+        'floor_posts', 'fire_braces', 'joints', 'column_marks', 'sheets',
+        'tags', 'legends'}
         各命令の実行数。rafters は屋根版から導出した垂木(軸組)数、roofs は
         屋根版から導出した野地板(屋根オブジェクト)数、wall_joins は
         交差する立上りを結合した回数、slabs は底盤・地中梁数、floors は各階 FL
         レイヤに配置した床板(床)数、rebars は基礎に配置した配筋 PIO(鉄筋)数、
         floor_posts は大引下に配置した床束シンボル数、fire_braces は
-        横架材レイヤに配置した火打シンボル数、column_marks は下階柱レイヤに配置した
+        横架材レイヤに配置した火打シンボル数、joints は受ける材のある横架材端部に
+        配置した仕口シンボル数、column_marks は下階柱レイヤに配置した
         柱束伏図記号 PIO 数、tags は伏図ビューポートに配置した断面寸法データタグ数、
         legends は基礎伏図に配置したグラフィック凡例数。
     """
@@ -82,6 +85,8 @@ def execute_document(document: Any) -> dict[str, int]:
         'anchor_bolts': execute_anchor_bolts(validated['anchor_bolts']),
         'floor_posts': execute_floor_posts(validated['floor_posts']),
         'fire_braces': execute_fire_braces(validated['fire_braces']),
+        # 仕口(受ける材のある横架材端部のシンボル)は横架材レイヤに配置する
+        'joints': execute_joints(validated['joints']),
         # 下階柱記号は直下階の柱を検索するため柱の描画後に配置する
         'column_marks': execute_column_marks(validated['column_marks']),
     }

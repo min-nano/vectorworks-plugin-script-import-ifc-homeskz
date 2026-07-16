@@ -54,6 +54,7 @@ class Expected:
         rafters: int,
         roofs: int,
         rebars: int,
+        joints: int,
         moya_stories: set[str] | None = None,
         roof_stories: set[str] | None = None,
         legends: int = 1,
@@ -78,6 +79,8 @@ class Expected:
         # 屋根版から導出した野地板(屋根オブジェクト)の総数(屋根面 1 枚 1 つ)。
         self.roofs = roofs
         self.rebars = rebars
+        # 受ける材のある横架材端部に配置する仕口シンボルの総数。
+        self.joints = joints
         # 基礎伏図のグラフィック凡例数(基礎があれば 1)。
         self.legends = legends
         # 下屋根の小屋組(母屋・棟木)を含む中間階のストーリ名の集合。
@@ -113,6 +116,7 @@ FIXTURES = [
         rafters=110,
         roofs=7,
         rebars=76,
+        joints=212,
         moya_stories={'2階'},
         roof_stories={'2階'},
     ),
@@ -136,6 +140,7 @@ FIXTURES = [
         roofs=3,
         roof_stories={'2階'},
         rebars=106,
+        joints=362,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -156,6 +161,7 @@ FIXTURES = [
         rafters=143,
         roofs=11,
         rebars=75,
+        joints=451,
         moya_stories={'2階'},
         roof_stories={'2階'},
     ),
@@ -178,6 +184,7 @@ FIXTURES = [
         rafters=106,
         roofs=9,
         rebars=55,
+        joints=307,
         moya_stories={'2階', '3階'},
         roof_stories={'2階', '3階'},
     ),
@@ -200,6 +207,7 @@ FIXTURES = [
         rafters=54,
         roofs=2,
         rebars=43,
+        joints=95,
     ),
 ]
 
@@ -305,6 +313,7 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         import vectorworks_plugin_import_ifc_homeskz.vw.fire_brace as vw_fire
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
+        import vectorworks_plugin_import_ifc_homeskz.vw.joint as vw_joint
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
         import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
@@ -317,6 +326,7 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         importlib.reload(vw_footing)
         importlib.reload(vw_anchor)
         importlib.reload(vw_fire)
+        importlib.reload(vw_joint)
         importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
@@ -398,6 +408,7 @@ class TestSampleIfcAnalysis:
         assert len(document['anchor_bolts']) == exp.anchor_bolts
         assert len(document['floor_posts']) == exp.floor_posts
         assert len(document['fire_braces']) == exp.fire_braces
+        assert len(document['joints']) == exp.joints
         assert len(document['sheets']) == exp.sheets
         assert len(document['column_marks']) == exp.column_marks
         assert len(document['rebars']) == exp.rebars
@@ -563,6 +574,7 @@ class TestFullPipeline:
         assert counts['anchor_bolts'] == len(document['anchor_bolts'])
         assert counts['floor_posts'] == len(document['floor_posts'])
         assert counts['fire_braces'] == len(document['fire_braces'])
+        assert counts['joints'] == len(document['joints'])
         assert counts['column_marks'] == len(document['column_marks'])
         assert counts['rebars'] == len(document['rebars'])
         assert counts['sheets'] == len(document['sheets'])
@@ -579,6 +591,7 @@ class TestFullPipeline:
         assert counts['anchor_bolts'] == exp.anchor_bolts
         assert counts['floor_posts'] == exp.floor_posts
         assert counts['fire_braces'] == exp.fire_braces
+        assert counts['joints'] == exp.joints
         assert counts['column_marks'] == exp.column_marks
         assert counts['rebars'] == exp.rebars
         assert counts['sheets'] == exp.sheets
