@@ -364,6 +364,12 @@ class TestExecuteSheetsWithLegends:
         vs_mock.Layer.assert_any_call('1')
         vs_mock.CreateCustomObjectN.assert_called_once_with(
             vw_sheet._GRAPHIC_LEGEND_PLUGIN, (0.0, 0.0), 0, False)
+        # 箱幅を既定値に設定して可視化し(サイズ 0 でハンドルを掴めないのを防ぐ)、
+        # ResetObject で反映する
+        vs_mock.SetRField.assert_called_once_with(
+            'LEGEND_HANDLE', vw_sheet._GRAPHIC_LEGEND_PLUGIN,
+            vw_sheet._LEGEND_WIDTH_FIELD, vw_sheet._LEGEND_BOX_WIDTH)
+        vs_mock.ResetObject.assert_any_call('LEGEND_HANDLE')
         assert counters['legends'] == 1
 
     def test_legend_not_placed_on_non_matching_sheet(self) -> None:
