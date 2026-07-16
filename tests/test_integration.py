@@ -46,6 +46,7 @@ class Expected:
         walls: int,
         slabs: int,
         anchor_bolts: int,
+        floor_posts: int,
         fire_braces: int,
         sheets: int,
         column_marks: int,
@@ -62,6 +63,7 @@ class Expected:
         self.walls = walls
         self.slabs = slabs
         self.anchor_bolts = anchor_bolts
+        self.floor_posts = floor_posts
         self.fire_braces = fire_braces
         self.sheets = sheets
         self.column_marks = column_marks
@@ -87,6 +89,7 @@ FIXTURES = [
         walls=17,
         slabs=27,
         anchor_bolts=96,
+        floor_posts=47,
         fire_braces=66,
         sheets=5,
         column_marks=5,
@@ -103,6 +106,7 @@ FIXTURES = [
         walls=27,
         slabs=37,
         anchor_bolts=110,
+        floor_posts=33,
         fire_braces=35,
         sheets=5,
         column_marks=5,
@@ -118,6 +122,7 @@ FIXTURES = [
         walls=17,
         slabs=25,
         anchor_bolts=85,
+        floor_posts=117,
         fire_braces=28,
         sheets=5,
         column_marks=5,
@@ -134,6 +139,7 @@ FIXTURES = [
         walls=13,
         slabs=28,
         anchor_bolts=60,
+        floor_posts=51,
         fire_braces=28,
         sheets=6,
         column_marks=7,
@@ -150,6 +156,7 @@ FIXTURES = [
         walls=10,
         slabs=20,
         anchor_bolts=30,
+        floor_posts=25,
         fire_braces=2,
         sheets=6,
         column_marks=7,
@@ -296,17 +303,17 @@ class TestSampleIfcAnalysis:
         assert [s['name'] for s in stories] == exp.story_names
         assert [s['suffix'] for s in stories] == exp.story_suffixes
         assert [s['elevation'] for s in stories] == exp.story_elevations
-        # 最下階は基礎ストーリ。レベルは GL(立上り) と 底盤天端(底盤)。
-        # 並びは立上りを底盤の上に積むため GL を先頭にする。
+        # 最下階は基礎ストーリ。レベルはアンカーボルト・立上り・床束・底盤。
+        # 並びは希望スタック順(上→下)。
         foundation = stories[0]
         assert foundation['name'] == '基礎'
         assert foundation['suffix'] == 'F'
         assert foundation['elevation'] == 0.0
-        # 基礎天端(アンカーボルト) → GL(立上り) → 底盤天端(底盤) の順に積む
+        # 基礎天端(アンカーボルト) → GL(立上り) → 床束 → 底盤天端(底盤) の順に積む
         assert [lv['type'] for lv in foundation['levels']] == [
-            '基礎天端', 'GL', '底盤天端']
+            '基礎天端', 'GL', '床束', '底盤天端']
         assert [lv['layer'] for lv in foundation['levels']] == [
-            'F-アンカーボルト', 'F-立上り', 'F-底盤']
+            'F-アンカーボルト', 'F-立上り', 'F-床束', 'F-底盤']
         # 最上階は常に「屋根」、構造レベルは「軒高」＋柱配置用の柱＋下階柱記号の下階柱
         # ＋小屋束記号の小屋束＋母屋(棟木含む)配置用の母屋。柱レベルはレイヤを軒高の
         # 直上に積むため先頭、下階柱・小屋束・母屋は軒高の直上に積む(母屋が軒高の直前、
@@ -335,6 +342,7 @@ class TestSampleIfcAnalysis:
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
         assert len(document['anchor_bolts']) == exp.anchor_bolts
+        assert len(document['floor_posts']) == exp.floor_posts
         assert len(document['fire_braces']) == exp.fire_braces
         assert len(document['sheets']) == exp.sheets
         assert len(document['column_marks']) == exp.column_marks
@@ -352,7 +360,7 @@ class TestSampleIfcAnalysis:
         assert viewport['drawing_title'] == '基礎伏図'
         assert viewport['drawing_number'] == '1'
         assert viewport['layers'] == [
-            'F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']
+            'F-底盤', 'F-立上り', 'F-床束', 'F-アンカーボルト', '共通']
 
     def test_floor_framing_sheets_follow_foundation(
             self, exp: Expected) -> None:
@@ -474,6 +482,7 @@ class TestFullPipeline:
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
         assert counts['anchor_bolts'] == len(document['anchor_bolts'])
+        assert counts['floor_posts'] == len(document['floor_posts'])
         assert counts['fire_braces'] == len(document['fire_braces'])
         assert counts['column_marks'] == len(document['column_marks'])
         assert counts['sheets'] == len(document['sheets'])
@@ -485,6 +494,7 @@ class TestFullPipeline:
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs
         assert counts['anchor_bolts'] == exp.anchor_bolts
+        assert counts['floor_posts'] == exp.floor_posts
         assert counts['fire_braces'] == exp.fire_braces
         assert counts['column_marks'] == exp.column_marks
         assert counts['sheets'] == exp.sheets

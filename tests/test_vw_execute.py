@@ -122,6 +122,7 @@ def make_document() -> dict[str, Any]:
                 'levels': [
                     {'type': '基礎天端', 'offset': 400.0, 'layer': 'F-アンカーボルト'},
                     {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
+                    {'type': '床束', 'offset': 50.0, 'layer': 'F-床束'},
                     {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
                 ],
             },
@@ -177,6 +178,9 @@ def make_document() -> dict[str, Any]:
             {'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
              'position': [0.0, 0.0]},
         ],
+        'floor_posts': [
+            {'layer': 'F-床束', 'symbol': '床束', 'position': [910.0, 0.0]},
+        ],
         'fire_braces': [
             {'layer': '1-横架材天端', 'symbol': '鋼製火打',
              'position': [500.0, -500.0], 'angle': -45.0},
@@ -184,7 +188,8 @@ def make_document() -> dict[str, Any]:
         'sheets': [
             {'number': '1', 'title': '基礎伏図',
              'viewport': {'drawing_title': '基礎伏図', 'drawing_number': '1',
-                          'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']}},
+                          'layers': ['F-底盤', 'F-立上り', 'F-床束',
+                                     'F-アンカーボルト', '共通']}},
         ],
         'tags': [],
         'column_marks': [
@@ -206,20 +211,23 @@ class TestExecuteDocument:
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
                           'walls': 1, 'wall_joins': 0, 'slabs': 1,
-                          'anchor_bolts': 1, 'fire_braces': 1, 'column_marks': 1,
-                          'sheets': 1, 'tags': 0, 'legends': 1}
+                          'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
+                          'column_marks': 1, 'sheets': 1, 'tags': 0,
+                          'legends': 1}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
-                    'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
-                    'sheets': [], 'tags': [], 'column_marks': [], 'legends': []}
+                    'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
+                    'fire_braces': [], 'sheets': [], 'tags': [],
+                    'column_marks': [], 'legends': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
                           'walls': 0, 'wall_joins': 0, 'slabs': 0,
-                          'anchor_bolts': 0, 'fire_braces': 0, 'column_marks': 0,
-                          'sheets': 0, 'tags': 0, 'legends': 0}
+                          'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
+                          'column_marks': 0, 'sheets': 0, 'tags': 0,
+                          'legends': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

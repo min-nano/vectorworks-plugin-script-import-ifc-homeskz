@@ -114,10 +114,11 @@ class TestBuildFromFixture:
         assert story['suffix'] == 'F'
         assert story['elevation'] == 0.0
         # 並びは希望スタック順(上→下): 基礎天端(アンカーボルト) → GL(立上り)
-        # → 底盤天端(底盤)。基礎天端は立上り天端 400.0。
+        # → 床束 → 底盤天端(底盤)。基礎天端は立上り天端 400.0、床束は底盤上端 50.0。
         assert story['levels'] == [
             {'type': '基礎天端', 'offset': 400.0, 'layer': 'F-アンカーボルト'},
             {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
+            {'type': '床束', 'offset': 50.0, 'layer': 'F-床束'},
             {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
         ]
 

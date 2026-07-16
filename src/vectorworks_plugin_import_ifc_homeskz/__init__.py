@@ -57,6 +57,7 @@ def run() -> None:
             f' 基礎に {counts["walls"]} 本の立上り(壁、{counts["wall_joins"]} 箇所を壁結合)、'
             f'{counts["slabs"]} 枚の底盤・地中梁(スラブ)、'
             f'{counts["anchor_bolts"]} 本のアンカーボルト(シンボル)、'
+            f'{counts["floor_posts"]} 本の床束(シンボル)、'
             f'{counts["fire_braces"]} 本の火打(シンボル)を配置しました。'
             f' {counts["sheets"]} 枚のシートレイヤ(伏図)を作成し、'
             f'{counts["tags"]} 個の断面寸法データタグ、'

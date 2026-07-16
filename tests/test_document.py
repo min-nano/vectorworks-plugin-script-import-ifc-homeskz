@@ -94,6 +94,12 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [0.0, 0.0],
             },
         ],
+        'floor_posts': [
+            {
+                'layer': 'F-床束', 'symbol': '床束',
+                'position': [910.0, 0.0],
+            },
+        ],
         'fire_braces': [
             {
                 'layer': '2-横架材天端', 'symbol': '鋼製火打',
@@ -105,7 +111,8 @@ def make_valid_document() -> dict[str, Any]:
                 'number': '1', 'title': '基礎伏図',
                 'viewport': {
                     'drawing_title': '基礎伏図', 'drawing_number': '1',
-                    'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通'],
+                    'layers': ['F-底盤', 'F-立上り', 'F-床束', 'F-アンカーボルト',
+                               '共通'],
                 },
             },
         ],
@@ -147,8 +154,9 @@ class TestValidateDocument:
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
-                    'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
-                    'sheets': [], 'tags': [], 'column_marks': [], 'legends': []}
+                    'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
+                    'fire_braces': [], 'sheets': [], 'tags': [],
+                    'column_marks': [], 'legends': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -169,7 +177,8 @@ class TestValidateDocument:
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
                                      'walls', 'wall_joins', 'slabs',
-                                     'anchor_bolts', 'fire_braces', 'sheets',
+                                     'anchor_bolts', 'floor_posts',
+                                     'fire_braces', 'sheets',
                                      'tags', 'column_marks', 'legends'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
@@ -439,6 +448,30 @@ class TestValidateDocument:
     def test_rejects_anchor_bolt_with_bad_position(self) -> None:
         document = make_valid_document()
         document['anchor_bolts'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_floor_post_without_symbol(self) -> None:
+        document = make_valid_document()
+        del document['floor_posts'][0]['symbol']
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_floor_post_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['floor_posts'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_floor_post_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['floor_posts'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_floor_post_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['floor_posts'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
 

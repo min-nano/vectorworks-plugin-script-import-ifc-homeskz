@@ -35,9 +35,11 @@ from .grid import resolve_lines
 from .story import (
     FOUNDATION_SUFFIX,
     LAYER_FOUNDATION_ANCHOR,
+    LAYER_FOUNDATION_FLOOR_POST,
     LAYER_FOUNDATION_SLAB,
     LAYER_FOUNDATION_WALL,
     LEVEL_BEAM_TOP,
+    LEVEL_FLOOR_POST,
     LEVEL_FOUNDATION_TOP,
     LEVEL_GL,
     LEVEL_SLAB_TOP,
@@ -376,10 +378,12 @@ def build_foundation_story_command(
     """基礎ストーリの story 命令を返す。基礎要素が無ければ None。
 
     ストーリ高さは GL=0。レベルは基礎天端(立上り天端の絶対 Z、F-アンカーボルト
-    レイヤ)・GL(0、F-立上りレイヤ)・底盤天端(底盤天端の絶対 Z、F-底盤レイヤ)。
-    ``levels`` の並びは希望スタック順(上→下)で、最上段に基礎天端(アンカーボルト)、
-    続いて立上り(GL)、底盤(底盤天端)を積むため基礎天端 → GL → 底盤天端 の順にする。
-    アンカーボルトの高さ基準は基礎天端レベルが担う。
+    レイヤ)・GL(0、F-立上りレイヤ)・床束(底盤天端の絶対 Z、F-床束レイヤ)・
+    底盤天端(底盤天端の絶対 Z、F-底盤レイヤ)。``levels`` の並びは希望スタック順
+    (上→下)で、最上段に基礎天端(アンカーボルト)、続いて立上り(GL)、床束、
+    底盤(底盤天端)を積むため 基礎天端 → GL → 床束 → 底盤天端 の順にする。
+    アンカーボルトの高さ基準は基礎天端レベル、床束(シンボル)の高さ基準は床束
+    レベル(底盤上端に揃える)が担う。
     """
     if not has_foundation(ifc_file):
         return None
@@ -397,6 +401,9 @@ def build_foundation_story_command(
             {'type': LEVEL_FOUNDATION_TOP, 'offset': foundation_top_offset,
              'layer': LAYER_FOUNDATION_ANCHOR},
             {'type': LEVEL_GL, 'offset': 0.0, 'layer': LAYER_FOUNDATION_WALL},
+            # 床束は基礎底盤上端(底盤天端)に立つため高さは底盤天端に揃える。
+            {'type': LEVEL_FLOOR_POST, 'offset': slab_top_offset,
+             'layer': LAYER_FOUNDATION_FLOOR_POST},
             {'type': LEVEL_SLAB_TOP, 'offset': slab_top_offset,
              'layer': LAYER_FOUNDATION_SLAB},
         ],

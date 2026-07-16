@@ -13,6 +13,7 @@ from .anchor_bolt import build_anchor_bolt_commands
 from .column import build_column_commands
 from .column_mark import build_column_mark_commands
 from .fire_brace import build_fire_brace_commands
+from .floor_post import build_floor_post_commands
 from .footing import (
     build_foundation_story_command,
     build_slab_commands,
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_column_mark_commands',
            'build_document', 'build_fire_brace_commands',
-           'build_foundation_story_command',
+           'build_floor_post_commands', 'build_foundation_story_command',
            'build_grid_commands', 'build_legend_commands',
            'build_member_commands',
            'build_sheet_commands', 'build_slab_commands',
@@ -69,6 +70,7 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'wall_joins': build_wall_join_commands(walls),
         'slabs': build_slab_commands(ifc_file, walls),
         'anchor_bolts': anchor_bolts,
+        'floor_posts': build_floor_post_commands(ifc_file),
         'fire_braces': build_fire_brace_commands(ifc_file),
         'sheets': build_sheet_commands(ifc_file),
         'tags': build_tag_commands(members),

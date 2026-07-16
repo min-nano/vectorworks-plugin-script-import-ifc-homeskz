@@ -38,9 +38,9 @@ class TestBuildFoundationSheetCommands:
         viewport = sheet.build_foundation_sheet_commands(ifc)[0]['viewport']
         assert viewport['drawing_title'] == '基礎伏図'
         assert viewport['drawing_number'] == '1'
-        # 底盤・立上り・アンカーボルト・通り芯の順で表示する
+        # 底盤・立上り・床束・アンカーボルト・通り芯の順で表示する
         assert viewport['layers'] == [
-            'F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']
+            'F-底盤', 'F-立上り', 'F-床束', 'F-アンカーボルト', '共通']
 
 
 class TestBuildFloorFramingSheetCommands:

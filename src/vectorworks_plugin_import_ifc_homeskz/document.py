@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 24):
+スキーマ (version 25):
 
     {
-        "version": 24,
+        "version": 25,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -172,6 +172,20 @@
                 "position": [x, y]
             }
         ],
+        "floor_posts": [
+            {
+                # 床束(IFC に出力されないため大引の下に 910mm 間隔で決め打ち配置)を
+                # ハイブリッドシンボル "床束" に置換して基礎ストーリの F-床束 レイヤに
+                # 配置する命令。
+                "layer": "F-床束",         # 配置先デザインレイヤ名(既存のみ・なければスキップ)
+                "symbol": "床束",          # 置換するハイブリッドシンボル名
+                # 2D 基準位置は大引芯線に沿った床束位置(910mm 間隔、mm・センタリング
+                # 済み)。高さの基準は基礎底盤上端(底盤天端)で、配置先レイヤ
+                # (F-床束)のストーリレベル(床束=底盤天端に揃える)が担うため
+                # 命令に高さ情報は持たせない。
+                "position": [x, y]
+            }
+        ],
         "fire_braces": [
             {
                 # 火打(火打梁、IfcBeam/IfcMember の "火打:…")をハイブリッド
@@ -290,7 +304,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 24
+DOCUMENT_VERSION = 25
 
 
 class LevelCommand(TypedDict):
@@ -483,6 +497,21 @@ class AnchorBoltCommand(TypedDict):
     position: list[float]
 
 
+class FloorPostCommand(TypedDict):
+    """床束をハイブリッドシンボルに置換して配置する命令。
+
+    ホームズ君 IFC には床束が出力されないため、大引の下に 910mm 間隔で決め打ち
+    配置する(``ifc/floor_post.py`` 参照)。layer は配置先デザインレイヤ名(基礎
+    ストーリの F-床束)。symbol は置換するハイブリッドシンボル名(床束)。position は
+    大引芯線上の床束位置の 2D 座標(センタリング済み)。高さの基準(基礎底盤上端=
+    底盤天端)は配置先レイヤのストーリレベルが担うため、命令には高さ情報を持たせない。
+    """
+
+    layer: str
+    symbol: str
+    position: list[float]
+
+
 class FireBraceCommand(TypedDict):
     """火打(火打梁)をハイブリッドシンボルに置換して配置する命令。
 
@@ -620,6 +649,7 @@ class Document(TypedDict):
     wall_joins: list[WallJoinCommand]
     slabs: list[SlabCommand]
     anchor_bolts: list[AnchorBoltCommand]
+    floor_posts: list[FloorPostCommand]
     fire_braces: list[FireBraceCommand]
     sheets: list[SheetCommand]
     tags: list[TagCommand]
@@ -802,6 +832,17 @@ def _validate_anchor_bolt(index: int, command: Any) -> None:
              f'{where}.position は [x, y] の数値ペアである必要があります')
 
 
+def _validate_floor_post(index: int, command: Any) -> None:
+    where = f'floor_posts[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('symbol'), str) and command['symbol'],
+             f'{where}.symbol は非空文字列である必要があります')
+    _require(_is_point(command.get('position')),
+             f'{where}.position は [x, y] の数値ペアである必要があります')
+
+
 def _validate_fire_brace(index: int, command: Any) -> None:
     where = f'fire_braces[{index}]'
     _require(isinstance(command, dict), f'{where} は dict である必要があります')
@@ -913,8 +954,8 @@ def validate_document(document: Any) -> Document:
     _require(document.get('version') == DOCUMENT_VERSION,
              f'未対応の命令セットバージョンです: {document.get("version")!r}')
     for key in ('stories', 'grids', 'members', 'columns', 'walls', 'wall_joins',
-                'slabs', 'anchor_bolts', 'fire_braces', 'sheets', 'tags',
-                'column_marks', 'legends'):
+                'slabs', 'anchor_bolts', 'floor_posts', 'fire_braces', 'sheets',
+                'tags', 'column_marks', 'legends'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -933,6 +974,8 @@ def validate_document(document: Any) -> Document:
         _validate_slab(i, command)
     for i, command in enumerate(document['anchor_bolts']):
         _validate_anchor_bolt(i, command)
+    for i, command in enumerate(document['floor_posts']):
+        _validate_floor_post(i, command)
     for i, command in enumerate(document['fire_braces']):
         _validate_fire_brace(i, command)
     for i, command in enumerate(document['sheets']):

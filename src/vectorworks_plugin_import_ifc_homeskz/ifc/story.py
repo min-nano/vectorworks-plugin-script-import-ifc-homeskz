@@ -34,9 +34,13 @@ FOUNDATION_SUFFIX = 'F'
 LEVEL_GL = 'GL'
 LEVEL_SLAB_TOP = '底盤天端'
 LEVEL_FOUNDATION_TOP = '基礎天端'  # アンカーボルトの高さ基準(立上り天端)
+# 床束(シンボル)を配置するレベル・レイヤ。床束は基礎底盤上端(底盤天端)に立つ
+# ため高さは底盤天端に揃える。底盤(F-底盤)と分けた専用レイヤに置く。
+LEVEL_FLOOR_POST = '床束'
 LAYER_FOUNDATION_WALL = f'{FOUNDATION_SUFFIX}-立上り'
 LAYER_FOUNDATION_SLAB = f'{FOUNDATION_SUFFIX}-底盤'
 LAYER_FOUNDATION_ANCHOR = f'{FOUNDATION_SUFFIX}-アンカーボルト'
+LAYER_FOUNDATION_FLOOR_POST = f'{FOUNDATION_SUFFIX}-床束'
 
 
 def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None:
