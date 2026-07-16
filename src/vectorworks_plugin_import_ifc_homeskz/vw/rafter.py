@@ -5,9 +5,12 @@
 天端 Z を持つ。ここから **水平投影長(LineLength)・平面方位角・勾配(pitch)** を
 求めて FramingMember に渡す。
 
-軸組ツールは点オブジェクト(``CreateCustomObject``)として原点に生成し、
-``Rotate3D`` で平面方位角(軒→棟)へ回し、``Move3D`` で軒側の絶対位置(XY + 天端 Z)
-へ移動する(VectorWorks の VectorScript エクスポートで確認した配置パターンに従う)。
+軸組ツールは点オブジェクト(``CreateCustomObjectN``、``showPref=False`` で設定
+ダイアログを抑止)として原点に生成し、``Rotate3D`` で平面方位角(軒→棟)へ回し、
+``Move3D`` で軒側の絶対位置(XY + 天端 Z)へ移動する(VectorWorks の VectorScript
+エクスポートで確認した配置パターンに従う)。``CreateCustomObject`` はプラグインの
+設定に従いインポート中に設定ダイアログを開いてしまうため、点オブジェクト(柱束伏図
+記号・鉄筋)と同じく ``CreateCustomObjectN`` で ``showPref=False`` を渡す。
 勾配(垂木の傾き)は本体の pitch パラメータが担い、始端(軒側・下端基準)から棟側へ
 向かって立ち上がる。フィールド名(``type`` / ``width`` / ``height`` / ``LineLength`` /
 ``pitch`` / ``verticalReference`` / ``2DDisplay``)は同エクスポートで確認した名前。
@@ -29,6 +32,9 @@ from ..document import RafterCommand
 PLUGIN_NAME = 'FramingMember'
 # 軸組ツールの部材種別。垂木は 'rafter'。
 _MEMBER_TYPE = 'rafter'
+# CreateCustomObjectN の showPref 引数(オブジェクトの設定ダイアログの表示)。
+# インポート中にダイアログで手動入力を求められないよう常に非表示にする。
+_SHOW_PREF_DIALOG = False
 
 
 def draw_rafter(command: RafterCommand) -> Any:
@@ -51,7 +57,7 @@ def draw_rafter(command: RafterCommand) -> Any:
     w = int(round(command['width']))
     h = int(round(command['height']))
 
-    obj = vs.CreateCustomObject(PLUGIN_NAME, 0.0, 0.0, 0.0)
+    obj = vs.CreateCustomObjectN(PLUGIN_NAME, (0.0, 0.0), 0, _SHOW_PREF_DIALOG)
     if obj != vs.Handle(0):
         # 原点で生成した軸組を平面方位角へ回し、軒側の絶対位置へ移動する。
         vs.ResetOrientation3D()

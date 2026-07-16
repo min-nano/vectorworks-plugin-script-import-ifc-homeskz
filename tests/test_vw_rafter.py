@@ -33,7 +33,7 @@ def _make_vs_mock(existing_layers: set[str], plugin_ok: bool = True) -> MagicMoc
 
     vs_mock.GetObject.side_effect = get_obj
     obj_handle = object()
-    vs_mock.CreateCustomObject.return_value = obj_handle if plugin_ok else null_handle
+    vs_mock.CreateCustomObjectN.return_value = obj_handle if plugin_ok else null_handle
     return vs_mock
 
 
@@ -63,9 +63,10 @@ class TestExecuteRafters:
 
         assert count == 1
         vs_mock.Layer.assert_called_once_with('R-垂木')
-        # 軸組ツール(FramingMember)を生成する
-        vs_mock.CreateCustomObject.assert_called_once()
-        assert vs_mock.CreateCustomObject.call_args.args[0] == 'FramingMember'
+        # 軸組ツール(FramingMember)を生成する。showPref=False で設定ダイアログを抑止。
+        vs_mock.CreateCustomObjectN.assert_called_once()
+        assert vs_mock.CreateCustomObjectN.call_args.args[0] == 'FramingMember'
+        assert vs_mock.CreateCustomObjectN.call_args.args[3] is False
         fields = _rfield(vs_mock)
         assert fields['type'] == 'rafter'
         assert fields['width'] == '45'
@@ -104,7 +105,7 @@ class TestExecuteRafters:
         count = vw_rafter.execute_rafters([make_command()])
 
         assert count == 0
-        vs_mock.CreateCustomObject.assert_not_called()
+        vs_mock.CreateCustomObjectN.assert_not_called()
 
     def test_falls_back_to_line_when_plugin_unavailable(self) -> None:
         vs_mock = _make_vs_mock({'R-垂木'}, plugin_ok=False)
