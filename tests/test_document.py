@@ -58,6 +58,17 @@ def make_valid_document() -> dict[str, Any]:
                 'elevation': 6060.0, 'end_elevation': 7000.0,
             },
         ],
+        'roofs': [
+            {
+                'layer': 'R-野地板', 'class': '04構造-02木造-06耐力面材-03屋根',
+                'boundary': [[0.0, 0.0], [4000.0, 0.0], [4000.0, 3000.0],
+                             [0.0, 3000.0]],
+                'axis_start': [0.0, 0.0], 'axis_end': [4000.0, 0.0],
+                'upslope': [0.0, 3000.0],
+                'rise': 400.0, 'run': 1000.0,
+                'thickness': 12.0, 'elevation': 6060.0,
+            },
+        ],
         'columns': [
             {
                 'layer': '1-柱',
@@ -189,7 +200,8 @@ class TestValidateDocument:
 
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'rafters': [], 'columns': [], 'walls': [],
+                    'members': [], 'rafters': [], 'roofs': [], 'columns': [],
+                    'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [], 'fire_braces': [],
                     'sheets': [], 'tags': [], 'column_marks': [], 'legends': [],
@@ -213,6 +225,7 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'rafters',
+                                     'roofs',
                                      'columns', 'walls', 'wall_joins', 'slabs',
                                      'floors',
                                      'anchor_bolts', 'floor_posts',
@@ -284,6 +297,30 @@ class TestValidateDocument:
         document = make_valid_document()
         document['rafters'][0]['start'] = [0.0]
         with pytest.raises(DocumentValidationError, match='start'):
+            validate_document(document)
+
+    def test_rejects_roof_without_class(self) -> None:
+        document = make_valid_document()
+        del document['roofs'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_roof_with_short_boundary(self) -> None:
+        document = make_valid_document()
+        document['roofs'][0]['boundary'] = [[0.0, 0.0], [1.0, 1.0]]
+        with pytest.raises(DocumentValidationError, match='boundary'):
+            validate_document(document)
+
+    def test_rejects_roof_with_bad_axis(self) -> None:
+        document = make_valid_document()
+        document['roofs'][0]['axis_start'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='axis_start'):
+            validate_document(document)
+
+    def test_rejects_roof_without_thickness(self) -> None:
+        document = make_valid_document()
+        del document['roofs'][0]['thickness']
+        with pytest.raises(DocumentValidationError, match='thickness'):
             validate_document(document)
 
     def test_rejects_member_with_non_string_id(self) -> None:

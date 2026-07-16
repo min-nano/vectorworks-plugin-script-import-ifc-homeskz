@@ -52,6 +52,7 @@ class Expected:
         sheets: int,
         column_marks: int,
         rafters: int,
+        roofs: int,
         rebars: int,
         moya_stories: set[str] | None = None,
         roof_stories: set[str] | None = None,
@@ -74,6 +75,8 @@ class Expected:
         self.column_marks = column_marks
         # 屋根版から導出した垂木の総数。
         self.rafters = rafters
+        # 屋根版から導出した野地板(屋根オブジェクト)の総数(屋根面 1 枚 1 つ)。
+        self.roofs = roofs
         self.rebars = rebars
         # 基礎伏図のグラフィック凡例数(基礎があれば 1)。
         self.legends = legends
@@ -108,6 +111,7 @@ FIXTURES = [
         sheets=5,
         column_marks=5,
         rafters=110,
+        roofs=7,
         rebars=76,
         moya_stories={'2階'},
         roof_stories={'2階'},
@@ -129,6 +133,7 @@ FIXTURES = [
         sheets=5,
         column_marks=5,
         rafters=54,
+        roofs=3,
         roof_stories={'2階'},
         rebars=106,
     ),
@@ -149,6 +154,7 @@ FIXTURES = [
         sheets=5,
         column_marks=5,
         rafters=143,
+        roofs=11,
         rebars=75,
         moya_stories={'2階'},
         roof_stories={'2階'},
@@ -170,6 +176,7 @@ FIXTURES = [
         sheets=6,
         column_marks=7,
         rafters=106,
+        roofs=9,
         rebars=55,
         moya_stories={'2階', '3階'},
         roof_stories={'2階', '3階'},
@@ -191,6 +198,7 @@ FIXTURES = [
         sheets=6,
         column_marks=7,
         rafters=54,
+        roofs=2,
         rebars=43,
     ),
 ]
@@ -352,22 +360,25 @@ class TestSampleIfcAnalysis:
         # ＋小屋束記号の小屋束＋母屋(棟木含む)配置用の母屋。柱レベルはレイヤを軒高の
         # 直上に積むため先頭、下階柱・小屋束・母屋は軒高の直上に積む(母屋が軒高の直前、
         # 小屋束が母屋の直前)。
-        # 最上階は柱＋下階柱＋小屋束記号＋垂木＋母屋＋軒高。垂木は母屋の直上、
-        # 小屋束記号は垂木の直上に積む(上→下: 柱, 下階柱, 小屋束, 垂木, 母屋, 軒高)。
+        # 最上階は柱＋下階柱＋小屋束記号＋野地板＋垂木＋母屋＋軒高。垂木は母屋の直上、
+        # 野地板は垂木の直上、小屋束記号は野地板の直上に積む
+        # (上→下: 柱, 下階柱, 小屋束, 野地板, 垂木, 母屋, 軒高)。
         roof = stories[-1]
         assert roof['name'] == '屋根'
         assert [lv['type'] for lv in roof['levels']] == [
-            '柱', '下階柱', '小屋束', '垂木', '母屋', '軒高']
+            '柱', '下階柱', '小屋束', '野地板', '垂木', '母屋', '軒高']
         # 最下階(1階=stories[1])は下に柱が無いため下階柱レベルを持たない
         assert [lv['type'] for lv in stories[1]['levels']] == [
             '柱', 'FL', '横架材天端']
         # 中間階は FL + 横架材天端 ＋柱＋下階柱(横架材天端の直上)。下屋根の母屋を
-        # 含む階は母屋レベルを、屋根版(下屋根)を含む階は垂木レベルを持つ(いずれも
-        # 横架材天端の直上・垂木が母屋の直上。上→下: 柱, FL, 下階柱, 垂木, 母屋,
-        # 横架材天端)。下屋根は母屋が無くても垂木を持つ。
+        # 含む階は母屋レベルを、屋根版(下屋根)を含む階は垂木・野地板レベルを持つ
+        # (いずれも横架材天端の直上・垂木が母屋の直上・野地板が垂木の直上。上→下:
+        # 柱, FL, 下階柱, 野地板, 垂木, 母屋, 横架材天端)。下屋根は母屋が無くても
+        # 屋根版=垂木・野地板を持つ。
         for story in stories[2:-1]:
             expected_types = ['柱', 'FL', '下階柱']
             if story['name'] in exp.roof_stories:
+                expected_types.append('野地板')
                 expected_types.append('垂木')
             if story['name'] in exp.moya_stories:
                 expected_types.append('母屋')
@@ -379,6 +390,7 @@ class TestSampleIfcAnalysis:
         assert len(document['grids']) == exp.grids
         assert len(document['members']) == exp.members
         assert len(document['rafters']) == exp.rafters
+        assert len(document['roofs']) == exp.roofs
         assert len(document['columns']) == exp.columns
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
@@ -543,6 +555,7 @@ class TestFullPipeline:
         assert counts['grids'] == len(document['grids'])
         assert counts['members'] == len(document['members'])
         assert counts['rafters'] == len(document['rafters'])
+        assert counts['roofs'] == len(document['roofs'])
         assert counts['columns'] == len(document['columns'])
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
@@ -558,6 +571,7 @@ class TestFullPipeline:
         assert counts['grids'] == exp.grids
         assert counts['members'] == exp.members
         assert counts['rafters'] == exp.rafters
+        assert counts['roofs'] == exp.roofs
         assert counts['columns'] == exp.columns
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs

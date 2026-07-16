@@ -140,6 +140,7 @@ def make_document() -> dict[str, Any]:
                 'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
                 'levels': [
                     {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
+                    {'type': '野地板', 'offset': 0.0, 'layer': 'R-野地板'},
                     {'type': '垂木', 'offset': 0.0, 'layer': 'R-垂木'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
@@ -161,6 +162,13 @@ def make_document() -> dict[str, Any]:
             {'layer': 'R-垂木', 'class': '04構造-02木造-05小屋組-05垂木',
              'width': 45.0, 'height': 45.0, 'start': [0.0, 0.0], 'end': [0.0, 2730.0],
              'elevation': 5973.0, 'end_elevation': 6900.0},
+        ],
+        'roofs': [
+            {'layer': 'R-野地板', 'class': '04構造-02木造-06耐力面材-03屋根',
+             'boundary': [[0.0, 0.0], [4000.0, 0.0], [4000.0, 3000.0], [0.0, 3000.0]],
+             'axis_start': [0.0, 0.0], 'axis_end': [4000.0, 0.0],
+             'upslope': [0.0, 3000.0], 'rise': 400.0, 'run': 1000.0,
+             'thickness': 12.0, 'elevation': 5973.0},
         ],
         'columns': [
             {'layer': '1-柱', 'member_id': '105×105 - 管柱',
@@ -233,6 +241,7 @@ class TestExecuteDocument:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'rafters': 1,
+                          'roofs': 1,
                           'columns': 1, 'walls': 1, 'wall_joins': 0, 'slabs': 1,
                           'floors': 1, 'rebars': 1,
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
@@ -242,13 +251,15 @@ class TestExecuteDocument:
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'rafters': [], 'columns': [], 'walls': [],
+                    'members': [], 'rafters': [], 'roofs': [], 'columns': [],
+                    'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [],
                     'fire_braces': [], 'sheets': [], 'tags': [],
                     'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
+                          'roofs': 0,
                           'columns': 0, 'walls': 0, 'wall_joins': 0, 'slabs': 0,
                           'floors': 0, 'rebars': 0,
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
