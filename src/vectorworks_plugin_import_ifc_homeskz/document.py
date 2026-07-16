@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 26):
+スキーマ (version 27):
 
     {
-        "version": 26,
+        "version": 27,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -317,6 +317,40 @@
                     {"symbol": "アンカーボルト_M16", "label": "ホールダウン用アンカーボルトM16"}
                 ]
             }
+        ],
+        "rebars": [
+            {
+                # 基礎の配筋。カスタム PIO「鉄筋」(姉妹プロジェクト
+                # vectorworks-plugin-rebar)を 3D パス図形として配置する命令。
+                # PIO は path(3D パス)とパラメータ(モード・鉄筋仕様)から平面線・
+                # 3D 鉄筋・断面 2D コンポーネントを自前で描く(本リポジトリは PIO の
+                # 配置とパラメータ設定までを担い、配筋の描画ロジックは持たない)。
+                # 立上り(基礎梁)・地中梁は梁モード(mode="beam")、底盤はスラブ
+                # モード(mode="slab")。配筋仕様は IFC の Pset_Reinforcement から
+                # 取得し、無ければ既定値(立上り・地中梁=上下 1-D13・せん断 D10@250、
+                # 底盤=D13@150 シングル両方向)を使う。
+                "layer": "F-立上り",       # 配置先デザインレイヤ名(既存のみ・なければスキップ)
+                                          # 立上り=F-立上り、地中梁・底盤=F-底盤
+                "class": "04構造-01基礎-04配筋",  # PIO 本体の描画クラス(PIO は全図形をこのクラスで描く)
+                "mode": "beam",           # "beam"=梁モード / "slab"=スラブモード
+                # PIO の 3D パス頂点(mm・センタリング済み・絶対 Z)。梁モードは
+                # 梁天端の中心線(開いた 2 点以上)、スラブモードは底盤天端の外形
+                # (閉じた 3 点以上)。PIO はこの Z を天端として断面を下方向に取る。
+                "closed": False,          # パスを閉じるか(スラブ=True、梁=False)
+                "path": [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
+                # 梁モード (mode="beam") の配筋仕様。PIO の SectionSize/TopBars/
+                # BottomBars/Stirrup パラメータに渡す。スラブモードでは空文字。
+                "section_size": "120×500",  # 断面(壁厚×壁高、mm)
+                "top_bars": "1-D13",        # 上端筋
+                "bottom_bars": "1-D13",     # 下端筋
+                "stirrup": "D10@250",       # せん断補強筋(あばら筋)
+                # スラブモード (mode="slab") の配筋仕様。PIO の MainBar/DistBar/
+                # SlabThickness パラメータに渡す(シングル配筋・両方向)。梁モードでは
+                # main_bar/dist_bar は空文字、slab_thickness は 0。
+                "main_bar": "",             # 主筋(D13@150 形式)
+                "dist_bar": "",             # 配力筋(D13@150 形式、主筋に直交)
+                "slab_thickness": 0.0       # スラブ厚 (mm)
+            }
         ]
     }
 """
@@ -325,7 +359,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 26
+DOCUMENT_VERSION = 27
 
 
 class LevelCommand(TypedDict):
@@ -679,6 +713,41 @@ class LegendCommand(TypedDict):
     items: list[LegendItemCommand]
 
 
+# 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
+RebarCommand = TypedDict('RebarCommand', {
+    'layer': str,
+    'class': str,
+    'mode': str,
+    'closed': bool,
+    'path': list[list[float]],
+    'section_size': str,
+    'top_bars': str,
+    'bottom_bars': str,
+    'stirrup': str,
+    'main_bar': str,
+    'dist_bar': str,
+    'slab_thickness': float,
+})
+"""基礎の配筋 PIO「鉄筋」(姉妹プロジェクト vectorworks-plugin-rebar)を配置する命令。
+
+``鉄筋`` PIO は 3D パス図形で、``path``(3D パス)とパラメータ(モード・鉄筋仕様)
+から平面線・3D 鉄筋・断面 2D コンポーネントを自前で描く。本リポジトリは PIO の配置と
+パラメータ設定までを担い、配筋の描画ロジックは持たない。
+
+``mode`` は ``"beam"``(梁モード=立上り・地中梁)または ``"slab"``(スラブモード=底盤)。
+``layer`` は配置先デザインレイヤ(立上り=F-立上り、地中梁・底盤=F-底盤)。``class`` は
+PIO 本体の描画クラス(PIO は全図形をこのクラスで描く)。``path`` は PIO の 3D パス頂点
+(mm・センタリング済み・絶対 Z)で、梁モードは梁天端の中心線(開いた線)、スラブモードは
+底盤天端の外形(閉じた多角形)。``closed`` はパスを閉じるか(スラブ=True・梁=False)。
+
+配筋仕様は IFC の ``Pset_Reinforcement`` から取得し、無ければ既定値を使う。梁モードは
+``section_size``(壁厚×壁高)・``top_bars``/``bottom_bars``(上下端筋)・``stirrup``
+(せん断補強筋)を PIO の SectionSize/TopBars/BottomBars/Stirrup に渡す。スラブモードは
+``main_bar``/``dist_bar``(主筋・配力筋=シングル両方向)・``slab_thickness``(スラブ厚)を
+PIO の MainBar/DistBar/SlabThickness に渡す。使わないモードのフィールドは空文字/0 にする。
+"""
+
+
 class Document(TypedDict):
     """両フェーズを接続する命令セット全体。"""
 
@@ -698,6 +767,7 @@ class Document(TypedDict):
     tags: list[TagCommand]
     column_marks: list[ColumnMarkCommand]
     legends: list[LegendCommand]
+    rebars: list[RebarCommand]
 
 
 class DocumentValidationError(ValueError):
@@ -717,6 +787,14 @@ def _is_point(value: object) -> bool:
     return (
         isinstance(value, (list, tuple))
         and len(value) == 2
+        and all(_is_number(c) for c in value)
+    )
+
+
+def _is_point3(value: object) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 3
         and all(_is_number(c) for c in value)
     )
 
@@ -995,6 +1073,31 @@ def _validate_legend(index: int, command: Any) -> None:
                  f'{where}.items[{j}].label は非空文字列である必要があります')
 
 
+def _validate_rebar(index: int, command: Any) -> None:
+    where = f'rebars[{index}]'
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    _require(isinstance(command.get('layer'), str) and command['layer'],
+             f'{where}.layer は非空文字列である必要があります')
+    _require(isinstance(command.get('class'), str) and command['class'],
+             f'{where}.class は非空文字列である必要があります')
+    _require(command.get('mode') in ('beam', 'slab'),
+             f'{where}.mode は "beam" または "slab" である必要があります')
+    _require(isinstance(command.get('closed'), bool),
+             f'{where}.closed は真偽値である必要があります')
+    path = command.get('path')
+    _require(isinstance(path, list) and len(path) >= 2,
+             f'{where}.path は 2 点以上の頂点リストである必要があります')
+    for j, point in enumerate(path):
+        _require(_is_point3(point),
+                 f'{where}.path[{j}] は [x, y, z] の数値 3 つ組である必要があります')
+    for key in ('section_size', 'top_bars', 'bottom_bars', 'stirrup',
+                'main_bar', 'dist_bar'):
+        _require(isinstance(command.get(key), str),
+                 f'{where}.{key} は文字列である必要があります')
+    _require(_is_number(command.get('slab_thickness')),
+             f'{where}.slab_thickness は数値である必要があります')
+
+
 def _validate_story_bound(where: str, key: str, bound: Any) -> None:
     field = f'{where}.{key}'
     _require(isinstance(bound, dict), f'{field} は dict である必要があります')
@@ -1015,7 +1118,7 @@ def validate_document(document: Any) -> Document:
     for key in ('stories', 'grids', 'members', 'rafters', 'columns',
                 'walls', 'wall_joins',
                 'slabs', 'anchor_bolts', 'floor_posts', 'fire_braces', 'sheets',
-                'tags', 'column_marks', 'legends'):
+                'tags', 'column_marks', 'legends', 'rebars'):
         _require(isinstance(document.get(key), list),
                  f'"{key}" はリストである必要があります')
     for i, command in enumerate(document['stories']):
@@ -1048,6 +1151,8 @@ def validate_document(document: Any) -> Document:
         _validate_column_mark(i, command)
     for i, command in enumerate(document['legends']):
         _validate_legend(i, command)
+    for i, command in enumerate(document['rebars']):
+        _validate_rebar(i, command)
     try:
         # スキーマ検証だけでは未知キー配下の非直列化値を検出できないため、
         # JSON 直列化可能性も明示的に検証する (NaN/Infinity も拒否)

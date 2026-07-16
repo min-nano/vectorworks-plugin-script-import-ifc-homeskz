@@ -210,6 +210,14 @@ def make_document() -> dict[str, Any]:
              'items': [{'symbol': 'アンカーボルト_M12',
                         'label': '土台用アンカーボルトM12'}]},
         ],
+        'rebars': [
+            {'layer': 'F-立上り', 'class': '04構造-01基礎-04配筋',
+             'mode': 'beam', 'closed': False,
+             'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
+             'section_size': '120×500', 'top_bars': '1-D13',
+             'bottom_bars': '1-D13', 'stirrup': 'D10@250',
+             'main_bar': '', 'dist_bar': '', 'slab_thickness': 0.0},
+        ],
     }
 
 
@@ -219,7 +227,7 @@ class TestExecuteDocument:
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'rafters': 1,
                           'columns': 1,
-                          'walls': 1, 'wall_joins': 0, 'slabs': 1,
+                          'walls': 1, 'wall_joins': 0, 'slabs': 1, 'rebars': 1,
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
                           'column_marks': 1, 'sheets': 1, 'tags': 0,
                           'legends': 1}
@@ -231,11 +239,11 @@ class TestExecuteDocument:
                     'wall_joins': [],
                     'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
                     'fire_braces': [], 'sheets': [], 'tags': [],
-                    'column_marks': [], 'legends': []}
+                    'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
                           'columns': 0,
-                          'walls': 0, 'wall_joins': 0, 'slabs': 0,
+                          'walls': 0, 'wall_joins': 0, 'slabs': 0, 'rebars': 0,
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
                           'column_marks': 0, 'sheets': 0, 'tags': 0,
                           'legends': 0}

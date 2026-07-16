@@ -51,6 +51,7 @@ class Expected:
         sheets: int,
         column_marks: int,
         rafters: int,
+        rebars: int,
         moya_stories: set[str] | None = None,
         roof_stories: set[str] | None = None,
         legends: int = 1,
@@ -71,6 +72,7 @@ class Expected:
         self.column_marks = column_marks
         # 屋根版から導出した垂木の総数。
         self.rafters = rafters
+        self.rebars = rebars
         # 基礎伏図のグラフィック凡例数(基礎があれば 1)。
         self.legends = legends
         # 下屋根の小屋組(母屋・棟木)を含む中間階のストーリ名の集合。
@@ -103,6 +105,7 @@ FIXTURES = [
         sheets=5,
         column_marks=5,
         rafters=109,
+        rebars=76,
         moya_stories={'2階'},
         roof_stories={'2階'},
     ),
@@ -123,6 +126,7 @@ FIXTURES = [
         column_marks=5,
         rafters=51,
         roof_stories={'2階'},
+        rebars=106,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -140,6 +144,7 @@ FIXTURES = [
         sheets=5,
         column_marks=5,
         rafters=146,
+        rebars=75,
         moya_stories={'2階'},
         roof_stories={'2階'},
     ),
@@ -159,6 +164,7 @@ FIXTURES = [
         sheets=6,
         column_marks=7,
         rafters=103,
+        rebars=55,
         moya_stories={'2階', '3階'},
         roof_stories={'2階', '3階'},
     ),
@@ -178,6 +184,7 @@ FIXTURES = [
         sheets=6,
         column_marks=7,
         rafters=50,
+        rebars=43,
     ),
 ]
 
@@ -373,6 +380,7 @@ class TestSampleIfcAnalysis:
         assert len(document['fire_braces']) == exp.fire_braces
         assert len(document['sheets']) == exp.sheets
         assert len(document['column_marks']) == exp.column_marks
+        assert len(document['rebars']) == exp.rebars
         assert len(document['legends']) == exp.legends
 
     def test_foundation_plan_sheet_references_foundation_layers(
@@ -514,6 +522,7 @@ class TestFullPipeline:
         assert counts['floor_posts'] == len(document['floor_posts'])
         assert counts['fire_braces'] == len(document['fire_braces'])
         assert counts['column_marks'] == len(document['column_marks'])
+        assert counts['rebars'] == len(document['rebars'])
         assert counts['sheets'] == len(document['sheets'])
         assert counts['legends'] == len(document['legends'])
         assert counts['stories'] == len(exp.story_names)
@@ -527,6 +536,7 @@ class TestFullPipeline:
         assert counts['floor_posts'] == exp.floor_posts
         assert counts['fire_braces'] == exp.fire_braces
         assert counts['column_marks'] == exp.column_marks
+        assert counts['rebars'] == exp.rebars
         assert counts['sheets'] == exp.sheets
         assert counts['legends'] == exp.legends
 

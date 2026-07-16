@@ -147,6 +147,25 @@ def make_valid_document() -> dict[str, Any]:
                 ],
             },
         ],
+        'rebars': [
+            {
+                'layer': 'F-立上り', 'class': '04構造-01基礎-04配筋',
+                'mode': 'beam', 'closed': False,
+                'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
+                'section_size': '120×500', 'top_bars': '1-D13',
+                'bottom_bars': '1-D13', 'stirrup': 'D10@250',
+                'main_bar': '', 'dist_bar': '', 'slab_thickness': 0.0,
+            },
+            {
+                'layer': 'F-底盤', 'class': '04構造-01基礎-04配筋',
+                'mode': 'slab', 'closed': True,
+                'path': [[0.0, 0.0, 50.0], [3000.0, 0.0, 50.0],
+                         [3000.0, 2000.0, 50.0], [0.0, 2000.0, 50.0]],
+                'section_size': '', 'top_bars': '', 'bottom_bars': '',
+                'stirrup': '', 'main_bar': 'D13@150', 'dist_bar': 'D13@150',
+                'slab_thickness': 150.0,
+            },
+        ],
     }
 
 
@@ -165,7 +184,7 @@ class TestValidateDocument:
                     'wall_joins': [],
                     'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
                     'fire_braces': [], 'sheets': [], 'tags': [],
-                    'column_marks': [], 'legends': []}
+                    'column_marks': [], 'legends': [], 'rebars': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -189,7 +208,8 @@ class TestValidateDocument:
                                      'walls', 'wall_joins', 'slabs',
                                      'anchor_bolts', 'floor_posts',
                                      'fire_braces', 'sheets',
-                                     'tags', 'column_marks', 'legends'])
+                                     'tags', 'column_marks', 'legends',
+                                     'rebars'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -687,6 +707,61 @@ class TestValidateDocument:
         # items が空(載せるシンボルが無い)場合も凡例命令自体は許容する
         document = make_valid_document()
         document['legends'][0]['items'] = []
+        validate_document(document)
+
+    def test_rejects_rebar_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['rebars'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_empty_class(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['class'] = ''
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_bad_mode(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['mode'] = 'column'
+        with pytest.raises(DocumentValidationError, match='mode'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_non_bool_closed(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['closed'] = 'yes'
+        with pytest.raises(DocumentValidationError, match='closed'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_short_path(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['path'] = [[0.0, 0.0, 0.0]]
+        with pytest.raises(DocumentValidationError, match='path'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_2d_path_vertex(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['path'] = [[0.0, 0.0], [1.0, 1.0]]
+        with pytest.raises(DocumentValidationError, match='path'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_non_string_section_size(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['section_size'] = 120
+        with pytest.raises(DocumentValidationError, match='section_size'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_non_number_slab_thickness(self) -> None:
+        document = make_valid_document()
+        document['rebars'][1]['slab_thickness'] = '150'
+        with pytest.raises(DocumentValidationError, match='slab_thickness'):
+            validate_document(document)
+
+    def test_accepts_rebar_with_empty_spec_fields(self) -> None:
+        # 使わないモードの仕様フィールドは空文字を許容する
+        document = make_valid_document()
+        document['rebars'][0]['main_bar'] = ''
+        document['rebars'][0]['dist_bar'] = ''
         validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:
