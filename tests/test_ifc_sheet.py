@@ -47,7 +47,7 @@ class TestBuildFoundationSheetCommands:
         # 配筋クラスをビューポート単位で非表示にする(断面でのみ表示する要件)。
         ifc = _open('伏図次郎【2階】.ifc')
         viewport = sheet.build_foundation_sheet_commands(ifc)[0]['viewport']
-        assert viewport['hidden_classes'] == ['04構造-01基礎-04配筋']
+        assert viewport['hidden_classes'] == ['04構造-01基礎-09鉄筋']
 
     def test_floor_framing_viewport_hides_no_class(self) -> None:
         # 柱梁伏図は配筋を隠さない(基礎伏図のみ配筋を非表示にする)

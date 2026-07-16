@@ -10,7 +10,7 @@ from vectorworks_plugin_import_ifc_homeskz.document import RebarCommand
 
 def make_beam_command() -> RebarCommand:
     return {
-        'layer': 'F-立上り', 'class': '04構造-01基礎-04配筋',
+        'layer': 'F-立上り', 'class': '04構造-01基礎-09鉄筋',
         'mode': 'beam', 'closed': False,
         'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
         'section_size': '120×500', 'top_bars': '1-D13',
@@ -21,7 +21,7 @@ def make_beam_command() -> RebarCommand:
 
 def make_slab_command() -> RebarCommand:
     return {
-        'layer': 'F-底盤', 'class': '04構造-01基礎-04配筋',
+        'layer': 'F-底盤', 'class': '04構造-01基礎-09鉄筋',
         'mode': 'slab', 'closed': True,
         'path': [[0.0, 0.0, 50.0], [3000.0, 0.0, 50.0],
                  [3000.0, 2000.0, 50.0], [0.0, 2000.0, 50.0]],
@@ -84,7 +84,7 @@ class TestExecuteRebars:
             'PIO_HANDLE', 'PATH_HANDLE')
         vs_mock.CreateCustomObjectPath.assert_not_called()
         # PIO 本体のクラスを命令の class に設定し描画属性をクラス属性に従わせる
-        vs_mock.SetClass.assert_called_once_with('PIO_HANDLE', '04構造-01基礎-04配筋')
+        vs_mock.SetClass.assert_called_once_with('PIO_HANDLE', '04構造-01基礎-09鉄筋')
         vs_mock.SetPenColorByClass.assert_called_once_with('PIO_HANDLE')
         vs_mock.SetOpacityByClass.assert_called_once_with('PIO_HANDLE')
         # 梁モードのパラメータ

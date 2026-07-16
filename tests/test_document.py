@@ -158,7 +158,7 @@ def make_valid_document() -> dict[str, Any]:
         ],
         'rebars': [
             {
-                'layer': 'F-立上り', 'class': '04構造-01基礎-04配筋',
+                'layer': 'F-立上り', 'class': '04構造-01基礎-09鉄筋',
                 'mode': 'beam', 'closed': False,
                 'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
                 'section_size': '120×500', 'top_bars': '1-D13',
@@ -166,7 +166,7 @@ def make_valid_document() -> dict[str, Any]:
                 'main_bar': '', 'dist_bar': '', 'slab_thickness': 0.0,
             },
             {
-                'layer': 'F-底盤', 'class': '04構造-01基礎-04配筋',
+                'layer': 'F-底盤', 'class': '04構造-01基礎-09鉄筋',
                 'mode': 'slab', 'closed': True,
                 'path': [[0.0, 0.0, 50.0], [3000.0, 0.0, 50.0],
                          [3000.0, 2000.0, 50.0], [0.0, 2000.0, 50.0]],
