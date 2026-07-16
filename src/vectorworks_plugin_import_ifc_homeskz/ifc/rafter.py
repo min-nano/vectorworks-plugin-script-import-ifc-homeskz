@@ -10,9 +10,10 @@
 - **勾配方向(垂木の流れ方向)**: 屋根面の法線の水平成分 = 最急勾配方向(母屋・
   棟木・軒桁に直交する方向)。垂木はこの方向に沿って軒側(低い端)から棟側(高い端)
   へ架かる。
-- **配置間隔**: 勾配方向に直交する方向(軒・棟に平行)へ ``RAFTER_INTERVAL``
-  (=455mm、要件の決め打ち)間隔で掃引し、各掃引線を屋根面の外形でクリップした
-  区間を 1 本の垂木にする。面の広がりに 455 グリッドを中央寄せに割り付ける。
+- **配置間隔**: 勾配方向に直交する方向(軒・棟に平行)へ掃引し、各掃引線を屋根面の
+  外形でクリップした区間を 1 本の垂木にする。**屋根面の両端(ケラバ側)には必ず
+  1 本ずつ**置き、内部は ``RAFTER_INTERVAL``(=455mm、要件の決め打ち)**以下**で
+  割り付ける(中間は 455mm ちょうど・端数＝余りは両端の 2 区間へ等分)。
 - **断面**: IFC に垂木の寸法情報が無いため既定 45×45(要件の決め打ち)。
 - **配置先レイヤ**: 屋根版を含むストーリの母屋レイヤの直上に独立させた 垂木 レイヤ
   (``n-垂木``)。最上階(屋根)の主屋根だけでなく、中間階に架かる下屋根(下屋)の
@@ -52,10 +53,47 @@ RAFTER_INTERVAL = 455.0
 _FLAT_TOL = 1e-6
 # クリップした垂木の平面投影長がこれ未満(隅木際の極小片等)なら配置しない (mm)
 _MIN_RAFTER_LENGTH = 100.0
-# 掃引線と外形辺の交点判定の許容 (mm)
+# 掃引線と外形辺の交点判定の許容 (mm)。屋根の両端の掃引線は外形の頂点に接して
+# 退化する(特に走査線法の半開区間判定 ``<=0<`` は上端 e_max で交点 0 になる)ため、
+# 両端の掃引線はこの分だけ内側へ寄せて確実に区間を得る。
 _EDGE_TOL = 1.0
 
 _Vec3 = tuple[float, float, float]
+
+
+def _sweep_positions(e_min: float, e_max: float, interval: float) -> list[float]:
+    """屋根面の e 方向(軒・棟に平行)の広がり ``[e_min, e_max]`` に垂木の掃引位置を
+    割り付ける。
+
+    要件:
+
+    - **両端(``e_min``・``e_max``)には必ず 1 本ずつ**置く(屋根の両端＝ケラバ側の
+      垂木)。
+    - 内部は間隔が ``interval``(=455mm)**以下**になるように分割する。
+    - **中間は常に ``interval`` ちょうど**、**端数(余り)は両端の 2 区間へ等分**して
+      寄せる(両端の区間は ``interval`` 以下)。
+
+    幅 ``W = e_max - e_min`` を ``interval`` 以下に分割する最小の区間数
+    ``n = ceil(W / interval)`` を採り、中間 ``n-2`` 区間を ``interval`` ちょうど、
+    残り ``W - (n-2)*interval`` を両端 2 区間へ等分する。``W`` が ``interval`` の
+    整数倍なら全区間が ``interval``。両端の掃引線は外形頂点に接して退化する(特に
+    走査線法の半開判定が上端で交点を落とす)ため、返す位置の両端は ``_EDGE_TOL``
+    だけ内側へクランプして確実に区間を得る(実質的に屋根の端に垂木が来る)。
+    """
+    width = e_max - e_min
+    if width <= 2.0 * _EDGE_TOL:
+        # 広がりが極小: 中央 1 本のみ(両端を寄せると重なるため)。
+        return [(e_min + e_max) / 2.0]
+    n = int(math.ceil(width / interval - 1e-9))
+    if n <= 1:
+        raw = [e_min, e_max]
+    else:
+        end_gap = (width - (n - 2) * interval) / 2.0
+        raw = [e_min, e_min + end_gap]
+        raw.extend(e_min + end_gap + i * interval for i in range(1, n - 1))
+        raw.append(e_max)
+    lo, hi = e_min + _EDGE_TOL, e_max - _EDGE_TOL
+    return [min(max(t, lo), hi) for t in raw]
 
 
 def _roof_plane(
@@ -93,10 +131,14 @@ def _rafters_for_plane(
 ) -> list[RafterCommand]:
     """1 つの屋根面(平面外形頂点列 + 単位法線)から垂木命令のリストを組み立てる。
 
-    最急勾配方向(法線の水平成分)へ垂木を流し、それに直交する方向へ
-    ``RAFTER_INTERVAL`` 間隔で掃引した線を外形でクリップした区間を 1 本ずつ
-    命令にする。start=軒側(低い端)・end=棟側(高い端)、天端 Z はストーリ
-    Elevation を足した絶対値。ほぼ水平な面・広がりが極小の面は空リスト。
+    最急勾配方向(法線の水平成分)へ垂木を流し、それに直交する掃引方向へ掃引線を
+    並べ、各掃引線を外形でクリップした区間を 1 本ずつ命令にする。掃引位置は
+    **屋根面の両端(e_min・e_max＝ケラバ側)には必ず 1 本ずつ**置き、内部は
+    ``RAFTER_INTERVAL``(455mm)**以下**で割り付ける(中間は 455mm ちょうど・端数は
+    両端の 2 区間へ等分。``_sweep_positions``)。start=軒側(低い端)・end=棟側
+    (高い端)、天端 Z はストーリ Elevation を足した絶対値。ほぼ水平な面・広がりが
+    極小の面は空リスト。区間の平面投影長が極小(隅木際の極小片・端で退化した面等)の
+    ものは ``_MIN_RAFTER_LENGTH`` 未満として配置しない。
     """
     nx, ny, nz = normal
     dh = math.hypot(nx, ny)
@@ -120,19 +162,14 @@ def _rafters_for_plane(
     span = e_max - e_min
     if span < _MIN_RAFTER_LENGTH:
         return []
-    # 面の e 方向の広がりの中央に 1 本を置き、両側へ ``RAFTER_INTERVAL``(455mm)
-    # 間隔で流す(決定的・左右対称。間隔はきっちり 455mm を保ち、両端の垂木は
-    # 軒・棟の端から 455mm 以内に入る)。範囲外・端ちょうどの掃引線は走査線が
+    # 面の e 方向の広がり [e_min, e_max] の**両端に必ず 1 本ずつ**置き、内部は
+    # ``RAFTER_INTERVAL``(455mm)**以下**で割り付ける(中間は 455mm ちょうど・
+    # 端数は両端の 2 区間へ等分)。両端の掃引線は退化を避けて内側へ寄せる
+    # (``_sweep_positions``)。範囲外・端ちょうどで区間の取れない掃引線は走査線が
     # 空になり自然に除外される。
-    center_e = (e_min + e_max) / 2.0
-    half = int(math.floor((span / 2.0) / RAFTER_INTERVAL)) + 1
-
     n = len(plan)
     commands: list[RafterCommand] = []
-    for k in range(-half, half + 1):
-        t = center_e + k * RAFTER_INTERVAL
-        if t <= e_min + _EDGE_TOL or t >= e_max - _EDGE_TOL:
-            continue
+    for t in _sweep_positions(e_min, e_max, RAFTER_INTERVAL):
         # 掃引線 { p : p·e = t } と外形の交点を集め、勾配方向 d の座標を添える。
         hits: list[tuple[float, float, float]] = []
         for i in range(n):

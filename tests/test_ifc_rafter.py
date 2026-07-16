@@ -39,18 +39,22 @@ class TestRaftersForPlane:
             self.VERTS, (self.NX, self.NY, self.NZ),
             'R-垂木', storey_elevation=0.0, center_x=0.0, center_y=0.0)
 
-    def test_spacing_is_455_across_eaves(self) -> None:
+    def test_rafters_at_both_ends_interior_455(self) -> None:
         rafters = self._rafters()
-        # 掃引方向は X(軒に平行)。幅 4000mm の中央(x=2000)に 1 本、両側へ 455 間隔。
-        # x=2000±455k のうち (0,4000) に入るのは k=-4..4 の 9 本(x=180..3820)。
-        assert len(rafters) == 9
+        # 掃引方向は X(軒に平行)。幅 4000mm。両端(x≈0, x≈4000)に必ず 1 本、
+        # 内部は 455 以下(中間は 455 ちょうど・端数は両端へ寄せる)。
+        # n=ceil(4000/455)=9 → 垂木 n+1=10 本。
+        assert len(rafters) == 10
         xs = sorted(r['start'][0] for r in rafters)
-        assert math.isclose(xs[0], 180.0, abs_tol=1e-6)
-        assert math.isclose(xs[-1], 3820.0, abs_tol=1e-6)
-        # 隣接間隔はすべてきっちり 455、中央に 1 本
-        for a, b in zip(xs, xs[1:]):
-            assert math.isclose(b - a, 455.0, abs_tol=1e-6)
-        assert any(math.isclose(x, 2000.0, abs_tol=1e-6) for x in xs)
+        # 屋根の両端に垂木がある(端の掃引線は退化回避で _EDGE_TOL=1mm 内側)。
+        assert xs[0] <= 1.0 + 1e-6
+        assert xs[-1] >= 4000.0 - 1.0 - 1e-6
+        gaps = [b - a for a, b in zip(xs, xs[1:])]
+        # すべて 455 以下、中間の間隔は 455 ちょうど
+        assert max(gaps) <= 455.0 + 1e-6
+        assert any(math.isclose(g, 455.0, abs_tol=1e-6) for g in gaps)
+        # 端数は両端の 2 区間へ等分(左右対称)
+        assert math.isclose(gaps[0], gaps[-1], abs_tol=1e-6)
 
     def test_rafters_run_up_slope_start_low_end_high(self) -> None:
         for r in self._rafters():
@@ -90,6 +94,31 @@ class TestRaftersForPlane:
                 (4000.0, 3000.0, 0.0), (0.0, 3000.0, 0.0)]
         assert rafter._rafters_for_plane(
             flat, (0.0, 0.0, 1.0), 'R-垂木', 0.0, 0.0, 0.0) == []
+
+
+class TestSweepPositions:
+    """``_sweep_positions``: 両端 + 内部 455 以下・中間 455・端数両端。"""
+
+    def test_ends_included_and_clamped_inward(self) -> None:
+        pos = rafter._sweep_positions(0.0, 2000.0, 455.0)
+        # 両端は _EDGE_TOL(1mm)だけ内側へ寄る
+        assert math.isclose(pos[0], 1.0, abs_tol=1e-6)
+        assert math.isclose(pos[-1], 1999.0, abs_tol=1e-6)
+
+    def test_interior_gaps_are_module(self) -> None:
+        # 幅 2000 / 455 → n=ceil=5 区間、中間 3 区間は 455 ちょうど
+        pos = rafter._sweep_positions(0.0, 2000.0, 455.0)
+        gaps = [b - a for a, b in zip(pos, pos[1:])]
+        # 中間 3 区間 = 455、両端はクランプ分 1mm を除いた端数
+        assert sum(1 for g in gaps if math.isclose(g, 455.0, abs_tol=1e-6)) == 3
+        assert max(gaps) <= 455.0 + 1e-6
+
+    def test_exact_multiple_uniform(self) -> None:
+        pos = rafter._sweep_positions(0.0, 1820.0, 455.0)
+        gaps = [b - a for a, b in zip(pos, pos[1:])]
+        # 端 2 区間はクランプで 454、中間 2 区間は 455
+        assert len(pos) == 5
+        assert sum(1 for g in gaps if math.isclose(g, 455.0, abs_tol=1e-6)) == 2
 
 
 class TestBuildRafterCommands:
