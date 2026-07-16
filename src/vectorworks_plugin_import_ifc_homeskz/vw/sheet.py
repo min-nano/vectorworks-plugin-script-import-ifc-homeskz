@@ -31,10 +31,12 @@ from ..document import LegendCommand, SheetCommand, TagCommand, ViewportCommand
 _DATA_TAG_PLUGIN = 'Data Tag'
 
 # グラフィック凡例の内部プラグイン名(VW 標準の「グラフィック凡例」ツール)。
-# VW 上で最終確認する。グラフィック凡例のデータソース(基礎伏図ビューポート)・
+# 表示名は「グラフィック凡例」だが、CreateCustomObjectN に渡す内部登録名は
+# 'GraphicLegend'(スペース無し)。VW 上で GetParametricRecord + GetName で
+# 実オブジェクトから確認済み。グラフィック凡例のデータソース(基礎伏図ビューポート)・
 # 行ごとのラベルテキストの詳細設定は PIO の設定 API が未公開のため、配置後に
 # VW 上で最終調整する(描画フェーズは他要素と同じく VW 上で検証する方針)。
-_GRAPHIC_LEGEND_PLUGIN = 'Graphic Legend'
+_GRAPHIC_LEGEND_PLUGIN = 'GraphicLegend'
 
 # データタグの「引出線を表示」パラメータ(オブジェクト情報パレットのチェックボックス)。
 # 既定 ON で、部材に接して置いても引出線が描かれてしまうため per-instance で OFF に
