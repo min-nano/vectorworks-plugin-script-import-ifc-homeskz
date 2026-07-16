@@ -216,7 +216,7 @@ class TestExecuteSheets:
             assert ('VP_HANDLE', name, vw_sheet._VP_CLASS_VISIBLE) in cls_calls
 
     def test_hides_named_classes(self) -> None:
-        rebar = '04構造-01基礎-04配筋'
+        rebar = '04構造-01基礎-09鉄筋'
         classes = ['なし', '04構造-01基礎-03立ち上がり', rebar]
         vs_mock = _make_vs_mock(_TARGET_LAYERS, classes=classes)
         vw_sheet = _load(vs_mock)

@@ -218,7 +218,7 @@ def make_document() -> dict[str, Any]:
                         'label': '土台用アンカーボルトM12'}]},
         ],
         'rebars': [
-            {'layer': 'F-立上り', 'class': '04構造-01基礎-04配筋',
+            {'layer': 'F-立上り', 'class': '04構造-01基礎-09鉄筋',
              'mode': 'beam', 'closed': False,
              'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
              'section_size': '120×500', 'top_bars': '1-D13',
