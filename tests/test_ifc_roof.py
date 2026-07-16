@@ -79,9 +79,9 @@ class TestRoofCommandForPlane:
     def test_elevation_is_rafter_top_plus_sheathing(self) -> None:
         cmd = self._command(storey_elevation=6300.0)
         # 軒の目標 Z = 屋根版の平面(1000 + ストーリ Elevation)から
-        # 垂木せい(45)+野地板厚(12)を鉛直換算(÷cosθ=nz)して持ち上げた値
+        # 垂木せい(45)を鉛直換算(÷cosθ=nz)して持ち上げた値
         # (野地板下端=垂木上端。垂木下端=屋根版の平面は VW 上の実測で確認)。
-        lift = (45.0 + 12.0) / self.NZ
+        lift = 45.0 / self.NZ
         assert math.isclose(
             cmd['elevation'], 1000.0 + 6300.0 + lift, abs_tol=1e-6)
 
