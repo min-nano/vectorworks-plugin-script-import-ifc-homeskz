@@ -68,6 +68,14 @@ class TestExecuteFloors:
         vs_mock.Move3D.assert_called_once_with(0.0, 0.0, 425.0)
         # クラスを設定する
         vs_mock.SetClass.assert_called_once_with(floor_h, '04構造-02木造-06耐力面材-02床')
+        # 描画属性(カラー・透明度等)をすべてクラス属性に従わせる
+        vs_mock.SetPenColorByClass.assert_called_once_with(floor_h)
+        vs_mock.SetFillColorByClass.assert_called_once_with(floor_h)
+        vs_mock.SetLWByClass.assert_called_once_with(floor_h)
+        vs_mock.SetLSByClass.assert_called_once_with(floor_h)
+        vs_mock.SetFPatByClass.assert_called_once_with(floor_h)
+        vs_mock.SetMarkerByClass.assert_called_once_with(floor_h)
+        vs_mock.SetOpacityByClass.assert_called_once_with(floor_h)
         # 高さ基準を横架材天端レベルにバインドする(boundType=2=Story、index 0)
         vs_mock.SetObjectStoryBound.assert_called_once_with(
             floor_h, 0, 2, 0, '横架材天端', 0.0)
