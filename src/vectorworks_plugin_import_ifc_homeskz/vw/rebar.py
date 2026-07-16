@@ -2,8 +2,12 @@
 
 各命令について、配置先レイヤ(``F-立上り`` / ``F-底盤``)をアクティブにしてから、
 命令の 3D パス(梁モード=梁天端の中心線・スラブモード=底盤天端の外形)を
-``vs.Poly3D`` で作り、``vs.CreateCustomObjectPath`` でカスタム PIO「鉄筋」を配置する。
-PIO 本体のクラスを ``vs.SetClass`` で命令の ``class`` に設定し、描画属性をすべて
+``vs.Poly3D`` で作り、カスタム PIO「鉄筋」を配置する。**作成時にプラグインの設定
+ダイアログが開いてインポートが中断するのを防ぐため、点オブジェクトと同じ
+``vs.CreateCustomObjectN``(``showPref=False`` でダイアログ抑止)で PIO を原点に作り、
+``vs.SetCustomObjectPath`` で 3D パスを後付けする**(``vs.CreateCustomObjectPath`` には
+ダイアログ抑止の引数が無いため使わない。詳細は ``draw_rebar`` の docstring 参照)。
+その後、PIO 本体のクラスを ``vs.SetClass`` で命令の ``class`` に設定し、描画属性をすべて
 クラス属性に従わせてから、モード・配筋仕様を PIO のパラメータ(レコードフィールド)に
 ``vs.SetRField`` で設定して ``vs.ResetObject`` でリセットする。
 
@@ -15,7 +19,7 @@ PIO 名「鉄筋」・パラメータ名(``Mode`` / ``MainBar`` / ``DistBar`` / 
 ``SectionSize`` / ``TopBars`` / ``BottomBars`` / ``Stirrup``)は VectorWorks 側の
 プラグイン登録名(および vectorworks-plugin-rebar の ``vw/pio.py`` の ``PARAM_*``)と
 一致させる必要がある。配置先レイヤが存在しない命令、PIO が作れない(プラグイン未登録で
-``CreateCustomObjectPath`` が NIL)命令はスキップする。
+``CreateCustomObjectN`` も ``CreateCustomObjectPath`` も NIL)命令はスキップする。
 """
 from __future__ import annotations
 
@@ -42,6 +46,12 @@ _PARAM_STIRRUP = 'Stirrup'
 # スラブモードと判定する)。
 _MODE_LABEL_SLAB = 'スラブ'
 _MODE_LABEL_BEAM = '梁'
+# CreateCustomObjectN の showPref 引数(オブジェクトの設定ダイアログの表示)。
+# インポート中にダイアログで手動入力を求められないよう常に非表示にする。
+_SHOW_PREF_DIALOG = False
+# CreateCustomObjectN の挿入点。原点に作り、パスは SetCustomObjectPath で
+# 無変換のワールド座標のまま与えるため、オブジェクトの配置は恒等(原点)にする。
+_INSERT_POINT = (0.0, 0.0)
 
 
 def _set_all_attributes_by_class(obj: Any) -> None:
@@ -103,14 +113,36 @@ def _set_rebar_params(obj: Any, command: RebarCommand) -> None:
 def draw_rebar(command: RebarCommand) -> bool:
     """rebar 命令 1 件を鉄筋 PIO として配置する。
 
-    3D パスを作って ``vs.CreateCustomObjectPath`` で PIO を挿入し、PIO 本体のクラス・
-    描画属性を設定してから配筋仕様のパラメータを設定し ``vs.ResetObject`` でリセットする。
-    PIO が作れない(プラグイン未登録等で NIL)場合は False。
+    **作成時の設定ダイアログ抑止**: 3D パス図形を ``vs.CreateCustomObjectPath`` で作ると、
+    プラグインの設定によっては作成のたびに「オブジェクトの設定」ダイアログが開き、
+    インポート中に配筋 1 本ごとに手動操作を求められてしまう(``CreateCustomObjectPath``
+    には点オブジェクトの ``showPref`` に相当する引数が無い)。これを避けるため、点
+    オブジェクトと同じ ``vs.CreateCustomObjectN``(``showPref=False`` でダイアログを抑止)で
+    PIO を原点に作り、``vs.SetCustomObjectPath`` で 3D パスを後付けする(VectorWorks 公式
+    ドキュメントに載るパス図形のスクリプト作成パターン)。``SetCustomObjectPath`` は
+    **パスを無変換で使用する**ため、ワールド座標のパスをそのまま与えれば配置は正しくなる
+    (オブジェクトは原点=恒等配置なのでパスの絶対座標がそのまま効く。一方
+    ``CreateCustomObjectPath`` は先頭頂点を原点へ平行移動しオブジェクト配置に絶対位置を
+    持たせるが、いずれも最終的なワールド位置は同じ)。
+
+    ``CreateCustomObjectN`` が NIL を返す(この環境ではパス図形をこの方法で作れない)場合は
+    ``vs.CreateCustomObjectPath`` にフォールバックする(作成時ダイアログが出る場合はあるが
+    配筋の配置自体は行う)。どちらも作れない場合は False。
+
+    PIO 本体のクラス・描画属性を設定してから配筋仕様のパラメータを設定し、
+    ``vs.ResetObject`` でリセットする(リセット時に PIO 本体が配筋を描く)。
     """
     path_handle = _create_path(command)
-    obj = vs.CreateCustomObjectPath(_PLUGIN_NAME, path_handle, vs.Handle(0))
-    if obj == vs.Handle(0):
-        return False
+    obj = vs.CreateCustomObjectN(
+        _PLUGIN_NAME, _INSERT_POINT, 0.0, _SHOW_PREF_DIALOG)
+    if obj != vs.Handle(0):
+        # 原点に作った PIO へワールド座標のパスを無変換で設定する
+        vs.SetCustomObjectPath(obj, path_handle)
+    else:
+        # フォールバック: パス付きで直接作成する(作成時ダイアログが出る場合がある)
+        obj = vs.CreateCustomObjectPath(_PLUGIN_NAME, path_handle, vs.Handle(0))
+        if obj == vs.Handle(0):
+            return False
     vs.SetClass(obj, command['class'])
     _set_all_attributes_by_class(obj)
     _set_rebar_params(obj, command)
