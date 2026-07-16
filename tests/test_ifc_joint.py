@@ -114,6 +114,27 @@ class TestEndHasReceiver:
         assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members)
 
 
+class TestDegenerateMembers:
+    def test_member_geom_returns_none_for_zero_length(self) -> None:
+        # 始端 = 終端(平面投影長 0)の材はジオメトリが定まらず None
+        degenerate = _member('1-横架材天端', (500.0, 500.0), (500.0, 500.0))
+        assert joint._member_geom(degenerate) is None
+
+    def test_end_has_receiver_false_when_own_geom_none(self) -> None:
+        # 判定対象の材が退化(geom None)なら受ける材は無いものとして False
+        degenerate = _member('1-横架材天端', (500.0, 500.0), (500.0, 500.0))
+        other = _member('1-横架材天端', (0.0, 0.0), (3000.0, 0.0))
+        geoms = [joint._member_geom(degenerate), joint._member_geom(other)]
+        members = [degenerate, other]
+        assert not joint._end_has_receiver(0, 500.0, 500.0, geoms, members)
+
+    def test_build_skips_degenerate_member(self) -> None:
+        # 退化した材は端部・向きが定まらないため joint 命令を出さない
+        degenerate = _member('1-横架材天端', (0.0, 0.0), (0.0, 0.0))
+        other = _member('1-横架材天端', (0.0, 0.0), (3000.0, 0.0))
+        assert joint.build_joint_commands([degenerate, other]) == []
+
+
 class TestBuildJointCommands:
     def test_t_junction_places_single_joint_at_stem_end(self) -> None:
         a = _member('1-横架材天端', (0.0, 0.0), (3000.0, 0.0))
