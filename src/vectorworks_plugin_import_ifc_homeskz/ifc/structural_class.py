@@ -14,6 +14,7 @@
         03柱   / 01通し柱・02管柱
         04梁桁 / 01小屋梁・02軒桁・03床梁・04胴差
         05小屋組 / 02小屋束・03母屋・04棟木・05垂木
+        06耐力面材 / 01壁・02床・03屋根
 """
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ _WOOD = '04構造-02木造'
 CLASS_DODAI = f'{_WOOD}-01土台-01土台'
 CLASS_OOBIKI = f'{_WOOD}-02床組-01大引'
 CLASS_NEDA = f'{_WOOD}-02床組-02根太'
+# 床板(床合板。IfcSlab "床版")は耐力面材(壁・床・屋根)の床に置く。
+CLASS_FLOOR = f'{_WOOD}-06耐力面材-02床'
 CLASS_TOSHIBASHIRA = f'{_WOOD}-03柱-01通し柱'
 CLASS_KUDABASHIRA = f'{_WOOD}-03柱-02管柱'
 CLASS_KOYABARI = f'{_WOOD}-04梁桁-01小屋梁'
