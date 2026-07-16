@@ -50,7 +50,9 @@ class Expected:
         fire_braces: int,
         sheets: int,
         column_marks: int,
+        rafters: int,
         moya_stories: set[str] | None = None,
+        roof_stories: set[str] | None = None,
         legends: int = 1,
     ) -> None:
         self.filename = filename
@@ -67,12 +69,19 @@ class Expected:
         self.fire_braces = fire_braces
         self.sheets = sheets
         self.column_marks = column_marks
+        # 屋根版から導出した垂木の総数。
+        self.rafters = rafters
         # 基礎伏図のグラフィック凡例数(基礎があれば 1)。
         self.legends = legends
         # 下屋根の小屋組(母屋・棟木)を含む中間階のストーリ名の集合。
         # 該当階は 母屋 レベル(n-母屋 レイヤ)を持ち、床伏図に母屋を重ねて
         # 表示し、タイトルが {n}階床・{n-1}階母屋伏図 になる。
         self.moya_stories = moya_stories or set()
+        # 屋根版(屋根面)を含む中間階(下屋根)のストーリ名の集合。該当階は
+        # 垂木 レベル(n-垂木 レイヤ)を持つ。下屋根は母屋が無くても屋根版=垂木を
+        # 持つため moya_stories とは別に管理する(母屋の無い下屋根は
+        # moya_stories に含まれず roof_stories にのみ含まれる)。
+        self.roof_stories = roof_stories or set()
 
 
 # 各フィクスチャの想定値。値は build_document の実出力から取得しており、
@@ -93,7 +102,9 @@ FIXTURES = [
         fire_braces=66,
         sheets=5,
         column_marks=5,
+        rafters=109,
         moya_stories={'2階'},
+        roof_stories={'2階'},
     ),
     Expected(
         'スキップフロア_サンプル.ifc',
@@ -110,6 +121,8 @@ FIXTURES = [
         fire_braces=35,
         sheets=5,
         column_marks=5,
+        rafters=51,
+        roof_stories={'2階'},
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -126,7 +139,9 @@ FIXTURES = [
         fire_braces=28,
         sheets=5,
         column_marks=5,
+        rafters=146,
         moya_stories={'2階'},
+        roof_stories={'2階'},
     ),
     Expected(
         'グレー本モデルプラン1【3階】.ifc',
@@ -143,7 +158,9 @@ FIXTURES = [
         fire_braces=28,
         sheets=6,
         column_marks=7,
+        rafters=103,
         moya_stories={'2階', '3階'},
+        roof_stories={'2階', '3階'},
     ),
     Expected(
         'グレー本モデルプラン2【3階】.ifc',
@@ -160,6 +177,7 @@ FIXTURES = [
         fire_braces=2,
         sheets=6,
         column_marks=7,
+        rafters=50,
     ),
 ]
 
@@ -266,10 +284,12 @@ def run_execute_document(vs_mock: MagicMock, document: Document) -> dict[str, in
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+        import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
         import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
         importlib.reload(vw_member)
+        importlib.reload(vw_rafter)
         importlib.reload(vw_story)
         importlib.reload(vw_column)
         importlib.reload(vw_footing)
@@ -318,17 +338,23 @@ class TestSampleIfcAnalysis:
         # ＋小屋束記号の小屋束＋母屋(棟木含む)配置用の母屋。柱レベルはレイヤを軒高の
         # 直上に積むため先頭、下階柱・小屋束・母屋は軒高の直上に積む(母屋が軒高の直前、
         # 小屋束が母屋の直前)。
+        # 最上階は柱＋下階柱＋小屋束記号＋垂木＋母屋＋軒高。垂木は母屋の直上、
+        # 小屋束記号は垂木の直上に積む(上→下: 柱, 下階柱, 小屋束, 垂木, 母屋, 軒高)。
         roof = stories[-1]
         assert roof['name'] == '屋根'
         assert [lv['type'] for lv in roof['levels']] == [
-            '柱', '下階柱', '小屋束', '母屋', '軒高']
+            '柱', '下階柱', '小屋束', '垂木', '母屋', '軒高']
         # 最下階(1階=stories[1])は下に柱が無いため下階柱レベルを持たない
         assert [lv['type'] for lv in stories[1]['levels']] == [
             '柱', 'FL', '横架材天端']
         # 中間階は FL + 横架材天端 ＋柱＋下階柱(横架材天端の直上)。下屋根の母屋を
-        # 含む階は母屋レベル(横架材天端の直前)も持つ。
+        # 含む階は母屋レベルを、屋根版(下屋根)を含む階は垂木レベルを持つ(いずれも
+        # 横架材天端の直上・垂木が母屋の直上。上→下: 柱, FL, 下階柱, 垂木, 母屋,
+        # 横架材天端)。下屋根は母屋が無くても垂木を持つ。
         for story in stories[2:-1]:
             expected_types = ['柱', 'FL', '下階柱']
+            if story['name'] in exp.roof_stories:
+                expected_types.append('垂木')
             if story['name'] in exp.moya_stories:
                 expected_types.append('母屋')
             expected_types.append('横架材天端')
@@ -338,6 +364,7 @@ class TestSampleIfcAnalysis:
         document = build_fixture_document(exp.filename)
         assert len(document['grids']) == exp.grids
         assert len(document['members']) == exp.members
+        assert len(document['rafters']) == exp.rafters
         assert len(document['columns']) == exp.columns
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
@@ -399,7 +426,8 @@ class TestSampleIfcAnalysis:
         # 表示レイヤは母屋・小屋束記号・通り芯。
         assert moya_sheet['title'] == f'{floor_story_count - 1}階母屋伏図'
         assert moya_sheet['number'] == str(2 + floor_story_count)
-        assert moya_sheet['viewport']['layers'] == ['R-母屋', 'R-小屋束', '共通']
+        assert moya_sheet['viewport']['layers'] == [
+            'R-母屋', 'R-垂木', 'R-小屋束', '共通']
         # 各伏図の表示レイヤは 通り芯 と 各階のストーリレイヤ(横架材・柱・床・母屋)、
         # および最下階のアンカーボルトのみ。
         allowed = story_layers | {'共通'}
@@ -478,6 +506,7 @@ class TestFullPipeline:
         assert counts['stories'] == len(document['stories'])
         assert counts['grids'] == len(document['grids'])
         assert counts['members'] == len(document['members'])
+        assert counts['rafters'] == len(document['rafters'])
         assert counts['columns'] == len(document['columns'])
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
@@ -490,6 +519,7 @@ class TestFullPipeline:
         assert counts['stories'] == len(exp.story_names)
         assert counts['grids'] == exp.grids
         assert counts['members'] == exp.members
+        assert counts['rafters'] == exp.rafters
         assert counts['columns'] == exp.columns
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs

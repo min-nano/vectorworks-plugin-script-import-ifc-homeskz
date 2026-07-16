@@ -17,12 +17,14 @@ from .floor_post import execute_floor_posts
 from .footing import execute_slabs, execute_wall_joins, execute_walls
 from .grid import execute_grids
 from .member import execute_members
+from .rafter import execute_rafters
 from .sheet import execute_sheets
 from .story import execute_stories, reorder_story_layers
 
 __all__ = ['execute_anchor_bolts', 'execute_column_marks', 'execute_columns',
            'execute_document', 'execute_fire_braces', 'execute_floor_posts',
-           'execute_grids', 'execute_members', 'execute_sheets',
+           'execute_grids', 'execute_members', 'execute_rafters',
+           'execute_sheets',
            'execute_slabs', 'execute_stories', 'execute_wall_joins',
            'execute_walls', 'reorder_story_layers']
 
@@ -37,9 +39,9 @@ def execute_document(document: Any) -> dict[str, int]:
     直下階の柱を検索するため、柱の描画後に配置する。壁結合(execute_wall_joins)は
     立上りの壁ハンドルを参照するため、立上りをすべて配置した直後に実行する。
 
-    Returns: {'stories', 'grids', 'members', 'columns', 'walls', 'wall_joins',
-        'slabs', 'anchor_bolts', 'floor_posts', 'fire_braces', 'column_marks',
-        'sheets', 'tags', 'legends'}
+    Returns: {'stories', 'grids', 'members', 'rafters', 'columns', 'walls',
+        'wall_joins', 'slabs', 'anchor_bolts', 'floor_posts', 'fire_braces',
+        'column_marks', 'sheets', 'tags', 'legends'}
         各命令の実行数。wall_joins は交差する立上りを結合した回数、floor_posts は
         大引下に配置した床束シンボル数、fire_braces は
         横架材レイヤに配置した火打シンボル数、column_marks は下階柱レイヤに配置した
@@ -55,6 +57,9 @@ def execute_document(document: Any) -> dict[str, int]:
         'stories': execute_stories(validated['stories']),
         'grids': execute_grids(validated['grids']),
         'members': execute_members(validated['members'], member_handles),
+        # 垂木は屋根版から導出した軸組ツール(FramingMember)。母屋の直上の
+        # n-垂木 レイヤに配置する(レイヤは story 命令が生成)。
+        'rafters': execute_rafters(validated['rafters']),
         'columns': execute_columns(validated['columns']),
         'walls': execute_walls(validated['walls'], wall_handles),
         # 立上りをすべて配置した後に交差する壁同士を結合する

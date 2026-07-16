@@ -50,6 +50,14 @@ def make_valid_document() -> dict[str, Any]:
                 'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
             },
         ],
+        'rafters': [
+            {
+                'layer': 'R-垂木', 'class': '04構造-02木造-05小屋組-05垂木',
+                'width': 45.0, 'height': 45.0,
+                'start': [0.0, 0.0], 'end': [0.0, 2730.0],
+                'elevation': 6060.0, 'end_elevation': 7000.0,
+            },
+        ],
         'columns': [
             {
                 'layer': '1-柱',
@@ -153,7 +161,8 @@ class TestValidateDocument:
 
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
+                    'members': [], 'rafters': [], 'columns': [], 'walls': [],
+                    'wall_joins': [],
                     'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
                     'fire_braces': [], 'sheets': [], 'tags': [],
                     'column_marks': [], 'legends': []}
@@ -175,7 +184,8 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError):
             validate_document(document)
 
-    @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
+    @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'rafters',
+                                     'columns',
                                      'walls', 'wall_joins', 'slabs',
                                      'anchor_bolts', 'floor_posts',
                                      'fire_braces', 'sheets',
@@ -227,6 +237,24 @@ class TestValidateDocument:
         document = make_valid_document()
         del document['members'][0]['end_elevation']
         with pytest.raises(DocumentValidationError, match='end_elevation'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_class(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_dimension(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['width']
+        with pytest.raises(DocumentValidationError, match='width'):
+            validate_document(document)
+
+    def test_rejects_rafter_with_bad_start(self) -> None:
+        document = make_valid_document()
+        document['rafters'][0]['start'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='start'):
             validate_document(document)
 
     def test_rejects_member_with_non_string_id(self) -> None:

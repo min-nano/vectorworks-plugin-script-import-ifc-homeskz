@@ -84,9 +84,9 @@ class TestBuildFloorFramingSheetCommands:
         roof = sheet.build_floor_framing_sheet_commands(ifc)[-1]
         # 最上階は主屋根の階番号(2階小屋)を付け、直下階(2階)の下屋根の母屋を重ねる
         assert roof['title'] == '2階小屋・1階母屋伏図'
-        # 軒高の横架材・柱(束)・下階柱・直下階の母屋・通り芯(床は無い)
+        # 軒高の横架材・柱(束)・下階柱・直下階の母屋・垂木・通り芯(床は無い)
         assert roof['viewport']['layers'] == [
-            'R-軒高', 'R-柱', 'R-下階柱', '2-母屋', '共通']
+            'R-軒高', 'R-柱', 'R-下階柱', '2-母屋', '2-垂木', '共通']
 
 
 class TestBuildMoyaSheetCommands:
@@ -104,10 +104,11 @@ class TestBuildMoyaSheetCommands:
         assert command['number'] == '5'
         # 主屋根が架かる最上階の階番号(2階建て=2)を付ける
         assert command['title'] == '2階母屋伏図'
-        # 表示レイヤは母屋・小屋束記号・通り芯
+        # 表示レイヤは母屋・垂木・小屋束記号・通り芯
         assert command['viewport']['drawing_title'] == '2階母屋伏図'
         assert command['viewport']['drawing_number'] == '5'
-        assert command['viewport']['layers'] == ['R-母屋', 'R-小屋束', '共通']
+        assert command['viewport']['layers'] == [
+            'R-母屋', 'R-垂木', 'R-小屋束', '共通']
 
 
 def _anchor_bolt(symbol: str) -> AnchorBoltCommand:
