@@ -95,6 +95,40 @@ class TestRaftersForPlane:
         assert rafter._rafters_for_plane(
             flat, (0.0, 0.0, 1.0), 'R-垂木', 0.0, 0.0, 0.0) == []
 
+    def test_tiny_face_below_min_length_has_no_rafters(self) -> None:
+        # 掃引方向の広がりが _MIN_RAFTER_LENGTH(100mm)未満の極小面は垂木なし
+        tiny = [(0.0, 0.0, 1000.0), (50.0, 0.0, 1000.0),
+                (50.0, 3000.0, 2000.0), (0.0, 3000.0, 2000.0)]
+        assert rafter._rafters_for_plane(
+            tiny, (self.NX, self.NY, self.NZ), 'R-垂木', 0.0, 0.0, 0.0) == []
+
+    def test_non_convex_face_splits_into_multiple_segments(self) -> None:
+        # ドーマ状の非凸面(左辺中央に矩形の切り欠き)。掃引 X の切り欠き範囲では
+        # 走査線が 4 交点になり、1 掃引線が 2 本の垂木に分割される。
+        # 平面 z=1000+y/3(TestRaftersForPlane と同じ勾配)。
+        def z(y: float) -> float:
+            return 1000.0 + y / 3.0
+        notched = [
+            (0.0, 0.0, z(0.0)), (4000.0, 0.0, z(0.0)),
+            (4000.0, 3000.0, z(3000.0)), (0.0, 3000.0, z(3000.0)),
+            (0.0, 2000.0, z(2000.0)), (2000.0, 2000.0, z(2000.0)),
+            (2000.0, 1000.0, z(1000.0)), (0.0, 1000.0, z(1000.0)),
+        ]
+        rafters = rafter._rafters_for_plane(
+            notched, (self.NX, self.NY, self.NZ), 'R-垂木', 0.0, 0.0, 0.0)
+
+        def has(seg_lo: float, seg_hi: float) -> bool:
+            # start=軒側(低 y), end=棟側(高 y)
+            return any(math.isclose(r['start'][1], seg_lo, abs_tol=1.0)
+                       and math.isclose(r['end'][1], seg_hi, abs_tol=1.0)
+                       for r in rafters)
+
+        # 切り欠き範囲(x<2000)では下 [0,1000] と上 [2000,3000] の 2 区間に分割
+        assert has(0.0, 1000.0)
+        assert has(2000.0, 3000.0)
+        # 切り欠きの無い範囲(x>2000)では全長 [0,3000] の 1 本
+        assert has(0.0, 3000.0)
+
 
 class TestSweepPositions:
     """``_sweep_positions``: 両端 + 内部 455 以下・中間 455・端数両端。"""
@@ -119,6 +153,18 @@ class TestSweepPositions:
         # 端 2 区間はクランプで 454、中間 2 区間は 455
         assert len(pos) == 5
         assert sum(1 for g in gaps if math.isclose(g, 455.0, abs_tol=1e-6)) == 2
+
+    def test_width_within_interval_two_ends_only(self) -> None:
+        # 幅 <= interval は内部無しで両端の 2 本のみ(クランプ後も 2 本)
+        pos = rafter._sweep_positions(0.0, 400.0, 455.0)
+        assert len(pos) == 2
+        assert math.isclose(pos[0], 1.0, abs_tol=1e-6)     # e_min + _EDGE_TOL
+        assert math.isclose(pos[-1], 399.0, abs_tol=1e-6)  # e_max - _EDGE_TOL
+
+    def test_degenerate_width_single_center(self) -> None:
+        # 広がりが極小(<= 2*_EDGE_TOL)なら中央 1 本(両端を寄せると重なるため)
+        pos = rafter._sweep_positions(1000.0, 1001.0, 455.0)
+        assert pos == [1000.5]
 
 
 class TestBuildRafterCommands:
