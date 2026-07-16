@@ -23,6 +23,7 @@ from .footing import (
 from .grid import build_grid_commands
 from .loader import open_ifc
 from .member import build_member_commands
+from .rafter import build_rafter_commands
 from .rebar import build_rebar_commands
 from .sheet import build_legend_commands, build_sheet_commands
 from .story import build_story_commands
@@ -36,7 +37,8 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_document', 'build_fire_brace_commands',
            'build_floor_post_commands', 'build_foundation_story_command',
            'build_grid_commands', 'build_legend_commands',
-           'build_member_commands', 'build_rebar_commands',
+           'build_member_commands', 'build_rafter_commands',
+           'build_rebar_commands',
            'build_sheet_commands', 'build_slab_commands',
            'build_story_commands', 'build_tag_commands', 'build_wall_commands',
            'build_wall_join_commands', 'open_ifc']
@@ -66,6 +68,7 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'stories': stories,
         'grids': build_grid_commands(ifc_file),
         'members': members,
+        'rafters': build_rafter_commands(ifc_file),
         'columns': build_column_commands(ifc_file),
         'walls': walls,
         'wall_joins': build_wall_join_commands(walls),

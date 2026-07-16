@@ -98,10 +98,12 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+        import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
         import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
         importlib.reload(vw_member)
+        importlib.reload(vw_rafter)
         importlib.reload(vw_story)
         importlib.reload(vw_column)
         importlib.reload(vw_footing)
@@ -138,6 +140,7 @@ def make_document() -> dict[str, Any]:
                 'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
                 'levels': [
                     {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
+                    {'type': '垂木', 'offset': 0.0, 'layer': 'R-垂木'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
             },
@@ -153,6 +156,11 @@ def make_document() -> dict[str, Any]:
              'elevation': 425.0, 'end_elevation': 425.0,
              'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
              'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}},
+        ],
+        'rafters': [
+            {'layer': 'R-垂木', 'class': '04構造-02木造-05小屋組-05垂木',
+             'width': 45.0, 'height': 45.0, 'start': [0.0, 0.0], 'end': [0.0, 2730.0],
+             'elevation': 5973.0, 'end_elevation': 6900.0},
         ],
         'columns': [
             {'layer': '1-柱', 'member_id': '105×105 - 管柱',
@@ -217,7 +225,8 @@ class TestExecuteDocument:
     def test_executes_all_commands_and_returns_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
-        assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
+        assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'rafters': 1,
+                          'columns': 1,
                           'walls': 1, 'wall_joins': 0, 'slabs': 1, 'rebars': 1,
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
                           'column_marks': 1, 'sheets': 1, 'tags': 0,
@@ -226,12 +235,14 @@ class TestExecuteDocument:
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
+                    'members': [], 'rafters': [], 'columns': [], 'walls': [],
+                    'wall_joins': [],
                     'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
                     'fire_braces': [], 'sheets': [], 'tags': [],
                     'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
-        assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
+        assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
+                          'columns': 0,
                           'walls': 0, 'wall_joins': 0, 'slabs': 0, 'rebars': 0,
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
                           'column_marks': 0, 'sheets': 0, 'tags': 0,

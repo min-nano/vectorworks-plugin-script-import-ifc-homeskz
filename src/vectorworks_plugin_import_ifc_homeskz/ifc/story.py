@@ -19,6 +19,11 @@ LEVEL_COLUMN = '柱'
 # 母屋(棟木を含む小屋組の上端材)を配置するレイヤ・レベル。最上階(屋根)で
 # 梁(小屋梁・軒桁)と重なって見にくいため、軒高レイヤと分けた専用レイヤに置く。
 LEVEL_MOYA = '母屋'
+# 垂木を配置するレイヤ・レベル。垂木は屋根版(屋根面)の勾配・外形から導出し、
+# 母屋の上に載る。母屋・棟木と重ならないよう母屋レイヤの直上に独立させて積む。
+# 高さは母屋(横架材天端/軒高)に揃える(実描画の Z は屋根版由来の絶対値で
+# FramingMember に持たせるためレベルのオフセットには依存しない)。
+LEVEL_TARUKI = '垂木'
 # 下階柱記号(柱束伏図記号 PIO)を配置するレイヤ・レベル。各階の伏図に直下階
 # (N-1)の柱を記号化するため、横架材天端(最上階は軒高)レイヤの直上に積む。
 LEVEL_UNDER_COLUMN = '下階柱'
@@ -95,6 +100,37 @@ def story_has_moya(storey: ifcopenshell.entity_instance) -> bool:
             if member_class_from_name(element.Name) in (CLASS_MOYA, CLASS_MUNAGI):
                 return True
     return False
+
+
+def story_has_roof(storey: ifcopenshell.entity_instance) -> bool:
+    """階に属する IfcSlab から屋根面(``屋根版``)を含むか判定する。
+
+    垂木は屋根版(屋根面)から導出するため、屋根版を含む階は垂木レイヤ(``n-垂木``)
+    を持つ。中間階に架かる下屋根(下屋)は母屋を持たないこともある(単純な片流れ
+    下屋等)ため、垂木レイヤの有無は母屋(``story_has_moya``)ではなく屋根版の有無で
+    判定する。1 つでもあれば True を返す。この判定は垂木の描画側(``ifc/rafter.py``)
+    が屋根版から垂木を配置する階と一致させる必要がある。
+    """
+    for rel in storey.ContainsElements or ():
+        for element in rel.RelatedElements:
+            if element.is_a('IfcSlab') and (element.Name or '').startswith('屋根版'):
+                return True
+    return False
+
+
+def collect_story_roof_flags(ifc_file: ifcopenshell.file) -> list[bool]:
+    """``collect_stories`` と同じ Elevation 昇順で、各階が屋根版を含むか返す。
+
+    各要素は ``story_has_roof`` による判定の結果。屋根版を含む階は垂木レイヤ
+    (``n-垂木``)を持つ。最上階(屋根)は主屋根の屋根版を必ず含むが、判定は
+    ``is_top`` でも保証する(build_story_commands 参照)。
+    """
+    storeys = [
+        s for s in ifc_file.by_type('IfcBuildingStorey')
+        if (s.Name or '').upper().endswith('FL')
+    ]
+    storeys.sort(key=lambda s: float(s.Elevation or 0.0))
+    return [story_has_roof(s) for s in storeys]
 
 
 def collect_story_moya_flags(ifc_file: ifcopenshell.file) -> list[bool]:
@@ -178,6 +214,7 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
     """
     stories = collect_stories(ifc_file)
     moya_flags = collect_story_moya_flags(ifc_file)
+    roof_flags = collect_story_roof_flags(ifc_file)
 
     commands: list[StoryCommand] = []
     n = len(stories)
@@ -214,14 +251,28 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
         # 高さは母屋部材の天端バインドが担い、この offset には依存しない。加えて
         # 最上階(屋根)は母屋伏図に小屋束を記号化する小屋束記号レイヤ(母屋レイヤの
         # 直上)も積む(中間階の下屋根には小屋束記号を付けない)。
+        # 小屋組の上端材(母屋・棟木)と垂木を横架材天端(最上階は軒高)レイヤの直上に
+        # 積む。母屋レイヤは最上階(屋根)は常に、中間階は下屋根の小屋組(母屋・棟木)を
+        # 名前判定で含む場合に持つ。垂木レイヤは最上階は常に、中間階は屋根版(屋根面)を
+        # 含む場合に持つ(下屋根は母屋を持たなくても屋根版=垂木があるため、母屋とは別に
+        # 屋根版の有無で判定する)。スタックは 横架材天端/軒高 ← 母屋 ← 垂木(上ほど上段)
+        # で、垂木を母屋の直上に積む(母屋が無ければ横架材天端/軒高の直上)。高さはいずれも
+        # 横架材天端(最上階は軒高)に揃える(実描画の Z は母屋・垂木の部材が持つ)。
+        # 最上階はさらに垂木の直上に母屋伏図用の小屋束記号レイヤを積む。
+        tail = len(levels) - 1  # FL(最上階は軒高)/横架材天端 の位置(この直前に挿入)
         if is_top or moya_flags[i]:
             levels.insert(
-                len(levels) - 1,
+                tail,
                 {'type': LEVEL_MOYA, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_MOYA}'})
+        if is_top or roof_flags[i]:
+            levels.insert(
+                tail,
+                {'type': LEVEL_TARUKI, 'offset': column_offset,
+                 'layer': f'{prefix}-{LEVEL_TARUKI}'})
             if is_top:
                 levels.insert(
-                    len(levels) - 2,
+                    tail,
                     {'type': LEVEL_KOYAZUKA_MARK, 'offset': 0.0,
                      'layer': f'{prefix}-{LEVEL_KOYAZUKA_MARK}'})
         # 柱を配置するレイヤ。高さは横架材天端(最上階は軒高)に揃える。

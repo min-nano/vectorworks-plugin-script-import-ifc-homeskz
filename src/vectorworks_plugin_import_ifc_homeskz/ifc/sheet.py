@@ -23,12 +23,13 @@
   直下階の屋根に当たるためタイトルを ``{n}階床・{n-2}階母屋伏図``(最上階は
   ``{階数}階小屋・{n-2}階母屋伏図``)にする。下屋根の母屋は直下階の伏図では梁と
   重なるため、1 つ上の階の伏図に載せる(表示する伏図を 1 階分上げる)。
-- **母屋伏図**(``build_moya_sheet_commands``): 最上階(屋根)の母屋・棟木(と将来の
-  垂木)を梁と分けて表示する 1 枚。シートレイヤ番号は柱梁伏図の最後(小屋伏図)に
+- **母屋伏図**(``build_moya_sheet_commands``): 最上階(屋根)の母屋・棟木・垂木を
+  梁と分けて表示する 1 枚。シートレイヤ番号は柱梁伏図の最後(小屋伏図)に
   続けて振る。タイトルは主屋根が架かる階番号を付けた ``{階数}階母屋伏図``。表示
-  レイヤは母屋(``R-母屋``)・小屋束記号(``R-小屋束``)・通り芯(``共通``)。母屋を
-  支える小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。中間階の下屋根の母屋は
-  専用シートにせず、1 つ上の階の柱梁伏図に重ねて表示する(上記)。
+  レイヤは母屋(``R-母屋``)・垂木(``R-垂木``)・小屋束記号(``R-小屋束``)・通り芯
+  (``共通``)。母屋を支える小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。
+  中間階の下屋根の母屋・垂木は専用シートにせず、1 つ上の階の柱梁伏図に重ねて表示する
+  (上記)。
 
 さらに ``build_legend_commands`` は基礎伏図に **グラフィック凡例**(VW 標準の
 「グラフィック凡例」PIO)を配置する legend 命令を組み立てる。基礎伏図ビューポートに
@@ -60,9 +61,11 @@ from .story import (
     LEVEL_FL,
     LEVEL_KOYAZUKA_MARK,
     LEVEL_MOYA,
+    LEVEL_TARUKI,
     LEVEL_UNDER_COLUMN,
     collect_stories,
     collect_story_moya_flags,
+    collect_story_roof_flags,
     layer_prefix_for,
 )
 
@@ -164,31 +167,42 @@ def build_floor_framing_sheet_commands(
     stories = collect_stories(ifc_file)
     foundation = has_foundation(ifc_file)
     moya_flags = collect_story_moya_flags(ifc_file)
+    roof_flags = collect_story_roof_flags(ifc_file)
     commands: list[SheetCommand] = []
     n = len(stories)
     for i in range(n):
         is_top = i == n - 1
         prefix = layer_prefix_for(i, is_top)
-        # 直下階(i-1)が下屋根の小屋組(母屋・棟木)を含む場合、その母屋は専用レイヤ
-        # ((i-1)-母屋)に分離され、直下階の屋根に当たる。直下階の伏図では梁と重なる
-        # ため、1 つ上のこの階の伏図に重ねて表示する(表示する伏図を 1 階分上げる)。
+        # 直下階(i-1)が下屋根(下屋)を持つ場合、その小屋組(母屋・棟木)・垂木は
+        # 専用レイヤ((i-1)-母屋 / (i-1)-垂木)に分離され、直下階の屋根に当たる。直下階の
+        # 伏図では梁と重なるため、1 つ上のこの階の伏図に重ねて表示する(表示する伏図を
+        # 1 階分上げる)。下屋根は母屋を持たなくても屋根版=垂木があるため、垂木の重ね
+        # 表示は屋根版の有無(roof_flags)で、母屋の重ね表示は母屋の有無(moya_flags)で
+        # それぞれ判定する。
         has_moya_below = i >= 1 and moya_flags[i - 1]
+        has_roof_below = i >= 1 and roof_flags[i - 1]
         # 横架材レイヤは一般階=横架材天端、最上階=軒高。
         beam_level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
         layers = [f'{prefix}-{beam_level}', f'{prefix}-{LEVEL_COLUMN}']
         # 最下階(i=0)以外は直下階の柱を記号化する下階柱記号レイヤを表示する。
         if i >= 1:
             layers.append(f'{prefix}-{LEVEL_UNDER_COLUMN}')
-        # 直下階の下屋根の母屋((i-1)-母屋)をこの階の伏図に重ねて表示する。
-        if has_moya_below:
+        # 直下階の下屋根の母屋((i-1)-母屋)・垂木((i-1)-垂木)をこの階の伏図に
+        # 重ねて表示する(下屋根の小屋組は直下階の伏図では梁と重なるため 1 階分上げる)。
+        # 母屋は母屋がある場合のみ、垂木は屋根版がある場合に表示する。
+        if has_roof_below:
             below_prefix = layer_prefix_for(i - 1, False)
-            layers.append(f'{below_prefix}-{LEVEL_MOYA}')
+            if has_moya_below:
+                layers.append(f'{below_prefix}-{LEVEL_MOYA}')
+            layers.append(f'{below_prefix}-{LEVEL_TARUKI}')
         if not is_top:
             # 最下階には基礎(アンカーボルト)がある場合に表示する。
             if i == 0 and foundation:
                 layers.append(LAYER_FOUNDATION_ANCHOR)
             layers.append(f'{prefix}-{LEVEL_FL}')
         layers.append(TARGET_LAYER)
+        # タイトルの「…母屋伏図」表記は母屋がある場合のみ付ける(垂木だけの下屋根は
+        # 既存のタイトルのまま垂木レイヤを重ねて表示する)。
         title = floor_plan_title(i, is_top, n, has_moya_below)
         number = str(FLOOR_PLAN_START_NUMBER + i)
         commands.append({
@@ -208,11 +222,11 @@ def build_moya_sheet_commands(
 ) -> list[SheetCommand]:
     """母屋伏図シートの sheet 命令を組み立てて返す。
 
-    最上階(屋根)の母屋・棟木(と将来の垂木)を梁と分けて表示する伏図を 1 枚返す。
+    最上階(屋根)の母屋・棟木・垂木を梁と分けて表示する伏図を 1 枚返す。
     シートレイヤ番号は柱梁伏図の最後(小屋伏図)に続けて振る。タイトルは主屋根が
     架かる階番号を付けた ``{階数}階母屋伏図``。表示レイヤは母屋(``R-母屋``)・
-    小屋束記号(``R-小屋束``)・通り芯(``共通``)。母屋を支える小屋束の位置を
-    小屋束記号(柱束伏図記号 PIO)で示す。ストーリが無ければ空リストを返す。
+    垂木(``R-垂木``)・小屋束記号(``R-小屋束``)・通り芯(``共通``)。母屋を支える
+    小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
     if not stories:
@@ -231,6 +245,7 @@ def build_moya_sheet_commands(
             'drawing_number': number,
             'layers': [
                 f'{prefix}-{LEVEL_MOYA}',
+                f'{prefix}-{LEVEL_TARUKI}',
                 f'{prefix}-{LEVEL_KOYAZUKA_MARK}',
                 TARGET_LAYER,
             ],
