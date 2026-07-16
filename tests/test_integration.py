@@ -45,6 +45,7 @@ class Expected:
         columns: int,
         walls: int,
         slabs: int,
+        floors: int,
         anchor_bolts: int,
         floor_posts: int,
         fire_braces: int,
@@ -65,6 +66,7 @@ class Expected:
         self.columns = columns
         self.walls = walls
         self.slabs = slabs
+        self.floors = floors
         self.anchor_bolts = anchor_bolts
         self.floor_posts = floor_posts
         self.fire_braces = fire_braces
@@ -99,6 +101,7 @@ FIXTURES = [
         columns=138,
         walls=17,
         slabs=27,
+        floors=2,
         anchor_bolts=96,
         floor_posts=41,
         fire_braces=66,
@@ -119,6 +122,7 @@ FIXTURES = [
         columns=197,
         walls=27,
         slabs=37,
+        floors=4,
         anchor_bolts=110,
         floor_posts=25,
         fire_braces=35,
@@ -138,6 +142,7 @@ FIXTURES = [
         columns=141,
         walls=17,
         slabs=25,
+        floors=2,
         anchor_bolts=85,
         floor_posts=98,
         fire_braces=28,
@@ -158,6 +163,7 @@ FIXTURES = [
         columns=165,
         walls=13,
         slabs=28,
+        floors=3,
         anchor_bolts=60,
         floor_posts=44,
         fire_braces=28,
@@ -178,6 +184,7 @@ FIXTURES = [
         columns=109,
         walls=10,
         slabs=20,
+        floors=3,
         anchor_bolts=30,
         floor_posts=20,
         fire_braces=2,
@@ -375,6 +382,7 @@ class TestSampleIfcAnalysis:
         assert len(document['columns']) == exp.columns
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
+        assert len(document['floors']) == exp.floors
         assert len(document['anchor_bolts']) == exp.anchor_bolts
         assert len(document['floor_posts']) == exp.floor_posts
         assert len(document['fire_braces']) == exp.fire_braces
@@ -494,6 +502,26 @@ class TestSampleIfcAnalysis:
             assert column['layer'] in story_layers, \
                 f"未知のレイヤを参照しています: {column['layer']}"
 
+    def test_floor_layers_and_height_match_stories(self, exp: Expected) -> None:
+        """床板は非最上階の FL レイヤに乗り、床下端が横架材天端に一致する。"""
+        document = build_fixture_document(exp.filename)
+        # story 命令から FL レイヤ→横架材天端の絶対 Z を引く。
+        beam_top_by_fl: dict[str, float] = {}
+        for story in document['stories']:
+            levels = {lv['type']: lv for lv in story['levels']}
+            fl = levels.get('FL')
+            beam = levels.get('横架材天端')
+            if fl is not None and beam is not None:
+                beam_top_by_fl[fl['layer']] = story['elevation'] + beam['offset']
+        for floor in document['floors']:
+            assert floor['layer'] in beam_top_by_fl, \
+                f"床板が未知の FL レイヤを参照しています: {floor['layer']}"
+            # 床下端(elevation)= 横架材天端の絶対 Z、バインドも横架材天端 offset 0
+            assert floor['elevation'] == beam_top_by_fl[floor['layer']]
+            assert floor['bound']['level'] == '横架材天端'
+            assert floor['bound']['offset'] == 0.0
+            assert floor['thickness'] == 24.0
+
     def test_document_passes_validation(self, exp: Expected) -> None:
         """JSON ラウンドトリップ後の命令セットが検証を通過する。"""
         document = build_fixture_document(exp.filename)
@@ -518,6 +546,7 @@ class TestFullPipeline:
         assert counts['columns'] == len(document['columns'])
         assert counts['walls'] == len(document['walls'])
         assert counts['slabs'] == len(document['slabs'])
+        assert counts['floors'] == len(document['floors'])
         assert counts['anchor_bolts'] == len(document['anchor_bolts'])
         assert counts['floor_posts'] == len(document['floor_posts'])
         assert counts['fire_braces'] == len(document['fire_braces'])
@@ -532,6 +561,7 @@ class TestFullPipeline:
         assert counts['columns'] == exp.columns
         assert counts['walls'] == exp.walls
         assert counts['slabs'] == exp.slabs
+        assert counts['floors'] == exp.floors
         assert counts['anchor_bolts'] == exp.anchor_bolts
         assert counts['floor_posts'] == exp.floor_posts
         assert counts['fire_braces'] == exp.fire_braces

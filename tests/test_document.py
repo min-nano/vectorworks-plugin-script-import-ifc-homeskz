@@ -96,6 +96,15 @@ def make_valid_document() -> dict[str, Any]:
                 'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0},
             },
         ],
+        'floors': [
+            {
+                'layer': '1-FL', 'class': '04構造-02木造-02床組-04床板',
+                'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0],
+                             [0.0, 2000.0]],
+                'thickness': 24.0, 'elevation': 425.0,
+                'bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+            },
+        ],
         'anchor_bolts': [
             {
                 'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
@@ -181,10 +190,10 @@ class TestValidateDocument:
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'rafters': [], 'columns': [], 'walls': [],
-                    'wall_joins': [],
-                    'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
-                    'fire_braces': [], 'sheets': [], 'tags': [],
-                    'column_marks': [], 'legends': [], 'rebars': []}
+                    'wall_joins': [], 'slabs': [], 'floors': [],
+                    'anchor_bolts': [], 'floor_posts': [], 'fire_braces': [],
+                    'sheets': [], 'tags': [], 'column_marks': [], 'legends': [],
+                    'rebars': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -204,8 +213,8 @@ class TestValidateDocument:
             validate_document(document)
 
     @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'rafters',
-                                     'columns',
-                                     'walls', 'wall_joins', 'slabs',
+                                     'columns', 'walls', 'wall_joins', 'slabs',
+                                     'floors',
                                      'anchor_bolts', 'floor_posts',
                                      'fire_braces', 'sheets',
                                      'tags', 'column_marks', 'legends',
@@ -473,6 +482,48 @@ class TestValidateDocument:
         document = make_valid_document()
         document['slabs'][0]['thickness'] = 'thick'
         with pytest.raises(DocumentValidationError, match='thickness'):
+            validate_document(document)
+
+    def test_rejects_floor_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['floors'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_floor_without_class(self) -> None:
+        document = make_valid_document()
+        del document['floors'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_floor_with_too_few_boundary_points(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['boundary'] = [[0.0, 0.0], [1.0, 0.0]]
+        with pytest.raises(DocumentValidationError, match='boundary'):
+            validate_document(document)
+
+    def test_rejects_floor_with_bad_boundary_point(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['boundary'] = [[0.0, 0.0], [1.0, 0.0], [0.0]]
+        with pytest.raises(DocumentValidationError, match='boundary'):
+            validate_document(document)
+
+    def test_rejects_floor_without_thickness(self) -> None:
+        document = make_valid_document()
+        del document['floors'][0]['thickness']
+        with pytest.raises(DocumentValidationError, match='thickness'):
+            validate_document(document)
+
+    def test_rejects_floor_with_non_numeric_elevation(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['elevation'] = 'high'
+        with pytest.raises(DocumentValidationError, match='elevation'):
+            validate_document(document)
+
+    def test_rejects_floor_with_bad_bound_level(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['bound']['level'] = ''
+        with pytest.raises(DocumentValidationError, match='bound.level'):
             validate_document(document)
 
     def test_rejects_anchor_bolt_without_symbol(self) -> None:
