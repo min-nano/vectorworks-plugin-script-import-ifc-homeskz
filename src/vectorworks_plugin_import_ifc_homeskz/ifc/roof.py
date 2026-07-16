@@ -17,9 +17,9 @@
   ``rise=dh``・``run=nz``(slope=rise/run=tanθ)。
 - **高さ**: 軸(軒)の目標 Z の絶対値を ``elevation`` に持たせる。**野地板は垂木の
   上に載る(野地板下端=垂木上端)**ため、屋根版の平面(=垂木下端。VW 上の実測で
-  確認)から**垂木せい(``DEFAULT_RAFTER_HEIGHT``)+野地板厚(``NOJIITA_THICKNESS``)を
+  確認)から**垂木せい(``DEFAULT_RAFTER_HEIGHT``)を
   鉛直換算(÷cosθ=単位法線の鉛直成分 ``nz``)して持ち上げた値**にする(垂木・
-  野地板は勾配があるため、屋根面に直交する寸法を鉛直へ勾配補正する)。描画
+  は勾配があるため、屋根面に直交する寸法を鉛直へ勾配補正する)。描画
   フェーズは屋根の実測軸 Z との差分でこの高さへ移動する。
 
 座標は通り芯・垂木と同じグリッド中心オフセットで補正する。配置先レイヤは屋根版を
@@ -106,9 +106,9 @@ def _roof_command_for_plane(
     up = (ax + ux * d_span, ay + uy * d_span)
     # 野地板は垂木の上に載る(野地板下端=垂木上端)。垂木下端が屋根版の平面に
     # 一致することが VW 上の実測で確認されているため、屋根版の平面(z_at)から
-    # 垂木せい+野地板厚(いずれも屋根面に直交する寸法)を鉛直換算(÷cosθ、
+    # 垂木せい(屋根面に直交する寸法)を鉛直換算(÷cosθ、
     # cosθ=単位法線の鉛直成分 nz)して持ち上げた Z を軒の目標にする。
-    lift = (DEFAULT_RAFTER_HEIGHT + NOJIITA_THICKNESS) / nz
+    lift = DEFAULT_RAFTER_HEIGHT / nz
     elevation = z_at(ax, ay) + lift
 
     return {
