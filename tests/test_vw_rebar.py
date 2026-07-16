@@ -40,8 +40,10 @@ def _make_vs_mock(existing_layers: set[str]) -> MagicMock:
 
     vs_mock.GetObject.side_effect = get_obj
     vs_mock.LNewObj.return_value = 'PATH_HANDLE'
-    # CreateCustomObjectPath は生成した PIO ハンドル (非 NIL) を返す
-    vs_mock.CreateCustomObjectPath.return_value = 'PIO_HANDLE'
+    # 既定は CreateCustomObjectN(showPref=False)で PIO を作る経路。生成した PIO
+    # ハンドル(非 NIL)を返す。CreateCustomObjectPath はフォールバック用で既定は NIL。
+    vs_mock.CreateCustomObjectN.return_value = 'PIO_HANDLE'
+    vs_mock.CreateCustomObjectPath.return_value = null_handle
     return vs_mock
 
 
@@ -71,10 +73,16 @@ class TestExecuteRebars:
         # 3D パス頂点を平坦化して Poly3D に渡す
         assert vs_mock.Poly3D.call_args.args == (
             0.0, 0.0, 400.0, 3000.0, 0.0, 400.0)
-        # PIO を 3D パス図形として配置する
-        create = vs_mock.CreateCustomObjectPath.call_args.args
+        # 作成時ダイアログ抑止のため CreateCustomObjectN(showPref=False)で原点に作る
+        create = vs_mock.CreateCustomObjectN.call_args.args
         assert create[0] == '鉄筋'
-        assert create[1] == 'PATH_HANDLE'
+        assert create[1] == (0.0, 0.0)
+        assert create[2] == 0.0
+        assert create[3] is False
+        # パスは SetCustomObjectPath で後付けする(CreateCustomObjectPath は使わない)
+        vs_mock.SetCustomObjectPath.assert_called_once_with(
+            'PIO_HANDLE', 'PATH_HANDLE')
+        vs_mock.CreateCustomObjectPath.assert_not_called()
         # PIO 本体のクラスを命令の class に設定し描画属性をクラス属性に従わせる
         vs_mock.SetClass.assert_called_once_with('PIO_HANDLE', '04構造-01基礎-04配筋')
         vs_mock.SetPenColorByClass.assert_called_once_with('PIO_HANDLE')
@@ -124,11 +132,30 @@ class TestExecuteRebars:
         count = vw_rebar.execute_rebars([make_beam_command()])
 
         assert count == 0
+        vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.CreateCustomObjectPath.assert_not_called()
 
-    def test_skips_when_pio_cannot_be_created(self) -> None:
-        # プラグイン未登録などで CreateCustomObjectPath が NIL を返す場合は数えない
+    def test_falls_back_to_create_path_when_n_returns_nil(self) -> None:
+        # CreateCustomObjectN が NIL の場合は CreateCustomObjectPath で配置する
         vs_mock = _make_vs_mock({'F-立上り'})
+        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
+        vs_mock.CreateCustomObjectPath.return_value = 'PIO_HANDLE'
+        vw_rebar = _load(vs_mock)
+
+        count = vw_rebar.execute_rebars([make_beam_command()])
+
+        assert count == 1
+        # フォールバックはパス付きで直接作成する(SetCustomObjectPath は使わない)
+        create = vs_mock.CreateCustomObjectPath.call_args.args
+        assert create[0] == '鉄筋'
+        assert create[1] == 'PATH_HANDLE'
+        vs_mock.SetCustomObjectPath.assert_not_called()
+        vs_mock.ResetObject.assert_called_once_with('PIO_HANDLE')
+
+    def test_skips_when_pio_cannot_be_created(self) -> None:
+        # CreateCustomObjectN も CreateCustomObjectPath も NIL の場合は数えない
+        vs_mock = _make_vs_mock({'F-立上り'})
+        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
         vs_mock.CreateCustomObjectPath.return_value = vs_mock.Handle(0)
         vw_rebar = _load(vs_mock)
 
