@@ -39,18 +39,22 @@ class TestRaftersForPlane:
             self.VERTS, (self.NX, self.NY, self.NZ),
             'R-垂木', storey_elevation=0.0, center_x=0.0, center_y=0.0)
 
-    def test_spacing_is_455_across_eaves(self) -> None:
+    def test_rafters_at_both_ends_interior_455(self) -> None:
         rafters = self._rafters()
-        # 掃引方向は X(軒に平行)。幅 4000mm の中央(x=2000)に 1 本、両側へ 455 間隔。
-        # x=2000±455k のうち (0,4000) に入るのは k=-4..4 の 9 本(x=180..3820)。
-        assert len(rafters) == 9
+        # 掃引方向は X(軒に平行)。幅 4000mm。両端(x≈0, x≈4000)に必ず 1 本、
+        # 内部は 455 以下(中間は 455 ちょうど・端数は両端へ寄せる)。
+        # n=ceil(4000/455)=9 → 垂木 n+1=10 本。
+        assert len(rafters) == 10
         xs = sorted(r['start'][0] for r in rafters)
-        assert math.isclose(xs[0], 180.0, abs_tol=1e-6)
-        assert math.isclose(xs[-1], 3820.0, abs_tol=1e-6)
-        # 隣接間隔はすべてきっちり 455、中央に 1 本
-        for a, b in zip(xs, xs[1:]):
-            assert math.isclose(b - a, 455.0, abs_tol=1e-6)
-        assert any(math.isclose(x, 2000.0, abs_tol=1e-6) for x in xs)
+        # 屋根の両端に垂木がある(端の掃引線は退化回避で _EDGE_TOL=1mm 内側)。
+        assert xs[0] <= 1.0 + 1e-6
+        assert xs[-1] >= 4000.0 - 1.0 - 1e-6
+        gaps = [b - a for a, b in zip(xs, xs[1:])]
+        # すべて 455 以下、中間の間隔は 455 ちょうど
+        assert max(gaps) <= 455.0 + 1e-6
+        assert any(math.isclose(g, 455.0, abs_tol=1e-6) for g in gaps)
+        # 端数は両端の 2 区間へ等分(左右対称)
+        assert math.isclose(gaps[0], gaps[-1], abs_tol=1e-6)
 
     def test_rafters_run_up_slope_start_low_end_high(self) -> None:
         for r in self._rafters():
@@ -90,6 +94,77 @@ class TestRaftersForPlane:
                 (4000.0, 3000.0, 0.0), (0.0, 3000.0, 0.0)]
         assert rafter._rafters_for_plane(
             flat, (0.0, 0.0, 1.0), 'R-垂木', 0.0, 0.0, 0.0) == []
+
+    def test_tiny_face_below_min_length_has_no_rafters(self) -> None:
+        # 掃引方向の広がりが _MIN_RAFTER_LENGTH(100mm)未満の極小面は垂木なし
+        tiny = [(0.0, 0.0, 1000.0), (50.0, 0.0, 1000.0),
+                (50.0, 3000.0, 2000.0), (0.0, 3000.0, 2000.0)]
+        assert rafter._rafters_for_plane(
+            tiny, (self.NX, self.NY, self.NZ), 'R-垂木', 0.0, 0.0, 0.0) == []
+
+    def test_non_convex_face_splits_into_multiple_segments(self) -> None:
+        # ドーマ状の非凸面(左辺中央に矩形の切り欠き)。掃引 X の切り欠き範囲では
+        # 走査線が 4 交点になり、1 掃引線が 2 本の垂木に分割される。
+        # 平面 z=1000+y/3(TestRaftersForPlane と同じ勾配)。
+        def z(y: float) -> float:
+            return 1000.0 + y / 3.0
+        notched = [
+            (0.0, 0.0, z(0.0)), (4000.0, 0.0, z(0.0)),
+            (4000.0, 3000.0, z(3000.0)), (0.0, 3000.0, z(3000.0)),
+            (0.0, 2000.0, z(2000.0)), (2000.0, 2000.0, z(2000.0)),
+            (2000.0, 1000.0, z(1000.0)), (0.0, 1000.0, z(1000.0)),
+        ]
+        rafters = rafter._rafters_for_plane(
+            notched, (self.NX, self.NY, self.NZ), 'R-垂木', 0.0, 0.0, 0.0)
+
+        def has(seg_lo: float, seg_hi: float) -> bool:
+            # start=軒側(低 y), end=棟側(高 y)
+            return any(math.isclose(r['start'][1], seg_lo, abs_tol=1.0)
+                       and math.isclose(r['end'][1], seg_hi, abs_tol=1.0)
+                       for r in rafters)
+
+        # 切り欠き範囲(x<2000)では下 [0,1000] と上 [2000,3000] の 2 区間に分割
+        assert has(0.0, 1000.0)
+        assert has(2000.0, 3000.0)
+        # 切り欠きの無い範囲(x>2000)では全長 [0,3000] の 1 本
+        assert has(0.0, 3000.0)
+
+
+class TestSweepPositions:
+    """``_sweep_positions``: 両端 + 内部 455 以下・中間 455・端数両端。"""
+
+    def test_ends_included_and_clamped_inward(self) -> None:
+        pos = rafter._sweep_positions(0.0, 2000.0, 455.0)
+        # 両端は _EDGE_TOL(1mm)だけ内側へ寄る
+        assert math.isclose(pos[0], 1.0, abs_tol=1e-6)
+        assert math.isclose(pos[-1], 1999.0, abs_tol=1e-6)
+
+    def test_interior_gaps_are_module(self) -> None:
+        # 幅 2000 / 455 → n=ceil=5 区間、中間 3 区間は 455 ちょうど
+        pos = rafter._sweep_positions(0.0, 2000.0, 455.0)
+        gaps = [b - a for a, b in zip(pos, pos[1:])]
+        # 中間 3 区間 = 455、両端はクランプ分 1mm を除いた端数
+        assert sum(1 for g in gaps if math.isclose(g, 455.0, abs_tol=1e-6)) == 3
+        assert max(gaps) <= 455.0 + 1e-6
+
+    def test_exact_multiple_uniform(self) -> None:
+        pos = rafter._sweep_positions(0.0, 1820.0, 455.0)
+        gaps = [b - a for a, b in zip(pos, pos[1:])]
+        # 端 2 区間はクランプで 454、中間 2 区間は 455
+        assert len(pos) == 5
+        assert sum(1 for g in gaps if math.isclose(g, 455.0, abs_tol=1e-6)) == 2
+
+    def test_width_within_interval_two_ends_only(self) -> None:
+        # 幅 <= interval は内部無しで両端の 2 本のみ(クランプ後も 2 本)
+        pos = rafter._sweep_positions(0.0, 400.0, 455.0)
+        assert len(pos) == 2
+        assert math.isclose(pos[0], 1.0, abs_tol=1e-6)     # e_min + _EDGE_TOL
+        assert math.isclose(pos[-1], 399.0, abs_tol=1e-6)  # e_max - _EDGE_TOL
+
+    def test_degenerate_width_single_center(self) -> None:
+        # 広がりが極小(<= 2*_EDGE_TOL)なら中央 1 本(両端を寄せると重なるため)
+        pos = rafter._sweep_positions(1000.0, 1001.0, 455.0)
+        assert pos == [1000.5]
 
 
 class TestBuildRafterCommands:
