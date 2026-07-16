@@ -311,6 +311,15 @@ def execute_sheets(
                 if draw_legend(legend, sheet_layer):
                     legend_count += 1
         count += 1
+    # グラフィック凡例を配置したら、スタイルが決める内容(ソースから集めたセル=
+    # シンボル)をインスタンスへプッシュするため、全配置後に UpdateStyledObjects を
+    # 1 回呼ぶ(構造材・柱と同じ規約)。SetPluginStyle + ResetObject だけでは
+    # スタイルのソースからセルが再計算されず、凡例が空(セル 0 個 = 幅 0)のままに
+    # なる(VW 上でスタイル編集ダイアログを開いて OK すると反映されるのと同じ
+    # 再計算を、この呼び出しが担う)。by-instance の個別フィールド(BoxWidth 等)は
+    # 保持したまま by-style の内容のみ更新される。
+    if legend_count:
+        vs.UpdateStyledObjects(_GRAPHIC_LEGEND_STYLE)
     if counters is not None:
         counters['tags'] = tag_count
         counters['legends'] = legend_count

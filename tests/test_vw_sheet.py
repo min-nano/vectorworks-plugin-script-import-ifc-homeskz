@@ -374,6 +374,9 @@ class TestExecuteSheetsWithLegends:
             'LEGEND_HANDLE', vw_sheet._GRAPHIC_LEGEND_PLUGIN,
             vw_sheet._LEGEND_WIDTH_FIELD, vw_sheet._LEGEND_BOX_WIDTH)
         vs_mock.ResetObject.assert_any_call('LEGEND_HANDLE')
+        # 全配置後にスタイルからセル(シンボル)を再計算してインスタンスへ反映する
+        vs_mock.UpdateStyledObjects.assert_called_once_with(
+            vw_sheet._GRAPHIC_LEGEND_STYLE)
         assert counters['legends'] == 1
 
     def test_legend_not_placed_on_non_matching_sheet(self) -> None:
@@ -386,6 +389,8 @@ class TestExecuteSheetsWithLegends:
             [make_command()], legends=[make_legend('2')], counters=counters)
 
         vs_mock.CreateCustomObjectN.assert_not_called()
+        # 凡例を 1 つも置かなければスタイル更新も呼ばない
+        vs_mock.UpdateStyledObjects.assert_not_called()
         assert counters['legends'] == 0
 
     def test_no_legend_when_list_empty(self) -> None:
