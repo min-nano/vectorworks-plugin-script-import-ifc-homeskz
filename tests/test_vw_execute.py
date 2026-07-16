@@ -182,6 +182,13 @@ def make_document() -> dict[str, Any]:
              'elevation': 50.0, 'thickness': 150.0,
              'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0}},
         ],
+        'floors': [
+            {'layer': '1-FL', 'class': '04構造-02木造-06耐力面材-02床',
+             'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0],
+                          [0.0, 2000.0]],
+             'thickness': 24.0, 'elevation': 425.0,
+             'bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}},
+        ],
         'anchor_bolts': [
             {'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
              'position': [0.0, 0.0]},
@@ -226,8 +233,8 @@ class TestExecuteDocument:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
         assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'rafters': 1,
-                          'columns': 1,
-                          'walls': 1, 'wall_joins': 0, 'slabs': 1, 'rebars': 1,
+                          'columns': 1, 'walls': 1, 'wall_joins': 0, 'slabs': 1,
+                          'floors': 1, 'rebars': 1,
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
                           'column_marks': 1, 'sheets': 1, 'tags': 0,
                           'legends': 1}
@@ -236,14 +243,14 @@ class TestExecuteDocument:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
                     'members': [], 'rafters': [], 'columns': [], 'walls': [],
-                    'wall_joins': [],
-                    'slabs': [], 'anchor_bolts': [], 'floor_posts': [],
+                    'wall_joins': [], 'slabs': [], 'floors': [],
+                    'anchor_bolts': [], 'floor_posts': [],
                     'fire_braces': [], 'sheets': [], 'tags': [],
                     'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
-                          'columns': 0,
-                          'walls': 0, 'wall_joins': 0, 'slabs': 0, 'rebars': 0,
+                          'columns': 0, 'walls': 0, 'wall_joins': 0, 'slabs': 0,
+                          'floors': 0, 'rebars': 0,
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
                           'column_marks': 0, 'sheets': 0, 'tags': 0,
                           'legends': 0}

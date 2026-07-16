@@ -13,6 +13,7 @@ from .anchor_bolt import execute_anchor_bolts
 from .column import execute_columns
 from .column_mark import execute_column_marks
 from .fire_brace import execute_fire_braces
+from .floor import execute_floors
 from .floor_post import execute_floor_posts
 from .footing import execute_slabs, execute_wall_joins, execute_walls
 from .grid import execute_grids
@@ -24,10 +25,10 @@ from .story import execute_stories, reorder_story_layers
 
 __all__ = ['execute_anchor_bolts', 'execute_column_marks', 'execute_columns',
            'execute_document', 'execute_fire_braces', 'execute_floor_posts',
-           'execute_grids', 'execute_members', 'execute_rafters',
-           'execute_rebars',
-           'execute_sheets', 'execute_slabs', 'execute_stories',
-           'execute_wall_joins', 'execute_walls', 'reorder_story_layers']
+           'execute_floors', 'execute_grids', 'execute_members',
+           'execute_rafters', 'execute_rebars', 'execute_sheets',
+           'execute_slabs', 'execute_stories', 'execute_wall_joins',
+           'execute_walls', 'reorder_story_layers']
 
 
 def execute_document(document: Any) -> dict[str, int]:
@@ -41,10 +42,12 @@ def execute_document(document: Any) -> dict[str, int]:
     立上りの壁ハンドルを参照するため、立上りをすべて配置した直後に実行する。
 
     Returns: {'stories', 'grids', 'members', 'rafters', 'columns', 'walls',
-        'wall_joins', 'slabs', 'rebars', 'anchor_bolts', 'floor_posts',
-        'fire_braces', 'column_marks', 'sheets', 'tags', 'legends'}
+        'wall_joins', 'slabs', 'floors', 'rebars', 'anchor_bolts',
+        'floor_posts', 'fire_braces', 'column_marks', 'sheets', 'tags',
+        'legends'}
         各命令の実行数。rafters は屋根版から導出した垂木(軸組)数、wall_joins は
-        交差する立上りを結合した回数、rebars は基礎に配置した配筋 PIO(鉄筋)数、
+        交差する立上りを結合した回数、slabs は底盤・地中梁数、floors は各階 FL
+        レイヤに配置した床板(床)数、rebars は基礎に配置した配筋 PIO(鉄筋)数、
         floor_posts は大引下に配置した床束シンボル数、fire_braces は
         横架材レイヤに配置した火打シンボル数、column_marks は下階柱レイヤに配置した
         柱束伏図記号 PIO 数、tags は伏図ビューポートに配置した断面寸法データタグ数、
@@ -67,6 +70,8 @@ def execute_document(document: Any) -> dict[str, int]:
         # 立上りをすべて配置した後に交差する壁同士を結合する
         'wall_joins': execute_wall_joins(validated['wall_joins'], wall_handles),
         'slabs': execute_slabs(validated['slabs']),
+        # 床板(床ツール)は各階の FL レイヤに配置する
+        'floors': execute_floors(validated['floors']),
         # 基礎の配筋(鉄筋 PIO)は立上り・底盤と同じレイヤに重ねる
         'rebars': execute_rebars(validated['rebars']),
         'anchor_bolts': execute_anchor_bolts(validated['anchor_bolts']),
