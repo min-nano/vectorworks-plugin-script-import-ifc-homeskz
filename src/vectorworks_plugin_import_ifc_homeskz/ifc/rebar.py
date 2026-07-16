@@ -255,6 +255,13 @@ def build_rebar_commands(ifc_file: ifcopenshell.file) -> list[RebarCommand]:
     ``F-立上り``、地中梁・底盤は ``F-底盤`` レイヤに配置する(いずれも既存のレイヤに
     重ねる)。組み立て不能な要素(ソリッドが取れない・断面が退化している等)は
     スキップする。
+
+    **梁モードは 1 要素につき 1 本の直線パス(1 本 1 直線)**にする(立上り・地中梁とも
+    単一方向の押し出しなので中心線は 2 点の直線になる)。鉄筋 PIO は折れ線の梁だと
+    断面ビューポートで横断面と側面図が両方表示されてしまうため、1 本の梁を 1 直線で
+    モデル化する運用になっている(vectorworks-plugin-rebar の README 参照)。同一直線上の
+    立上りを 1 本にまとめず要素ごとに置くのはこの運用に沿うため(かつ要素ごとに
+    Pset_Reinforcement が異なりうるため)。
     """
     _, center_x, center_y = resolve_lines(ifc_file)
 
