@@ -78,6 +78,7 @@ from .story import (
     collect_story_moya_flags,
     collect_story_roof_flags,
     layer_prefix_for,
+    plan_mark_layer_name,
 )
 
 # 柱梁伏図(床伏図・小屋伏図)の切断レベル。各階の床レベル(1 始まり=ストーリ index+1)
@@ -204,6 +205,27 @@ def _span_layers_at_cut(
     ]
 
 
+def _plan_mark_layer_below_cut(
+    spans: list[tuple[float, float, str]], cut: float,
+) -> str | None:
+    """切断レベル ``cut`` の**直下**にある伏図記号レイヤ名を返す。無ければ None。
+
+    伏図記号は span の ``to``(span 上側の数値)をプレフィックスにした
+    ``{to}-柱伏図記号`` レイヤに描かれる。伏図はその切断位置の直下(``to`` < 切断)に
+    ある柱・小屋束を平面記号で示すため、``to`` < 切断を満たす span のうち **最大の
+    ``to``**(切断に最も近い直下)の伏図記号レイヤ 1 つを返す。
+
+    例: 2 階床伏図(切断 2.25)は ``to``=2 の直下柱を示す ``2-柱伏図記号``、
+    1 階母屋伏図(切断 2.75)は ``to``=2.5 の下屋小屋束を示す ``2.5-柱伏図記号``。
+    span の ``to`` は必ず整数(管柱・通し柱)か半整数(屋根束・小屋束)で、切断
+    レベル(整数+0.25 / +0.75)とは一致しないため直下は一意に決まる。
+    """
+    tos = {to for _frm, to, _layer in spans if to < cut}
+    if not tos:
+        return None
+    return plan_mark_layer_name(max(tos))
+
+
 def build_floor_framing_sheet_commands(
     ifc_file: ifcopenshell.file,
     columns: list[ColumnCommand] | None = None,
@@ -240,6 +262,11 @@ def build_floor_framing_sheet_commands(
         # この伏図の切断レベル(その階の床レベル + 0.25)を span が含む柱レイヤを載せる。
         cut = i + FLOOR_PLAN_CUT_OFFSET
         layers.extend(_span_layers_at_cut(spans, cut))
+        # 切断位置の直下(to < 切断)の柱・小屋束を平面記号で示す伏図記号レイヤを載せる
+        # (例: 2 階床伏図=2.25 → 2-柱伏図記号)。
+        mark_layer = _plan_mark_layer_below_cut(spans, cut)
+        if mark_layer is not None:
+            layers.append(mark_layer)
         if not is_top:
             # 最下階には基礎(アンカーボルト)がある場合に表示する。
             if i == 0 and foundation:
@@ -315,6 +342,11 @@ def build_moya_sheet_commands(
         # この伏図の切断レベル(その階の床レベル + 0.75)を span が含む柱レイヤを載せる。
         cut = i + MOYA_PLAN_CUT_OFFSET
         layers.extend(_span_layers_at_cut(spans, cut))
+        # 切断位置の直下(to < 切断)の柱・小屋束を平面記号で示す伏図記号レイヤを載せる
+        # (例: 1 階母屋伏図=2.75 → 2.5-柱伏図記号)。
+        mark_layer = _plan_mark_layer_below_cut(spans, cut)
+        if mark_layer is not None:
+            layers.append(mark_layer)
         layers.append(TARGET_LAYER)
         title = moya_plan_title(i)
         number = str(base_number + seq)

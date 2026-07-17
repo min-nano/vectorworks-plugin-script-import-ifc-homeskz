@@ -161,9 +161,10 @@ def make_valid_document() -> dict[str, Any]:
         ],
         'column_marks': [
             {
-                'layer': '2-下階柱', 'class': '01作図-04記号-04構造-一般',
-                'target_layer': '1-柱',
+                'layer': '2-柱伏図記号', 'class': '01作図-04記号-04構造-一般',
+                'target_layer': '1to2-柱',
                 'target_class': '', 'size': 300.0, 'style': '平面',
+                'symbol': '柱伏図記号',
                 'position': [0.0, 0.0],
             },
         ],
@@ -818,6 +819,18 @@ class TestValidateDocument:
         document['column_marks'][0]['style'] = ''
         with pytest.raises(DocumentValidationError, match='style'):
             validate_document(document)
+
+    def test_rejects_column_mark_with_non_string_symbol(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['symbol'] = 1
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_accepts_column_mark_with_empty_symbol(self) -> None:
+        # 断面記号はシンボルを持たない(空文字)ため許容する
+        document = make_valid_document()
+        document['column_marks'][0]['symbol'] = ''
+        validate_document(document)
 
     def test_rejects_legend_without_number(self) -> None:
         document = make_valid_document()
