@@ -5,10 +5,11 @@
 (=描かれる記号)のクラスを ``vs.SetClass`` で命令の ``class``
 (柱・束の伏図記号の作図クラス)に設定し、描画属性(線の太さ・色・パターン・
 透明度等)を属性ごとの by-class 設定関数(``_set_all_attributes_by_class``)で
-すべてクラス属性に従わせてから、検索対象レイヤ・クラス・記号サイズをパラメータ
-(レコードフィールド)に設定して ``vs.ResetObject`` でリセットする。PIO はリセット時に対象レイヤの柱
-(構造用途 4/5)を検索し各柱位置に記号を描く(実際の記号描画は PIO 側=姉妹
-プロジェクト vectorworks-plugin-column-under-mark が行う)。
+すべてクラス属性に従わせてから、検索対象レイヤ・クラス・記号サイズ・記号スタイル
+をパラメータ(レコードフィールド)に設定して ``vs.ResetObject`` でリセットする。
+PIO はリセット時に対象レイヤの柱(構造用途 4/5)を検索し、記号スタイル(平面=柱×・
+小屋束○ / 断面=実断面に合わせた柱×・小屋束/)に従って各柱位置に記号を描く(実際の
+記号描画は PIO 側=姉妹プロジェクト vectorworks-plugin-column-under-mark が行う)。
 
 ``CreateCustomObject`` ではなく ``CreateCustomObjectN`` を使い ``showPref=False``
 を渡すのは、**IFC インポート中に PIO の「オブジェクトの設定」ダイアログが
@@ -40,6 +41,7 @@ _PLUGIN_NAME = '柱束伏図記号'
 _PARAM_TARGET_LAYER = 'TargetLayer'
 _PARAM_TARGET_CLASS = 'TargetClass'
 _PARAM_MARK_SIZE = 'MarkSize'
+_PARAM_MARK_STYLE = 'MarkStyle'
 # CreateCustomObjectN の showPref 引数(オブジェクトプロパティダイアログの表示)。
 # インポート中にダイアログで手動入力を求められないよう常に非表示にする。
 _SHOW_PREF_DIALOG = False
@@ -82,9 +84,9 @@ def draw_column_mark(command: ColumnMarkCommand) -> bool:
     """column_mark 命令 1 件を柱束伏図記号 PIO として配置する。
 
     ``vs.CreateCustomObjectN`` で PIO を挿入点に作り(``showPref=False`` で設定
-    ダイアログを抑止)、検索対象レイヤ・クラス・記号サイズをパラメータに設定して
-    ``vs.ResetObject`` でリセットする。PIO が作れない(プラグイン未登録等で NIL)
-    場合は False。
+    ダイアログを抑止)、検索対象レイヤ・クラス・記号サイズ・記号スタイルをパラメータ
+    に設定して ``vs.ResetObject`` でリセットする。PIO が作れない(プラグイン未登録
+    等で NIL)場合は False。
     """
     x, y = command['position']
     obj = vs.CreateCustomObjectN(_PLUGIN_NAME, (x, y), 0, _SHOW_PREF_DIALOG)
@@ -95,6 +97,7 @@ def draw_column_mark(command: ColumnMarkCommand) -> bool:
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_LAYER, command['target_layer'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_TARGET_CLASS, command['target_class'])
     vs.SetRField(obj, _PLUGIN_NAME, _PARAM_MARK_SIZE, _format_size(command['size']))
+    vs.SetRField(obj, _PLUGIN_NAME, _PARAM_MARK_STYLE, command['style'])
     vs.ResetObject(obj)
     return True
 

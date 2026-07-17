@@ -22,6 +22,11 @@
    直上の ``R-小屋束`` レイヤに PIO を置く。PIO は屋根の柱レイヤ ``R-柱`` を
    検索対象とし、**検索対象クラスを小屋束クラスに絞る**ことで小屋束(○)だけを
    記号化する(柱の下階柱記号とはクラスで分けた別オブジェクトになる)。
+3. **断面記号**: 各階の柱レイヤ ``n-柱`` に、その柱レイヤ自身の柱・小屋束を実断面
+   に合わせた記号(柱×・小屋束/)で表す PIO を重ねて置く。**記号スタイルを断面
+   (``MarkStyle=断面``)にし**、検索対象レイヤ・配置レイヤをともに柱レイヤ自身、
+   検索対象クラスは空(全クラス)にして、その柱レイヤの構造用途 4/5 の構造材すべてを
+   記号化する。作図クラスは極細実線(``01作図-01線-02実線-01極細線``)。
 
 いずれも解析フェーズで判断し、IFC のジオメトリは参照せずストーリ構成
 (``collect_stories``)から決まる。
@@ -55,6 +60,16 @@ MARK_CLASS = '01作図-04記号-04構造-一般'
 # も柱が描かれるため下階柱記号を付けず、管柱・小屋束の 2 クラスだけを記号化する。
 TARGET_CLASS_KUDABASHIRA = CLASS_KUDABASHIRA  # 管柱(×)
 TARGET_CLASS_KOYAZUKA = CLASS_KOYAZUKA        # 下屋根の小屋束(○)
+# 記号スタイル(柱束伏図記号 PIO の MarkStyle パラメータに渡す値)。姉妹プロジェクト
+# vectorworks-plugin-column-under-mark の normalize_style が '断面'/'section' を
+# 断面記号、それ以外(空文字含む)を平面記号として解釈する。下階柱記号・小屋束記号は
+# 平面記号(柱×・小屋束○・指定サイズ)、各階の柱レイヤに重ねる断面記号は断面記号
+# (実断面に合わせた柱×・小屋束/)。
+MARK_STYLE_PLAN = '平面'
+MARK_STYLE_SECTION = '断面'
+# 断面記号(各階の柱レイヤに配置する柱束伏図記号 PIO)の作図クラス。極細の実線で
+# 実断面の対角線を描く。下階柱記号・小屋束記号の作図クラス(MARK_CLASS)とは別。
+SECTION_MARK_CLASS = '01作図-01線-02実線-01極細線'
 # PIO の挿入点。記号は検索した柱のワールド位置に描かれ挿入点には依存しないため
 # 原点でよい(座標はセンタリング済み)。
 INSERTION_POINT: list[float] = [0.0, 0.0]
@@ -70,7 +85,9 @@ def build_column_mark_commands(
     分けるため 1 階分につき **管柱クラス**の PIO と**小屋束クラス**の PIO の 2 つを
     置く(通し柱には記号を付けない)。加えて最上階(屋根)があれば、屋根の小屋束を
     母屋伏図に記号化する小屋束記号 PIO を ``R-小屋束`` レイヤに 1 つ置く(検索対象
-    クラスを小屋束クラスに絞る)。ストーリが無ければ空リストを返す。
+    クラスを小屋束クラスに絞る)。さらに各階の柱レイヤ(``n-柱``)には、その柱
+    レイヤ自身の柱・小屋束を実断面に合わせて記号化する断面記号 PIO を 1 つずつ置く
+    (記号スタイル=断面・作図クラス=極細実線)。ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
     commands: list[ColumnMarkCommand] = []
@@ -92,6 +109,7 @@ def build_column_mark_commands(
                 'target_layer': target_layer,
                 'target_class': target_class,
                 'size': DEFAULT_MARK_SIZE,
+                'style': MARK_STYLE_PLAN,
                 'position': list(INSERTION_POINT),
             })
     # 小屋束記号: 最上階(屋根)の小屋束を母屋伏図に記号化する。屋根の柱レイヤ
@@ -105,6 +123,24 @@ def build_column_mark_commands(
             'target_layer': f'{top_prefix}-{LEVEL_COLUMN}',
             'target_class': CLASS_KOYAZUKA,
             'size': DEFAULT_MARK_SIZE,
+            'style': MARK_STYLE_PLAN,
+            'position': list(INSERTION_POINT),
+        })
+    # 断面記号: 各階の柱レイヤ(n-柱)にその柱レイヤ自身を検索対象とする柱束伏図記号
+    # PIO を重ね、断面スタイルで実断面に合わせた記号(柱×・小屋束/)を描く。対象
+    # クラスは絞らず(空=全クラス)、その柱レイヤの構造用途 4/5 の構造材すべてを
+    # 記号化する。柱梁伏図に柱レイヤと併せて表示される。
+    for i in range(n):
+        is_top = i == n - 1
+        prefix = layer_prefix_for(i, is_top)
+        column_layer = f'{prefix}-{LEVEL_COLUMN}'
+        commands.append({
+            'layer': column_layer,
+            'class': SECTION_MARK_CLASS,
+            'target_layer': column_layer,
+            'target_class': '',
+            'size': DEFAULT_MARK_SIZE,
+            'style': MARK_STYLE_SECTION,
             'position': list(INSERTION_POINT),
         })
     return commands
