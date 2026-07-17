@@ -376,13 +376,18 @@
         "legends": [
             {
                 # シートレイヤ上にグラフィック凡例(VW 標準の「グラフィック凡例」
-                # PIO)を配置する命令。基礎伏図ビューポートに表示されるシンボル
-                # (既定ではアンカーボルト)の凡例を表す。凡例の対象シンボルと
-                # 表示ラベルは items に持たせる(ラベルはコード内の固定マッピング)。
-                # グラフィック凡例のデータソース(基礎伏図ビューポート)・行ごとの
-                # ラベルテキストの詳細設定は VW 上で最終調整する(PIO の設定 API が
-                # 未公開のため。描画フェーズは他要素と同じく VW 上で検証する方針)。
+                # PIO)を配置する命令。ビューポートに表示されるシンボルの凡例を表す
+                # (基礎伏図=アンカーボルト、床伏図・母屋伏図=各伏図のシンボル)。凡例の
+                # 対象シンボルと表示ラベルは items に持たせる(ラベルはコード内の固定
+                # マッピング)。グラフィック凡例のデータソース(どのビューポートの
+                # シンボルを集めるか)・行ごとのラベルテキストの詳細設定は PIO の設定
+                # API が未公開のため、ユーザーが VW 側で用意したグラフィック凡例
+                # スタイル(style)に焼き込み、描画フェーズは PIO にこのスタイルを
+                # 関連付けるだけにする(他要素と同じく VW 上で検証する方針)。
                 "number": "1",            # 配置先シートレイヤ番号(基礎伏図=1)
+                # 関連付けるグラフィック凡例スタイル名。基礎伏図=基礎伏図凡例、
+                # 床伏図・母屋伏図=床伏図凡例。ソース定義・集計基準・行レイアウトを持つ。
+                "style": "基礎伏図凡例",
                 "position": [0.0, 0.0],   # シートレイヤ上の配置点 (mm)
                 "items": [
                     # 凡例に並べるシンボルと表示ラベル(並び順どおりに表示する)。
@@ -432,7 +437,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 33
+DOCUMENT_VERSION = 34
 
 
 class LevelCommand(TypedDict):
@@ -876,14 +881,18 @@ class LegendCommand(TypedDict):
     """シートレイヤ上にグラフィック凡例を配置する命令。
 
     VW 標準の「グラフィック凡例」PIO をシートレイヤ(``number``)上の
-    ``position`` に置く。凡例は対象シートのビューポートに表示されるシンボル
-    (既定ではアンカーボルト)を表し、載せるシンボルと表示ラベルは ``items`` に
-    並び順どおり持たせる。グラフィック凡例のデータソース・行ラベルの詳細設定は
-    PIO の設定 API が未公開のため VW 上で最終調整する(描画フェーズは他要素と
-    同じく VW 上で検証する方針)。
+    ``position`` に置き、``style`` のグラフィック凡例スタイルを関連付ける。凡例は
+    対象シートのビューポートに表示されるシンボル(基礎伏図=アンカーボルト、
+    床伏図・母屋伏図=各伏図のシンボル)を表し、載せるシンボルと表示ラベルは
+    ``items`` に並び順どおり持たせる。グラフィック凡例のデータソース・行ラベルの
+    詳細設定は PIO の設定 API が未公開のためユーザーが VW 側で用意した
+    グラフィック凡例スタイル(``style``。基礎伏図=``基礎伏図凡例``、床伏図・
+    母屋伏図=``床伏図凡例``)に焼き込み、描画フェーズは PIO にこのスタイルを
+    関連付けるだけにする(描画フェーズは他要素と同じく VW 上で検証する方針)。
     """
 
     number: str
+    style: str
     position: list[float]
     items: list[LegendItemCommand]
 
@@ -1308,6 +1317,8 @@ def _validate_legend(index: int, command: Any) -> None:
     _require(isinstance(command, dict), f'{where} は dict である必要があります')
     _require(isinstance(command.get('number'), str) and command['number'],
              f'{where}.number は非空文字列である必要があります')
+    _require(isinstance(command.get('style'), str) and command['style'],
+             f'{where}.style は非空文字列である必要があります')
     _require(_is_point(command.get('position')),
              f'{where}.position は [x, y] の数値ペアである必要があります')
     items = command.get('items')

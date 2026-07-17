@@ -246,6 +246,8 @@ class TestBuildLegendCommands:
         legend = legends[0]
         # 基礎伏図(番号 1)のシートレイヤ上に配置する
         assert legend['number'] == '1'
+        # 基礎伏図凡例スタイルを関連付ける
+        assert legend['style'] == '基礎伏図凡例'
         # M12→土台用・M16→ホールダウン用のラベル(固定マッピング)
         assert legend['items'] == [
             {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
@@ -272,6 +274,37 @@ class TestBuildLegendCommands:
         legend = sheet.build_legend_commands(ifc, anchor_bolts)[0]
         assert [item['symbol'] for item in legend['items']] == [
             'アンカーボルト_M12', 'アンカーボルト_M16']
+
+
+class TestBuildFloorLegendCommands:
+    def test_no_legend_without_stories(self) -> None:
+        # ストーリが無ければ柱梁伏図・母屋伏図が作られないため凡例も作らない
+        empty = ifcopenshell.file()
+        assert sheet.build_floor_legend_commands(empty) == []
+
+    def test_one_legend_per_floor_and_moya_sheet(self) -> None:
+        # 各柱梁伏図(床伏図・小屋伏図)・母屋伏図のシートレイヤに凡例を 1 つずつ置く。
+        # 番号は対応する sheet 命令(床伏図・小屋伏図・母屋伏図)の番号に一致させる。
+        ifc = _open('伏図次郎【2階】.ifc')
+        legends = sheet.build_floor_legend_commands(ifc)
+        floor_sheets = sheet.build_floor_framing_sheet_commands(ifc)
+        moya_sheets = sheet.build_moya_sheet_commands(ifc)
+        expected_numbers = (
+            [s['number'] for s in floor_sheets]
+            + [s['number'] for s in moya_sheets])
+        assert [legend['number'] for legend in legends] == expected_numbers
+        # 基礎伏図(番号 1)はこの関数の対象外(build_legend_commands が別途扱う)
+        assert '1' not in [legend['number'] for legend in legends]
+
+    def test_legends_use_floor_plan_style_and_no_items(self) -> None:
+        # 床伏図凡例スタイルを関連付け、載せるシンボルはスタイルが決めるため items は空
+        ifc = _open('伏図次郎【2階】.ifc')
+        legends = sheet.build_floor_legend_commands(ifc)
+        assert legends  # 伏図があるので凡例が組み立てられる
+        for legend in legends:
+            assert legend['style'] == '床伏図凡例'
+            assert legend['items'] == []
+            assert legend['position'] == [0.0, 0.0]
 
 
 class TestBuildSheetCommands:

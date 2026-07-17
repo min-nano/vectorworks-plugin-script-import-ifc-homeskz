@@ -86,7 +86,8 @@ class Expected:
         self.rebars = rebars
         # 受ける材のある横架材端部に配置する仕口シンボルの総数。
         self.joints = joints
-        # 基礎伏図のグラフィック凡例数(基礎があれば 1)。
+        # グラフィック凡例数。基礎伏図(基礎があれば 1)+ 各柱梁伏図(床伏図・
+        # 小屋伏図)+ 各母屋伏図に 1 つずつ。
         self.legends = legends
         # 下屋根の小屋組(母屋・棟木)を含む中間階のストーリ名の集合。
         # 該当階は 母屋 レベル(n-母屋 レイヤ)を持ち、専用の母屋伏図に母屋を表示する。
@@ -122,6 +123,7 @@ FIXTURES = [
         roofs=7,
         rebars=76,
         joints=225,
+        legends=6,
         moya_stories={'2階'},
         roof_stories={'2階'},
     ),
@@ -146,6 +148,7 @@ FIXTURES = [
         roof_stories={'2階'},
         rebars=106,
         joints=415,
+        legends=6,
     ),
     Expected(
         '伏図次郎【2階】.ifc',
@@ -167,6 +170,7 @@ FIXTURES = [
         roofs=11,
         rebars=75,
         joints=459,
+        legends=6,
         moya_stories={'2階'},
         roof_stories={'2階'},
     ),
@@ -190,6 +194,7 @@ FIXTURES = [
         roofs=9,
         rebars=55,
         joints=309,
+        legends=8,
         moya_stories={'2階', '3階'},
         roof_stories={'2階', '3階'},
     ),
@@ -213,6 +218,7 @@ FIXTURES = [
         roofs=2,
         rebars=43,
         joints=95,
+        legends=6,
     ),
 ]
 

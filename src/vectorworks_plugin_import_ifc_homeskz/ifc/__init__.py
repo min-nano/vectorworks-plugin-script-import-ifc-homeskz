@@ -28,7 +28,11 @@ from .member import build_member_commands
 from .rafter import build_rafter_commands
 from .rebar import build_rebar_commands
 from .roof import build_roof_commands
-from .sheet import build_legend_commands, build_sheet_commands
+from .sheet import (
+    build_floor_legend_commands,
+    build_legend_commands,
+    build_sheet_commands,
+)
 from .story import build_story_commands
 from .tag import build_tag_commands
 
@@ -40,6 +44,7 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_document', 'build_fire_brace_commands',
            'build_floor_commands',
            'build_floor_post_commands', 'build_foundation_story_command',
+           'build_floor_legend_commands',
            'build_grid_commands', 'build_joint_commands',
            'build_legend_commands',
            'build_member_commands', 'build_rafter_commands',
@@ -101,6 +106,12 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'tags': build_tag_commands(members),
         # 断面記号は span 柱レイヤごとに置くため columns を渡す
         'column_marks': build_column_mark_commands(columns),
-        'legends': build_legend_commands(ifc_file, anchor_bolts),
+        # 基礎伏図(アンカーボルト)に続けて、各柱梁伏図・母屋伏図のグラフィック凡例
+        # (床伏図凡例スタイル)を並べる。柱梁伏図・母屋伏図の番号を切断レベルで絞るため
+        # columns を渡す。
+        'legends': [
+            *build_legend_commands(ifc_file, anchor_bolts),
+            *build_floor_legend_commands(ifc_file, columns),
+        ],
         'rebars': build_rebar_commands(ifc_file),
     }

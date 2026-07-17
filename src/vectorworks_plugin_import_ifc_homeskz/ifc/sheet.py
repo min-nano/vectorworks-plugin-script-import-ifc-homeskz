@@ -41,11 +41,16 @@
   to=半整数より高いため小屋束レイヤは含まれない)、母屋を支える小屋束の位置は平面の
   伏図記号で示す(小屋束伏図記号は span 方式への移行後に別途対応する)。
 
-さらに ``build_legend_commands`` は基礎伏図に **グラフィック凡例**(VW 標準の
-「グラフィック凡例」PIO)を配置する legend 命令を組み立てる。基礎伏図ビューポートに
-表示されるシンボル(既定ではアンカーボルト)を対象にし、実際に配置された
-アンカーボルトのシンボル(M12/M16)を ``土台用アンカーボルトM12`` /
-``ホールダウン用アンカーボルトM16`` のラベル(コード内の固定マッピング)で並べる。
+さらに legend 命令(VW 標準の「グラフィック凡例」PIO の配置)を組み立てる。
+
+- ``build_legend_commands`` は **基礎伏図**にグラフィック凡例を配置する。基礎伏図
+  ビューポートに表示されるシンボル(既定ではアンカーボルト)を対象にし、実際に
+  配置されたアンカーボルトのシンボル(M12/M16)を ``土台用アンカーボルトM12`` /
+  ``ホールダウン用アンカーボルトM16`` のラベル(コード内の固定マッピング)で並べる。
+  関連付けるグラフィック凡例スタイルは ``基礎伏図凡例``。
+- ``build_floor_legend_commands`` は **各柱梁伏図(床伏図・小屋伏図)と各母屋伏図**に
+  グラフィック凡例を 1 つずつ配置する(基礎伏図と同様)。凡例に載せるシンボル・ラベルは
+  グラフィック凡例スタイル ``床伏図凡例`` に焼き込むため命令は items を持たない。
 """
 from __future__ import annotations
 
@@ -130,6 +135,19 @@ ANCHOR_BOLT_LEGEND_LABELS = {
 ANCHOR_BOLT_LEGEND_ORDER = [SYMBOL_M12, SYMBOL_M16]
 # 凡例のシートレイヤ上の配置点 (mm)。VW 上で最終調整する。
 FOUNDATION_LEGEND_POSITION = [0.0, 0.0]
+# 基礎伏図のグラフィック凡例に関連付けるプラグインスタイル名。ソース定義
+# (シンボルをソースにし基礎伏図ビューポートでフィルタする設定)・集計基準・行
+# レイアウトはこのスタイルが持つ(VW 側でユーザーが用意する)。
+FOUNDATION_LEGEND_STYLE = '基礎伏図凡例'
+
+# 各階の柱梁伏図(床伏図・小屋伏図)・母屋伏図のグラフィック凡例の構成。基礎伏図と
+# 同様に、各伏図ビューポートに表示されるシンボルの凡例を各シートレイヤ上に配置する。
+# ソース定義(どのビューポートのシンボルを集めるか)・集計基準・行レイアウト・行ラベルは
+# ユーザーが VW 側で用意したグラフィック凡例スタイル ``床伏図凡例`` に焼き込むため、
+# 命令は載せるシンボルの items を持たず(スタイルが内容を決める)、スタイルの関連付けと
+# 配置だけを担う。配置点は基礎伏図と同じ既定値(VW 上で最終調整する)。
+FLOOR_LEGEND_STYLE = '床伏図凡例'
+FLOOR_LEGEND_POSITION = [0.0, 0.0]
 
 # 柱梁伏図(各階)シートの構成
 # タイトルの種別ラベル。一般階は "床"、最上階は主屋根の "小屋"。いずれも階番号と
@@ -388,9 +406,40 @@ def build_legend_commands(
         return []
     return [{
         'number': FOUNDATION_PLAN_SHEET_NUMBER,
+        'style': FOUNDATION_LEGEND_STYLE,
         'position': list(FOUNDATION_LEGEND_POSITION),
         'items': items,
     }]
+
+
+def build_floor_legend_commands(
+    ifc_file: ifcopenshell.file,
+    columns: list[ColumnCommand] | None = None,
+) -> list[LegendCommand]:
+    """各階の柱梁伏図・母屋伏図のグラフィック凡例の legend 命令を組み立てて返す。
+
+    基礎伏図(``build_legend_commands``)と同様に、**各柱梁伏図(床伏図・小屋伏図)と
+    各母屋伏図のシートレイヤ**にグラフィック凡例を 1 つずつ配置する。凡例に載せる
+    シンボルとラベル(ソース定義・集計基準・行レイアウト)はユーザーが VW 側で用意した
+    グラフィック凡例スタイル ``床伏図凡例``(``FLOOR_LEGEND_STYLE``)に焼き込むため、
+    命令は ``items`` を持たず(スタイルが内容を決める)、スタイルの関連付けと配置だけを
+    担う(基礎伏図が ``基礎伏図凡例`` を関連付けるのと同じプラグインスタイル方式)。
+
+    配置先シートレイヤ番号は柱梁伏図・母屋伏図の sheet 命令(``number``)と一致させる
+    ため、それぞれの sheet 命令を組み立てて番号を引く。柱の span レイヤを切断レベルで
+    絞るため column 命令(``columns``)を渡す(未指定なら sheet 側で組み立てる)。伏図が
+    1 枚も無ければ空リストを返す。
+    """
+    sheets = [
+        *build_floor_framing_sheet_commands(ifc_file, columns),
+        *build_moya_sheet_commands(ifc_file, columns),
+    ]
+    return [{
+        'number': sheet['number'],
+        'style': FLOOR_LEGEND_STYLE,
+        'position': list(FLOOR_LEGEND_POSITION),
+        'items': [],
+    } for sheet in sheets]
 
 
 def build_sheet_commands(

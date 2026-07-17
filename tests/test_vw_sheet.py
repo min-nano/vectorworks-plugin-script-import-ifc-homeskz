@@ -49,9 +49,10 @@ def make_tag(layer: str = '1-横架材天端', member_index: int = 0) -> TagComm
     }
 
 
-def make_legend(number: str = '1') -> dict[str, Any]:
+def make_legend(number: str = '1', style: str = '基礎伏図凡例') -> dict[str, Any]:
     return {
         'number': number,
+        'style': style,
         'position': [0.0, 0.0],
         'items': [
             {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
@@ -397,6 +398,31 @@ class TestExecuteSheetsWithLegends:
         vs_mock.UpdateStyledObjects.assert_called_once_with(
             vw_sheet._GRAPHIC_LEGEND_STYLE)
         assert counters['legends'] == 1
+
+    def test_uses_command_style_and_updates_each_style_once(self) -> None:
+        # 基礎伏図凡例(基礎伏図)と床伏図凡例(床伏図)を別スタイルで配置し、
+        # 各スタイルにつき UpdateStyledObjects を 1 回ずつ呼ぶ
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command(), make_floor_command()],
+            legends=[
+                make_legend('1', '基礎伏図凡例'),
+                make_legend('2', '床伏図凡例'),
+            ],
+            counters=counters)
+
+        # 命令の style をそのまま関連付ける(基礎伏図凡例・床伏図凡例)
+        vs_mock.SetPluginStyle.assert_any_call('LEGEND_HANDLE', '基礎伏図凡例')
+        vs_mock.SetPluginStyle.assert_any_call('LEGEND_HANDLE', '床伏図凡例')
+        # 使用した各スタイルにつき 1 回ずつ再計算する
+        styles = {
+            call.args[0] for call in vs_mock.UpdateStyledObjects.call_args_list}
+        assert styles == {'基礎伏図凡例', '床伏図凡例'}
+        assert vs_mock.UpdateStyledObjects.call_count == 2
+        assert counters['legends'] == 2
 
     def test_legend_not_placed_on_non_matching_sheet(self) -> None:
         # シートレイヤ番号が一致しない凡例は載せない
