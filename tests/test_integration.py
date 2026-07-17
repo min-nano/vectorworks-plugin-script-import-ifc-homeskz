@@ -542,7 +542,13 @@ class TestSampleIfcAnalysis:
                 f"未知のレイヤを参照しています: {column['layer']}"
 
     def test_floor_layers_and_height_match_stories(self, exp: Expected) -> None:
-        """床板は非最上階の FL レイヤに乗り、床下端が横架材天端に一致する。"""
+        """床板は非最上階の FL レイヤに乗り、床下端が IFC の床位置を尊重する。
+
+        床下端(elevation)は「標準の床高(横架材天端)」+「基準高さからの高低差
+        (bound.offset)」で表される。段差の無い床は offset 0、段差(スキップフロア)や
+        床高の異なる床は offset がずれる。この不変条件と、横架材天端レベルへのバインド・
+        厚み 24mm を検証する。
+        """
         document = build_fixture_document(exp.filename)
         # story 命令から FL レイヤ→横架材天端の絶対 Z を引く。
         beam_top_by_fl: dict[str, float] = {}
@@ -555,10 +561,11 @@ class TestSampleIfcAnalysis:
         for floor in document['floors']:
             assert floor['layer'] in beam_top_by_fl, \
                 f"床板が未知の FL レイヤを参照しています: {floor['layer']}"
-            # 床下端(elevation)= 横架材天端の絶対 Z、バインドも横架材天端 offset 0
-            assert floor['elevation'] == beam_top_by_fl[floor['layer']]
+            # 床下端(elevation)= 横架材天端の絶対 Z + 高低差(offset)
             assert floor['bound']['level'] == '横架材天端'
-            assert floor['bound']['offset'] == 0.0
+            assert floor['bound']['story_offset'] == 0
+            assert floor['elevation'] == (
+                beam_top_by_fl[floor['layer']] + floor['bound']['offset'])
             assert floor['thickness'] == 24.0
 
     def test_document_passes_validation(self, exp: Expected) -> None:

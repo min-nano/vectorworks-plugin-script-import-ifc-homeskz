@@ -43,31 +43,81 @@ class TestBuildFloorCommands:
         commands = build_floor_commands(ifc)
         assert all(c['class'] == CLASS_FLOOR for c in commands)
 
-    def test_bottom_elevation_equals_beam_top(self) -> None:
-        """床下端(elevation)が配置階の横架材天端(絶対 Z)に一致する。"""
-        ifc = _open('サンプル1 (住木邸新築工事).ifc')
+    def _beam_top_by_layer(self, ifc: ifcopenshell.file) -> dict[str, float]:
+        """各 FL レイヤ名 → その階の横架材天端(絶対 Z)。"""
         storeys = sorted(
             [s for s in ifc.by_type('IfcBuildingStorey')
              if (s.Name or '').upper().endswith('FL')],
             key=lambda s: float(s.Elevation or 0.0),
         )
-        # 1FL・2FL の横架材天端(絶対 Z)
         beam_top_by_layer = {}
         for i, s in enumerate(storeys[:-1]):  # 最上階を除く
             layer = f'{i + 1}-FL'
             beam_top_by_layer[layer] = float(s.Elevation or 0.0) + \
                 resolve_beam_top_offset(s)
+        return beam_top_by_layer
 
+    def test_bottom_elevation_equals_beam_top_when_no_step(self) -> None:
+        """段差の無い床は床下端(elevation)が横架材天端(絶対 Z)に一致する。"""
+        ifc = _open('サンプル1 (住木邸新築工事).ifc')
+        beam_top_by_layer = self._beam_top_by_layer(ifc)
         for c in build_floor_commands(ifc):
             assert c['elevation'] == beam_top_by_layer[c['layer']]
 
-    def test_bound_to_beam_top_level_offset_zero(self) -> None:
+    def test_bound_to_beam_top_level_offset_zero_when_no_step(self) -> None:
+        """段差の無い床は横架材天端レベルに offset 0 でバインドする。"""
         ifc = _open('サンプル1 (住木邸新築工事).ifc')
         for c in build_floor_commands(ifc):
             bound = c['bound']
             assert bound['story_offset'] == 0
             assert bound['level'] == '横架材天端'
             assert bound['offset'] == 0.0
+
+    def test_elevation_equals_beam_top_plus_offset(self) -> None:
+        """どのモデルでも elevation = 横架材天端 + bound.offset の関係が成り立つ。
+
+        床下端の絶対 Z(elevation)は「標準の床高(横架材天端)」+「基準高さからの
+        高低差(offset)」で表される。この不変条件を全フィクスチャで検証する。
+        """
+        for filename in ['サンプル1 (住木邸新築工事).ifc',
+                         'スキップフロア_サンプル.ifc',
+                         'グレー本モデルプラン1【3階】.ifc']:
+            ifc = _open(filename)
+            beam_top_by_layer = self._beam_top_by_layer(ifc)
+            for c in build_floor_commands(ifc):
+                bound = c['bound']
+                assert bound['level'] == '横架材天端'
+                assert c['elevation'] == (
+                    beam_top_by_layer[c['layer']] + bound['offset'])
+
+    def test_skip_floor_steps_are_represented(self) -> None:
+        """スキップフロア: 段差のある床は IFC の床位置(下がった絶対 Z)を尊重する。
+
+        スキップフロア_サンプルの 2FL には段差のある床(832mm 下がる)と横架材天端
+        にある通常の床が混在する。従来は全床を横架材天端に潰していたため段差が失われて
+        いた。修正後は床ごとに実際の高さ(elevation)を持ち、offset に高低差が現れる。
+        """
+        ifc = _open('スキップフロア_サンプル.ifc')
+        two_fl = [c for c in build_floor_commands(ifc) if c['layer'] == '2-FL']
+        assert two_fl
+        # 段差床(offset -832)と通常床(offset 0)が別々の高さで存在する
+        offsets = sorted(round(c['bound']['offset'], 3) for c in two_fl)
+        assert 0.0 in offsets
+        assert -832.0 in offsets
+        # 高さが 1 種類に潰れていない(段差が表現されている)
+        assert len({round(c['elevation'], 3) for c in two_fl}) >= 2
+
+    def test_floor_above_beam_top_respects_ifc_position(self) -> None:
+        """床が横架材天端より上にあるモデルでも IFC の床位置を尊重する。
+
+        グレー本モデルプラン1の床は横架材天端より 100〜150mm 高い位置にある。
+        従来は横架材天端へ潰していたが、修正後は IFC の床位置(正の offset)を保つ。
+        """
+        ifc = _open('グレー本モデルプラン1【3階】.ifc')
+        commands = build_floor_commands(ifc)
+        assert commands
+        # いずれの床も横架材天端より上(offset > 0)にあり、潰されていない
+        assert all(c['bound']['offset'] > 0.0 for c in commands)
 
     def test_boundary_is_centered_polygon(self) -> None:
         """外形はグリッド中心オフセット済みの 3 点以上のポリゴン。"""

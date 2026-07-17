@@ -81,6 +81,26 @@ class TestExecuteFloors:
             floor_h, 0, 2, 0, '横架材天端', 0.0)
         vs_mock.ResetObject.assert_called_once_with(floor_h)
 
+    def test_stepped_floor_positioned_at_lowered_elevation(self) -> None:
+        """段差床(スキップフロア)は下がった elevation へ移動し offset でバインドする。"""
+        floor_h = object()
+        vs_mock = _make_vs_mock({'2-FL'}, floor_h)
+        vw_floor = _load(vs_mock)
+
+        command = make_command()
+        command['layer'] = '2-FL'
+        command['elevation'] = 2699.0
+        command['bound'] = {'story_offset': 0, 'level': '横架材天端',
+                            'offset': -832.0}
+
+        vw_floor.execute_floors([command])
+
+        # 床下端を IFC の床位置(下がった絶対 Z=2699)へ移動する
+        vs_mock.Move3D.assert_called_once_with(0.0, 0.0, 2699.0)
+        # 高低差(-832)を offset として横架材天端レベルにバインドする
+        vs_mock.SetObjectStoryBound.assert_called_once_with(
+            floor_h, 0, 2, 0, '横架材天端', -832.0)
+
     def test_skips_when_layer_missing(self) -> None:
         floor_h = object()
         vs_mock = _make_vs_mock(set(), floor_h)

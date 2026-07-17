@@ -3,14 +3,16 @@
 床ツールの Floor オブジェクトは ``vs.BeginFloor(thickness)`` で開始し、
 2D 図形(平面外形の閉じたポリゴン)を描いてから ``vs.EndGroup()`` で確定する
 (``BeginFloor`` の VW 公式ドキュメント: 「2D オブジェクト作成手続きでテンプレート
-を定義し、EndGroup で完了する」)。作成後、床下端が横架材天端になるよう
-``vs.Move3D`` で絶対 Z へ移動し、``vs.SetObjectStoryBound`` で高さ基準を
-横架材天端レベルにバインドする(構造材・スラブと同じ規約。編集時に高さがずれない
-ようにする)。床が作れない場合は外形ポリゴンにフォールバックする。
+を定義し、EndGroup で完了する」)。作成後、床下端が IFC の床位置(命令の
+``elevation``、絶対 Z)になるよう ``vs.Move3D`` で移動し、``vs.SetObjectStoryBound``
+で高さ基準を標準の床高=横架材天端レベルに ``bound.offset``(基準高さからの高低差)
+でバインドする(構造材・スラブと同じ規約。編集時に高さがずれないようにする)。
+段差(スキップフロア)は ``elevation``・``offset`` に現れる。床が作れない場合は
+外形ポリゴンにフォールバックする。
 
 高さの与え方(Move3D の絶対 Z・厚みの伸びる向き・SetObjectStoryBound の
 アンカー)は他の要素と同じく VectorWorks 上で最終確認する方針
-(床下端 = 横架材天端 になることを確認する)。
+(床下端 = IFC の床位置 になることを確認する)。
 """
 from __future__ import annotations
 
@@ -41,10 +43,11 @@ def draw_floor(command: FloorCommand) -> None:
     """floor 命令 1 件を床ツール(Floor オブジェクト)として描画する。
 
     ``vs.BeginFloor(thickness)`` で床を開始し、平面外形を閉じたポリゴンとして描いて
-    ``vs.EndGroup()`` で床オブジェクトを確定する。作成後、床下端が横架材天端(命令の
+    ``vs.EndGroup()`` で床オブジェクトを確定する。作成後、床下端が IFC の床位置(命令の
     ``elevation``、絶対 Z)になるよう ``vs.Move3D`` で Z 方向に移動し、高さ基準を
-    横架材天端レベルに ``vs.SetObjectStoryBound`` でバインドする(offset は床下端が
-    横架材天端ちょうどのため 0)。床が生成できない場合は外形ポリゴンにフォールバックする。
+    標準の床高=横架材天端レベルに ``vs.SetObjectStoryBound`` でバインドする(offset は
+    床下端と横架材天端の差分。段差=スキップフロアはこの offset に現れる)。床が生成
+    できない場合は外形ポリゴンにフォールバックする。
     """
     boundary = command['boundary']
 
