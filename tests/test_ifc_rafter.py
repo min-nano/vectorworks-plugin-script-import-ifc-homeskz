@@ -172,10 +172,22 @@ class TestRafterSupportPoint:
             assert math.isclose(r['end'][1], 3000.0, abs_tol=1e-6)
             assert math.isclose(r['end_elevation'], 2000.0, abs_tol=1e-6)
 
-    def test_overhang_is_support_to_eave_tip(self) -> None:
-        # 軒の出 = 支持点(y=1500)→軒先(y=0)の水平距離 = 1500
+    def test_overhang_is_support_to_tip_minus_embedment(self) -> None:
+        # 壁外面から軒先の距離 = 支持点(y=1500)→軒先(y=0)の水平距離(1500)から
+        # 支持部分の差し込み(既定桁幅/2=52.5)を引いた残り。
+        expected = 1500.0 - rafter.DEFAULT_GIRDER_WIDTH / 2.0
         for r in self._rafters(1500.0):
-            assert math.isclose(r['overhang'], 1500.0, abs_tol=1e-6)
+            assert math.isclose(r['overhang'], expected, abs_tol=1e-6)
+            # 差し込み + 軒の出 = 支持点→軒先(VW は軒先をこの和の位置に置く)
+            assert math.isclose(
+                r['embedment'] + r['overhang'], 1500.0, abs_tol=1e-6)
+
+    def test_overhang_subtracts_referenced_girder_half_width(self) -> None:
+        # 桁幅を参照した場合も 差し込み(桁幅/2)+ 軒の出 = 支持点→軒先 を保つ
+        girder = _girder([-1000.0, 1500.0], [5000.0, 1500.0], 120.0)
+        for r in self._rafters(1500.0, [girder]):
+            assert math.isclose(r['embedment'], 60.0, abs_tol=1e-6)
+            assert math.isclose(r['overhang'], 1500.0 - 60.0, abs_tol=1e-6)
 
     def test_no_overhang_when_beam_top_at_or_below_eave_tip(self) -> None:
         # beam_top_z <= 軒先 z(1000) なら支持点は取れず start=軒先・overhang=0

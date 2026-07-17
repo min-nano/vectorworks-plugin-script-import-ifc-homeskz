@@ -80,7 +80,8 @@ class TestExecuteRafters:
         assert fields['2DDisplay'] == 'width'
         # 軒の出・差し込み・仕様ラベル・構造用途(垂木)・材質(木)
         assert float(fields['overhang']) == 600.0
-        assert float(fields['embed']) == 52.5
+        # 支持部分の差し込みは VW 登録フィールド名 bearinginset(既定 88.9mm を上書き)
+        assert float(fields['bearinginset']) == 52.5
         assert fields['label'] == '45×45@455'
         assert fields['StructuralUse'] == '垂木'
         assert fields['Material'] == '木'

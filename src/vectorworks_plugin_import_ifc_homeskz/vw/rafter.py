@@ -50,7 +50,10 @@ _2D_DISPLAY_WIDTH = 'width'
 # 軒の出(支持点より軒側=低い部分)。壁外面から軒先までの距離 = 命令の ``overhang``。
 _FIELD_OVERHANG = 'overhang'
 # 支持部分の差し込み。受ける軒桁の桁幅の半分 = 命令の ``embedment``。
-_FIELD_EMBEDMENT = 'embed'
+# VW の FramingMember(rafter)の登録フィールド名は ``bearinginset``(実オブジェクトの
+# VectorScript エクスポートで確認)。既定値 88.9mm(=3.5inch)のため、正しい
+# フィールド名で上書きしないと差し込みが既定のまま残り軒先が外へずれる。
+_FIELD_EMBEDMENT = 'bearinginset'
 # 仕様ラベル文字(例 45×45@455)= 命令の ``label``。
 _FIELD_LABEL = 'label'
 # 構造用途フィールド名と値(=垂木)。

@@ -203,11 +203,14 @@ def _rafters_for_plane(
 
     **start=軒側(支持点)・end=棟側(高い端)**。支持点は屋根面(垂木下端)が
     横架材天端(最上階は軒高)の Z レベル ``beam_top_z`` と交わる点(=軒桁の中心線
-    ＝横架材高さとの交点)で、``elevation`` はその ``beam_top_z``。支持点より軒側
-    (低い部分)=軒の出は ``overhang``(支持点→軒先の水平距離)に入れる。``beam_top_z``
-    が None、または屋根面の下端(軒先)が既に ``beam_top_z`` 以上で支持点が取れない場合
-    は start=軒先のまま overhang=0 にする。``embedment``(支持部分の差し込み)は支持点の
-    真下にある軒桁(``story_members``)の桁幅の半分(``_girder_width_at``)。``label`` は
+    ＝横架材高さとの交点)で、``elevation`` はその ``beam_top_z``。``embedment``
+    (支持部分の差し込み)は支持点の真下にある軒桁(``story_members``)の桁幅の半分
+    (``_girder_width_at``)で、支持点→壁外面の水平距離を表す。``overhang``(壁外面から
+    軒先の距離)は支持点→軒先の水平距離から ``embedment`` を引いた残り。VW の垂木は
+    軒先を 支持点 + 差し込み + 軒の出 の位置に置くため、両者の和が支持点→軒先に
+    なるようにする。``beam_top_z`` が None、または屋根面の下端(軒先)が既に
+    ``beam_top_z`` 以上で支持点が取れない場合は start=軒先のまま overhang=0 にする。
+    ``label`` は
     垂木の仕様ラベル(``45×45@455``)。天端 Z はストーリ Elevation を足した絶対値。
     ほぼ水平な面・広がりが極小の面は空リスト。区間の平面投影長が極小(隅木際の極小片・
     端で退化した面等)のものは ``_MIN_RAFTER_LENGTH`` 未満として配置しない。
@@ -275,7 +278,7 @@ def _rafters_for_plane(
             # 支持点 = 屋根面が横架材天端(軒高)Z と交わる点。軒先→棟の線上で
             # z=beam_top_z となる位置 s。軒先が既に beam_top_z 以上(s<=0)や
             # 面全体が下(s>=1)なら支持点は取れないので軒先のままにする。
-            sx, sy, support_z, overhang = lx_, ly_, z_tip, 0.0
+            sx, sy, support_z, support_to_tip = lx_, ly_, z_tip, 0.0
             if beam_top_z is not None:
                 dz = z_ridge - z_tip
                 s = (beam_top_z - z_tip) / dz if dz > _FLAT_TOL else 0.0
@@ -283,11 +286,17 @@ def _rafters_for_plane(
                     sx = lx_ + s * (hx - lx_)
                     sy = ly_ + s * (hy - ly_)
                     support_z = beam_top_z
-                    overhang = math.hypot(sx - lx_, sy - ly_)
+                    support_to_tip = math.hypot(sx - lx_, sy - ly_)
             csx, csy = sx - center_x, sy - center_y
             chx, chy = hx - center_x, hy - center_y
             embedment = _girder_width_at(
                 csx, csy, chx - csx, chy - csy, members) / 2.0
+            # 壁外面から軒先の距離(overhang)= 支持点→軒先(support_to_tip)から
+            # 支持部分の差し込み(embedment = 支持点→壁外面の水平距離)を引いた残り。
+            # VW の垂木は軒先を 支持点 + 差し込み(bearinginset) + 軒の出(overhang) の
+            # 位置に置く(実オブジェクトで確認)ため、両者の和が support_to_tip に
+            # なるよう軒の出から差し込みぶんを引き、軒先が支持点→軒先の位置に揃うようにする。
+            overhang = max(0.0, support_to_tip - embedment)
             commands.append({
                 'layer': layer,
                 'class': CLASS_TARUKI,
