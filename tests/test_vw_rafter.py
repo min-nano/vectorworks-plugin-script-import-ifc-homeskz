@@ -127,3 +127,13 @@ class TestExecuteRafters:
         # フォールバックでも配置数には数える
         assert count == 1
         vs_mock.LineTo.assert_called_once_with(0.0, 2730.0)
+
+    def test_draw_returns_none_for_degenerate_rafter(self) -> None:
+        # 始点=終点(平面投影長 0)の退化した命令は何も作らず None を返す
+        vs_mock = _make_vs_mock({'R-垂木'})
+        vw_rafter = _load(vs_mock)
+        command = make_command()
+        command['end'] = list(command['start'])
+
+        assert vw_rafter.draw_rafter(command) is None
+        vs_mock.CreateCustomObjectN.assert_not_called()

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import math
 import os
+from typing import cast
 
 import ifcopenshell
+import pytest
 
 from vectorworks_plugin_import_ifc_homeskz.document import (
     MemberCommand,
@@ -207,6 +209,79 @@ class TestRafterSupportPoint:
     def test_label_shows_spec(self) -> None:
         for r in self._rafters(1500.0):
             assert r['label'] == '45×45@455'
+
+
+class TestGirderWidthAt:
+    """``_girder_width_at``: 支持点の真下の軒桁(横架材命令)の幅参照。
+
+    垂木の方向は +Y(支持点→棟)とし、X 方向に走る材が軒桁(垂木に直交)になる。
+    """
+    # 支持点(原点)・垂木方向(+Y)
+    PX, PY, RDX, RDY = 0.0, 0.0, 0.0, 1000.0
+
+    def _w(self, members: list[MemberCommand]) -> float:
+        return rafter._girder_width_at(self.PX, self.PY, self.RDX, self.RDY, members)
+
+    def test_returns_default_when_no_members(self) -> None:
+        assert self._w([]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_returns_half_width_perpendicular_member_under_point(self) -> None:
+        # 支持点の真上を通る X 方向(垂木に直交)の軒桁 幅150 → 150 を返す
+        girder = _girder([-1000.0, 0.0], [1000.0, 0.0], 150.0)
+        assert math.isclose(self._w([girder]), 150.0, abs_tol=1e-6)
+
+    def test_skips_zero_length_member(self) -> None:
+        # 始終点が同じ退化した材(mlen=0)は無視して既定桁幅にフォールバックする
+        degenerate = _girder([0.0, 0.0], [0.0, 0.0], 150.0)
+        assert self._w([degenerate]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_skips_member_beyond_perpendicular_tolerance(self) -> None:
+        # 芯線が支持点から直交距離 _GIRDER_SEARCH_TOL より遠い材は採らない
+        far = rafter._GIRDER_SEARCH_TOL + 10.0
+        girder = _girder([-1000.0, far], [1000.0, far], 150.0)
+        assert self._w([girder]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_skips_member_when_point_outside_axis_span(self) -> None:
+        # 支持点が芯線区間の外(射影 t が区間外)なら採らない
+        girder = _girder([500.0, 0.0], [2000.0, 0.0], 150.0)
+        assert self._w([girder]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_picks_nearest_of_multiple_girders(self) -> None:
+        # 直交距離が最も近い軒桁の幅を採る(遠い方は採らない)
+        near = _girder([-1000.0, 10.0], [1000.0, 10.0], 150.0)
+        far = _girder([-1000.0, 80.0], [1000.0, 80.0], 200.0)
+        assert math.isclose(self._w([far, near]), 150.0, abs_tol=1e-6)
+
+
+class TestRoofPlaneEdgeCases:
+    """``_roof_plane`` / ``build_rafter_commands`` の縮退・スキップ経路。"""
+
+    def test_roof_plane_none_when_solid_missing(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # ソリッドが取得できない屋根版は None(垂木を導出しない)
+        monkeypatch.setattr(rafter, '_world_solid', lambda e: None)
+        assert rafter._roof_plane(
+            cast(ifcopenshell.entity_instance, object())) is None
+
+    def test_roof_plane_none_when_fewer_than_three_points(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # 平面外形の頂点が 3 点未満の屋根版は None
+        placement = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+                     (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        solid = (placement, None, 0.0, [(0.0, 0.0), (1.0, 0.0)], None)
+        monkeypatch.setattr(rafter, '_world_solid', lambda e: solid)
+        assert rafter._roof_plane(
+            cast(ifcopenshell.entity_instance, object())) is None
+
+    def test_build_skips_roof_slab_without_plane(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # 屋根版はあるが平面が取れない場合、その要素は飛ばして空リストになる
+        ifc = _open('伏図次郎【2階】.ifc')
+        monkeypatch.setattr(rafter, '_roof_plane', lambda e: None)
+        assert rafter.build_rafter_commands(ifc) == []
 
 
 class TestSweepPositions:
