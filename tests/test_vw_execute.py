@@ -163,7 +163,8 @@ def make_document() -> dict[str, Any]:
         'rafters': [
             {'layer': 'R-垂木', 'class': '04構造-02木造-05小屋組-05垂木',
              'width': 45.0, 'height': 45.0, 'start': [0.0, 0.0], 'end': [0.0, 2730.0],
-             'elevation': 5973.0, 'end_elevation': 6900.0},
+             'elevation': 5973.0, 'end_elevation': 6900.0,
+             'overhang': 600.0, 'embedment': 52.5, 'label': '45×45@455'},
         ],
         'roofs': [
             {'layer': 'R-野地板', 'class': '04構造-02木造-06耐力面材-03屋根',

@@ -10,7 +10,7 @@ from vectorworks_plugin_import_ifc_homeskz.document import RafterCommand
 
 
 def make_command() -> RafterCommand:
-    # 軒側 (0,0,6000) → 棟側 (0,2730,7000)。平面投影長 2730、鉛直差 1000。
+    # 軒側(支持点) (0,0,6000) → 棟側 (0,2730,7000)。平面投影長 2730、鉛直差 1000。
     return {
         'layer': 'R-垂木',
         'class': '04構造-02木造-05小屋組-05垂木',
@@ -20,6 +20,9 @@ def make_command() -> RafterCommand:
         'end': [0.0, 2730.0],
         'elevation': 6000.0,
         'end_elevation': 7000.0,
+        'overhang': 600.0,
+        'embedment': 52.5,
+        'label': '45×45@455',
     }
 
 
@@ -73,6 +76,14 @@ class TestExecuteRafters:
         assert fields['height'] == '45'
         # 平面投影長(LineLength)は 2730
         assert float(fields['LineLength']) == 2730.0
+        # 2D 表示は「幅」
+        assert fields['2DDisplay'] == 'width'
+        # 軒の出・差し込み・仕様ラベル・構造用途(垂木)・材質(木)
+        assert float(fields['overhang']) == 600.0
+        assert float(fields['embed']) == 52.5
+        assert fields['label'] == '45×45@455'
+        assert fields['StructuralUse'] == '垂木'
+        assert fields['Material'] == '木'
 
     def test_pitch_matches_slope(self) -> None:
         vs_mock = _make_vs_mock({'R-垂木'})
