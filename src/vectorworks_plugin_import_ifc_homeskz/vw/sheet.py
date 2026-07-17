@@ -295,6 +295,12 @@ def execute_sheets(
     グラフィック凡例(基礎伏図のアンカーボルト凡例)を配置する。``counters`` を
     渡すと配置したタグ数・凡例数を ``counters['tags']`` / ``counters['legends']`` に
     記録する。
+
+    最後に、作成した全ビューポートをもう一度 ``vs.UpdateVP`` で更新し直して
+    レンダーキャッシュを最新の状態(デザインレイヤの重ね順・内容)へ作り直す。
+    インポート直後はビューポートのレンダーキャッシュが古いまま(レイヤ並べ替え前の
+    重ね順)で描画され、床・野地板が柱梁を覆い隠す不具合があるため(モジュール末尾の
+    最終 UpdateVP パスのコメント参照)。
     """
     tags = tags or []
     member_handles = member_handles or {}
@@ -302,9 +308,13 @@ def execute_sheets(
     count = 0
     tag_count = 0
     legend_count = 0
+    # 作成したビューポートを記録し、全描画・全変更の完了後にまとめて更新し直す
+    # (下記のレンダーキャッシュ作り直しに使う)。
+    viewports: list[Any] = []
     for command in commands:
         sheet_layer, viewport = draw_sheet(command)
         if viewport is not None and viewport != vs.Handle(0):
+            viewports.append(viewport)
             vp_layers = set(command['viewport']['layers'])
             for tag in tags:
                 if tag['layer'] not in vp_layers:
@@ -330,6 +340,20 @@ def execute_sheets(
     # 保持したまま by-style の内容のみ更新される。
     if legend_count:
         vs.UpdateStyledObjects(_GRAPHIC_LEGEND_STYLE)
+    # 全ビューポートの作成・注釈追加・スタイル更新が終わったあとに、各ビューポートを
+    # もう一度 UpdateVP で更新してレンダーキャッシュを最新の状態へ作り直す。
+    # ビューポートはレイヤ並べ替え(reorder_story_layers)後に作成しているが、
+    # インポート直後はビューポートのレンダーキャッシュが古いまま(デザインレイヤの
+    # 重ね順が並べ替え前の状態)で描画される — レイヤパレット・ビューポートの
+    # プロパティ上は新しい順(床・野地板が最下段)になっているのに、描画だけ古い順の
+    # まま床が柱梁を覆い隠す。ユーザーの手動「ビューポートを更新」と同じく、
+    # 全描画・全ドキュメント変更(他シートのビューポート生成・注釈追加・
+    # UpdateStyledObjects)が settle したあとにまとめて UpdateVP を呼び直して
+    # キャッシュを作り直す(作成時インラインの UpdateVP だけでは重ね順の更新が
+    # 反映されないため。force_plan_view の投影キャッシュ作り直しと同種のレンダー
+    # キャッシュ対策)。
+    for viewport in viewports:
+        vs.UpdateVP(viewport)
     if counters is not None:
         counters['tags'] = tag_count
         counters['legends'] = legend_count
