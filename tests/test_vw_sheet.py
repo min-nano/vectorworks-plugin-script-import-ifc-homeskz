@@ -286,15 +286,30 @@ class TestExecuteSheets:
 
 
 class TestRefreshViewports:
-    def test_updates_each_viewport(self) -> None:
-        # 並べ替えで out-of-date になったビューポートを UpdateVP で再描画する
+    def test_force_rebuilds_each_viewport(self) -> None:
+        # 並べ替え後、ReDrawAll で反映させてから各ビューポートを Project 2D の
+        # トグルで dirty にし UpdateVP で強制的に作り直す(no-op 回避)。
         vs_mock = _make_vs_mock([])
         vw_sheet = _load(vs_mock)
 
         vw_sheet.refresh_viewports(['VP1', 'VP2'])
 
+        # 並べ替え結果をレンダーへ反映させる
+        vs_mock.ReDrawAll.assert_called_once_with()
+        # 各ビューポートを Project 2D OFF→ON とトグルして UpdateVP する
+        bool_calls = [c.args for c in vs_mock.SetObjectVariableBoolean.call_args_list]
+        for vp in ('VP1', 'VP2'):
+            assert (vp, vw_sheet._OV_VP_PROJECT_2D, False) in bool_calls
+            assert (vp, vw_sheet._OV_VP_PROJECT_2D, True) in bool_calls
         update_calls = [c.args for c in vs_mock.UpdateVP.call_args_list]
-        assert update_calls == [('VP1',), ('VP2',)]
+        # 各ビューポートにつき 2 回(OFF 後・ON 後)UpdateVP する
+        assert update_calls == [('VP1',), ('VP1',), ('VP2',), ('VP2',)]
+        # 最終状態は Project 2D = ON(2D/平面)
+        last_by_vp = {}
+        for vp, sel, val in bool_calls:
+            if sel == vw_sheet._OV_VP_PROJECT_2D:
+                last_by_vp[vp] = val
+        assert last_by_vp == {'VP1': True, 'VP2': True}
 
     def test_no_update_when_empty(self) -> None:
         vs_mock = _make_vs_mock([])
@@ -303,6 +318,7 @@ class TestRefreshViewports:
         vw_sheet.refresh_viewports([])
 
         vs_mock.UpdateVP.assert_not_called()
+        vs_mock.ReDrawAll.assert_not_called()
 
 
 class TestExecuteSheetsWithTags:

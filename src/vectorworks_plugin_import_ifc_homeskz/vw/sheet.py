@@ -278,19 +278,34 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
 
 
 def refresh_viewports(viewport_handles: list[Any]) -> None:
-    """作成済みビューポートを ``vs.UpdateVP`` で更新し直す。
+    """作成済みビューポートを**強制的に作り直して**レンダーを最新の重ね順にする。
 
-    **デザインレイヤの並べ替え(``reorder_story_layers``)の後**に呼ぶことで、
-    並べ替えによって out-of-date になったビューポートを実際に再描画し、床・野地板を
-    最背面へ回した新しい重ね順を反映させる。``UpdateVP`` は VW が「最新」とみなす
-    ビューポートに対しては何もしない(no-op)ため、**ビューポートを作成してから
-    並べ替える**(=並べ替えが既存ビューポートを out-of-date にする)順序が前提。
-    ビューポートを並べ替えの後に作成すると、そのビューポートは並べ替えによって
-    dirty にならず、``UpdateVP`` を何度呼んでも再描画されない(``CreateVP`` 時の
-    古い重ね順のキャッシュのまま=床・野地板が前面のまま残る)。ユーザーが手動で
-    「ビューポートを更新」すると反映されるのと同じ再描画を、この呼び出しが担う。
+    **デザインレイヤの並べ替え(``reorder_story_layers``)の後**に呼ぶ。並べ替えは
+    床・野地板レイヤを最背面へ回すが、VW 上の検証(手順1〜3)で次が判明した:
+
+    - ドキュメントのレイヤ順は正しく、手動「ビューポートを更新」すれば床は背面に
+      回る(手順1)。デザインレイヤ自体の描画でも床は背面(手順3)。
+    - しかしインポート直後のビューポートは **out-of-date マークが付かない**(手順2)。
+      VW は「最新」とみなすため ``vs.UpdateVP`` は何もしない(no-op)。並べ替えは
+      既存ビューポートを dirty にせず、単純な ``UpdateVP`` では再描画されない。
+
+    そこで手動更新と同じ**強制再描画**を行う: まず ``vs.ReDrawAll`` で並べ替えの
+    結果をレンダーへ反映させ、続いて各ビューポートの投影ブール(``Project 2D``)を
+    OFF→ON とトグルしながら ``vs.UpdateVP`` する。プロパティのトグルはビューポートを
+    dirty にするため ``UpdateVP`` が no-op にならず、実際にレンダーキャッシュを
+    作り直す(``force_plan_view`` が投影キャッシュを作り直すのと同じ手法)。最終状態は
+    ``Project 2D`` = ON(2D/平面)に戻す。実挙動は VW 上で確認する方針。
     """
+    if not viewport_handles:
+        return
+    # 並べ替え(HMoveForward)の結果をレンダーへ反映させる
+    vs.ReDrawAll()
     for viewport in viewport_handles:
+        # Project 2D を OFF→ON とトグルしてビューポートを dirty にし、UpdateVP の
+        # no-op を回避して強制的に作り直す(手動「ビューポートを更新」に相当)。
+        vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, False)
+        vs.UpdateVP(viewport)
+        vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, True)
         vs.UpdateVP(viewport)
 
 
