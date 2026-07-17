@@ -71,13 +71,17 @@
                 "class": "04構造-02木造-05小屋組-05垂木",  # 割り当てるクラス名
                 "width": 45.0,            # 断面幅 (mm)
                 "height": 45.0,           # 断面せい (mm)
-                # start=軒側(低い端)・end=棟側(高い端)の平面座標(mm・センタリング
-                # 済み)。描画フェーズはこの 2 点と両端の天端 Z から水平投影長
-                # (LineLength)・平面方位角・勾配(pitch)を求めて FramingMember に渡す。
+                # start=軒側(支持点)・end=棟側(高い端)の平面座標(mm・センタリング
+                # 済み)。start は屋根面が横架材天端(軒高)Z と交わる支持点。描画
+                # フェーズはこの 2 点と両端の天端 Z から水平投影長(LineLength)・
+                # 平面方位角・勾配(pitch)を求めて FramingMember に渡す。
                 "start": [x1, y1],
                 "end": [x2, y2],
-                "elevation": 6060.0,      # 軒側(start)の天端 Z 高さ (mm, 絶対値)
-                "end_elevation": 7756.0   # 棟側(end)の天端 Z 高さ (mm, 絶対値)
+                "elevation": 6060.0,      # 軒側(start=支持点)の天端 Z 高さ (mm, 絶対値)
+                "end_elevation": 7756.0,  # 棟側(end)の天端 Z 高さ (mm, 絶対値)
+                "overhang": 600.0,        # 支持点→軒先の水平距離 = 軒の出 (mm)
+                "embedment": 52.5,        # 支持部分の差し込み = 桁幅/2 (mm)
+                "label": "45×45@455"      # 垂木の仕様ラベル文字
             }
         ],
         "roofs": [
@@ -517,14 +521,23 @@ RafterCommand = TypedDict('RafterCommand', {
     'end': list[float],
     'elevation': float,
     'end_elevation': float,
+    'overhang': float,
+    'embedment': float,
+    'label': str,
 })
 """垂木 (FramingMember オブジェクト、type='rafter') を描画する命令。
 
-屋根版(IfcSlab の屋根面)の勾配・外形から導出する。start=軒側(低い端)・
+屋根版(IfcSlab の屋根面)の勾配・外形から導出する。start=軒側(支持点)・
 end=棟側(高い端)の平面座標、elevation/end_elevation はそれぞれの天端 Z(絶対値)。
-描画フェーズはこの 2 点と両端 Z から水平投影長・平面方位角・勾配(pitch)を求めて
-軸組ツールに渡す。width×height は断面(既定 45×45)。class は割り当てる構造クラス名
-(小屋組-垂木)。配置先レイヤ(layer)は母屋レイヤの直上に独立させた n-垂木。
+**start=支持点は屋根面(垂木下端)が横架材天端(最上階は軒高)の Z レベルと交わる点**
+(軒桁の中心線=横架材高さとの交点)で、``elevation`` はその横架材天端の Z。
+``overhang`` は支持点から軒先(屋根版外形の下端)までの水平距離(=壁外面から軒先の
+距離。始点より低い軒の出の部分)。``embedment`` は支持部分の差し込み(=受ける軒桁の
+桁幅の半分)。描画フェーズは start/end と両端 Z から水平投影長・平面方位角・勾配
+(pitch)を求め、overhang を軒の出、embedment を差し込みとして軸組ツールに渡す。
+``label`` は垂木の仕様を示すラベル文字(例 ``45×45@455``)。width×height は断面
+(既定 45×45)。class は割り当てる構造クラス名(小屋組-垂木)。配置先レイヤ(layer)は
+母屋レイヤの直上に独立させた n-垂木。
 """
 
 
@@ -1031,9 +1044,12 @@ def _validate_rafter(index: int, command: Any) -> None:
              f'{where}.start は [x, y] の数値ペアである必要があります')
     _require(_is_point(command.get('end')),
              f'{where}.end は [x, y] の数値ペアである必要があります')
-    for key in ('width', 'height', 'elevation', 'end_elevation'):
+    for key in ('width', 'height', 'elevation', 'end_elevation',
+                'overhang', 'embedment'):
         _require(_is_number(command.get(key)),
                  f'{where}.{key} は数値である必要があります')
+    _require(isinstance(command.get('label'), str),
+             f'{where}.label は文字列である必要があります')
 
 
 def _validate_roof(index: int, command: Any) -> None:

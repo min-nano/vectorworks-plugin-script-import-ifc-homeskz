@@ -56,6 +56,7 @@ def make_valid_document() -> dict[str, Any]:
                 'width': 45.0, 'height': 45.0,
                 'start': [0.0, 0.0], 'end': [0.0, 2730.0],
                 'elevation': 6060.0, 'end_elevation': 7000.0,
+                'overhang': 600.0, 'embedment': 52.5, 'label': '45×45@455',
             },
         ],
         'roofs': [
@@ -305,6 +306,24 @@ class TestValidateDocument:
         document = make_valid_document()
         document['rafters'][0]['start'] = [0.0]
         with pytest.raises(DocumentValidationError, match='start'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_overhang(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['overhang']
+        with pytest.raises(DocumentValidationError, match='overhang'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_embedment(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['embedment']
+        with pytest.raises(DocumentValidationError, match='embedment'):
+            validate_document(document)
+
+    def test_rejects_rafter_with_non_string_label(self) -> None:
+        document = make_valid_document()
+        document['rafters'][0]['label'] = 123
+        with pytest.raises(DocumentValidationError, match='label'):
             validate_document(document)
 
     def test_rejects_roof_without_class(self) -> None:

@@ -73,7 +73,9 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'stories': stories,
         'grids': build_grid_commands(ifc_file),
         'members': members,
-        'rafters': build_rafter_commands(ifc_file),
+        # 垂木の差し込み(桁幅参照)に横架材命令を使うため一度だけ組み立てた
+        # members を渡す(支持点の桁幅を軒桁から相互参照する)
+        'rafters': build_rafter_commands(ifc_file, members),
         'roofs': build_roof_commands(ifc_file),
         'columns': build_column_commands(ifc_file),
         'walls': walls,

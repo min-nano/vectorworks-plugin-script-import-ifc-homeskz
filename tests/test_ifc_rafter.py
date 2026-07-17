@@ -7,9 +7,15 @@ from __future__ import annotations
 
 import math
 import os
+from typing import cast
 
 import ifcopenshell
+import pytest
 
+from vectorworks_plugin_import_ifc_homeskz.document import (
+    MemberCommand,
+    StoryBoundCommand,
+)
 from vectorworks_plugin_import_ifc_homeskz.ifc import open_ifc, rafter
 from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import CLASS_TARUKI
 
@@ -18,6 +24,17 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
 
 def _open(filename: str) -> ifcopenshell.file:
     return open_ifc(os.path.join(FIXTURES_DIR, filename))
+
+
+def _girder(start: list[float], end: list[float], width: float) -> MemberCommand:
+    """桁幅参照テスト用の軒桁 member 命令(_girder_width_at は start/end/width のみ参照)。"""
+    bound: StoryBoundCommand = {'story_offset': 0, 'level': '軒高', 'offset': 0.0}
+    return {
+        'layer': 'R-軒高', 'member_id': '', 'class': CLASS_TARUKI,
+        'start': start, 'end': end, 'width': width, 'height': 180.0,
+        'elevation': 0.0, 'end_elevation': 0.0,
+        'start_bound': bound, 'end_bound': bound,
+    }
 
 
 class TestRaftersForPlane:
@@ -130,6 +147,143 @@ class TestRaftersForPlane:
         assert has(0.0, 3000.0)
 
 
+class TestRafterSupportPoint:
+    """支持点(start=屋根面と横架材天端 Z の交点)・軒の出・差し込み・ラベル。
+
+    平面は ``TestRaftersForPlane`` と同じ z=1000+y/3(軒 y=0 で z=1000、棟 y=3000
+    で z=2000)。
+    """
+    NX, NY, NZ = TestRaftersForPlane.NX, TestRaftersForPlane.NY, TestRaftersForPlane.NZ
+    VERTS = TestRaftersForPlane.VERTS
+
+    def _rafters(
+        self, beam_top_z: float, members: list[MemberCommand] | None = None,
+    ) -> list:
+        return rafter._rafters_for_plane(
+            self.VERTS, (self.NX, self.NY, self.NZ), 'R-垂木',
+            storey_elevation=0.0, center_x=0.0, center_y=0.0,
+            beam_top_z=beam_top_z, story_members=members or [])
+
+    def test_start_is_intersection_with_beam_top_z(self) -> None:
+        # beam_top_z=1500 → 屋根面と交わる支持点は y=1500(z=1500)。軒先(y=0)より上。
+        for r in self._rafters(1500.0):
+            assert math.isclose(r['start'][1], 1500.0, abs_tol=1e-6)
+            assert math.isclose(r['elevation'], 1500.0, abs_tol=1e-6)
+            # 棟側(end)は変わらず y=3000, z=2000
+            assert math.isclose(r['end'][1], 3000.0, abs_tol=1e-6)
+            assert math.isclose(r['end_elevation'], 2000.0, abs_tol=1e-6)
+
+    def test_overhang_is_support_to_eave_tip(self) -> None:
+        # 軒の出 = 支持点(y=1500)→軒先(y=0)の水平距離 = 1500
+        for r in self._rafters(1500.0):
+            assert math.isclose(r['overhang'], 1500.0, abs_tol=1e-6)
+
+    def test_no_overhang_when_beam_top_at_or_below_eave_tip(self) -> None:
+        # beam_top_z <= 軒先 z(1000) なら支持点は取れず start=軒先・overhang=0
+        for r in self._rafters(800.0):
+            assert math.isclose(r['start'][1], 0.0, abs_tol=1e-6)
+            assert math.isclose(r['elevation'], 1000.0, abs_tol=1e-6)
+            assert r['overhang'] == 0.0
+
+    def test_embedment_defaults_to_half_default_girder(self) -> None:
+        # 桁幅参照なし(story_members 空)→ 差し込み = 既定桁幅/2
+        for r in self._rafters(1500.0):
+            assert math.isclose(
+                r['embedment'], rafter.DEFAULT_GIRDER_WIDTH / 2.0, abs_tol=1e-6)
+
+    def test_embedment_uses_referenced_girder_half_width(self) -> None:
+        # 支持点(y=1500)の真下に X 方向(垂木に直交)の軒桁 幅120 → 差し込み 60
+        girder = _girder([-1000.0, 1500.0], [5000.0, 1500.0], 120.0)
+        rafters = self._rafters(1500.0, [girder])
+        assert rafters
+        for r in rafters:
+            assert math.isclose(r['embedment'], 60.0, abs_tol=1e-6)
+
+    def test_parallel_member_not_used_as_girder(self) -> None:
+        # 垂木と平行に走る材(Y 方向)は軒桁とみなさない → 既定桁幅にフォールバック
+        parallel = _girder([0.0, -1000.0], [0.0, 5000.0], 120.0)
+        for r in self._rafters(1500.0, [parallel]):
+            assert math.isclose(
+                r['embedment'], rafter.DEFAULT_GIRDER_WIDTH / 2.0, abs_tol=1e-6)
+
+    def test_label_shows_spec(self) -> None:
+        for r in self._rafters(1500.0):
+            assert r['label'] == '45×45@455'
+
+
+class TestGirderWidthAt:
+    """``_girder_width_at``: 支持点の真下の軒桁(横架材命令)の幅参照。
+
+    垂木の方向は +Y(支持点→棟)とし、X 方向に走る材が軒桁(垂木に直交)になる。
+    """
+    # 支持点(原点)・垂木方向(+Y)
+    PX, PY, RDX, RDY = 0.0, 0.0, 0.0, 1000.0
+
+    def _w(self, members: list[MemberCommand]) -> float:
+        return rafter._girder_width_at(self.PX, self.PY, self.RDX, self.RDY, members)
+
+    def test_returns_default_when_no_members(self) -> None:
+        assert self._w([]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_returns_half_width_perpendicular_member_under_point(self) -> None:
+        # 支持点の真上を通る X 方向(垂木に直交)の軒桁 幅150 → 150 を返す
+        girder = _girder([-1000.0, 0.0], [1000.0, 0.0], 150.0)
+        assert math.isclose(self._w([girder]), 150.0, abs_tol=1e-6)
+
+    def test_skips_zero_length_member(self) -> None:
+        # 始終点が同じ退化した材(mlen=0)は無視して既定桁幅にフォールバックする
+        degenerate = _girder([0.0, 0.0], [0.0, 0.0], 150.0)
+        assert self._w([degenerate]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_skips_member_beyond_perpendicular_tolerance(self) -> None:
+        # 芯線が支持点から直交距離 _GIRDER_SEARCH_TOL より遠い材は採らない
+        far = rafter._GIRDER_SEARCH_TOL + 10.0
+        girder = _girder([-1000.0, far], [1000.0, far], 150.0)
+        assert self._w([girder]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_skips_member_when_point_outside_axis_span(self) -> None:
+        # 支持点が芯線区間の外(射影 t が区間外)なら採らない
+        girder = _girder([500.0, 0.0], [2000.0, 0.0], 150.0)
+        assert self._w([girder]) == rafter.DEFAULT_GIRDER_WIDTH
+
+    def test_picks_nearest_of_multiple_girders(self) -> None:
+        # 直交距離が最も近い軒桁の幅を採る(遠い方は採らない)
+        near = _girder([-1000.0, 10.0], [1000.0, 10.0], 150.0)
+        far = _girder([-1000.0, 80.0], [1000.0, 80.0], 200.0)
+        assert math.isclose(self._w([far, near]), 150.0, abs_tol=1e-6)
+
+
+class TestRoofPlaneEdgeCases:
+    """``_roof_plane`` / ``build_rafter_commands`` の縮退・スキップ経路。"""
+
+    def test_roof_plane_none_when_solid_missing(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # ソリッドが取得できない屋根版は None(垂木を導出しない)
+        monkeypatch.setattr(rafter, '_world_solid', lambda e: None)
+        assert rafter._roof_plane(
+            cast(ifcopenshell.entity_instance, object())) is None
+
+    def test_roof_plane_none_when_fewer_than_three_points(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # 平面外形の頂点が 3 点未満の屋根版は None
+        placement = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+                     (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        solid = (placement, None, 0.0, [(0.0, 0.0), (1.0, 0.0)], None)
+        monkeypatch.setattr(rafter, '_world_solid', lambda e: solid)
+        assert rafter._roof_plane(
+            cast(ifcopenshell.entity_instance, object())) is None
+
+    def test_build_skips_roof_slab_without_plane(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # 屋根版はあるが平面が取れない場合、その要素は飛ばして空リストになる
+        ifc = _open('伏図次郎【2階】.ifc')
+        monkeypatch.setattr(rafter, '_roof_plane', lambda e: None)
+        assert rafter.build_rafter_commands(ifc) == []
+
+
 class TestSweepPositions:
     """``_sweep_positions``: 両端は半幅内側 + 内部 455 以下・中間 455・端数両端。"""
 
@@ -177,11 +331,15 @@ class TestBuildRafterCommands:
         rafters = rafter.build_rafter_commands(ifc)
         assert len(rafters) > 0
         for r in rafters:
-            # すべて既定断面・垂木クラス、棟が軒より高い
+            # すべて既定断面・垂木クラス、棟が軒(支持点)より高い
             assert r['width'] == 45.0 and r['height'] == 45.0
             assert r['class'] == CLASS_TARUKI
             assert r['end_elevation'] >= r['elevation']
             assert r['layer'].endswith('-垂木')
+            # 軒の出は 0 以上、差し込みは桁幅/2(正)、仕様ラベルは 45×45@455
+            assert r['overhang'] >= 0.0
+            assert r['embedment'] > 0.0
+            assert r['label'] == '45×45@455'
 
     def test_fixture_layers_map_to_roof_storeys(self) -> None:
         # 伏図次郎: 下屋根(2FL)→ 2-垂木、主屋根(RFL)→ R-垂木

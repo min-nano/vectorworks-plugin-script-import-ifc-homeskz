@@ -32,10 +32,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from ..document import RafterCommand
+from ..document import MemberCommand, RafterCommand
 from .footing import _add, _scale, _world_solid
 from .grid import resolve_lines
-from .story import LEVEL_TARUKI, layer_prefix_for
+from .story import LEVEL_TARUKI, layer_prefix_for, resolve_beam_top_offset
 from .structural_class import CLASS_TARUKI
 
 if TYPE_CHECKING:
@@ -49,6 +49,19 @@ DEFAULT_RAFTER_WIDTH = 45.0
 DEFAULT_RAFTER_HEIGHT = 45.0
 # 垂木の配置間隔 (mm)。IFC に情報が無いため決め打ち(要件どおり @455)。
 RAFTER_INTERVAL = 455.0
+
+# 支持部分の差し込み(``embedment``)に使う桁幅を、受ける軒桁(横架材命令)から
+# 相互参照できなかったときのフォールバック値 (mm)。差し込みはこの半分になる。
+DEFAULT_GIRDER_WIDTH = 105.0
+# 支持点の真下に軒桁の芯線が見つかるとみなす直交距離の許容 (mm)。屋根面が横架材
+# 天端 Z と交わる支持点は受ける軒桁の天端(=芯線)のほぼ真上に来るため、この許容
+# 内で最も近い横架材の幅を桁幅として採る。
+_GIRDER_SEARCH_TOL = 100.0
+# 桁幅参照で支持点が軒桁の芯線区間内にあるとみなす軸方向の余裕 (mm)。
+_GIRDER_ALONG_TOL = 1.0
+# 桁幅参照で「軒桁は垂木に直交する」ことを使い、垂木と平行に走る材(継ぎ手・側並び)を
+# 除くための sin(なす角) の下限。これ未満(ほぼ平行)の材は軒桁とみなさない。
+_GIRDER_PERP_SIN = 0.1
 
 # 屋根面の法線の水平成分がこれ以下(ほぼ水平な面)なら勾配方向が定まらないため
 # 垂木を流さない
@@ -127,6 +140,49 @@ def _roof_plane(
     return verts, normal
 
 
+def _girder_width_at(
+    px: float,
+    py: float,
+    rdx: float,
+    rdy: float,
+    members: list[MemberCommand],
+) -> float:
+    """支持点 (px, py) の真下にある軒桁(横架材命令)の幅を返す。
+
+    支持点は屋根面(垂木下端)が横架材天端 Z と交わる点で、受ける軒桁の天端
+    (=芯線)のほぼ真上に来る。``members`` のうち芯線が支持点に最も近い(直交距離
+    ``_GIRDER_SEARCH_TOL`` 以内・射影が芯線区間内)ものの幅を桁幅として採り、見つから
+    なければ既定値 ``DEFAULT_GIRDER_WIDTH`` を返す。座標系は member 命令と同じグリッド
+    中心オフセット済み。``rdx``/``rdy`` は垂木の方向(支持点→棟)で、垂木と平行に走る材
+    (継ぎ手・側並び)を除いて軒桁(垂木に直交)を選ぶために使う。判定は ``members`` の
+    並び順に依存しない決定的な結果になる。
+    """
+    rlen = math.hypot(rdx, rdy)
+    best_dist = _GIRDER_SEARCH_TOL
+    best_width: float | None = None
+    for m in members:
+        sx, sy = m['start']
+        ex, ey = m['end']
+        mdx, mdy = ex - sx, ey - sy
+        mlen = math.hypot(mdx, mdy)
+        if mlen <= 0.0:
+            continue
+        ux, uy = mdx / mlen, mdy / mlen
+        # 芯線に沿う射影位置 t が区間内か、芯線からの直交距離が許容内かを判定する。
+        t = (px - sx) * ux + (py - sy) * uy
+        if t < -_GIRDER_ALONG_TOL or t > mlen + _GIRDER_ALONG_TOL:
+            continue
+        perp = abs(-(px - sx) * uy + (py - sy) * ux)
+        if perp > best_dist:
+            continue
+        # 垂木と平行に走る材は軒桁でないため除外する(なす角の sin が小さい)。
+        if rlen > 0.0 and abs(rdx * uy - rdy * ux) / rlen < _GIRDER_PERP_SIN:
+            continue
+        best_dist = perp
+        best_width = m['width']
+    return best_width if best_width is not None else DEFAULT_GIRDER_WIDTH
+
+
 def _rafters_for_plane(
     verts: list[_Vec3],
     normal: _Vec3,
@@ -134,17 +190,27 @@ def _rafters_for_plane(
     storey_elevation: float,
     center_x: float,
     center_y: float,
+    beam_top_z: float | None = None,
+    story_members: list[MemberCommand] | None = None,
 ) -> list[RafterCommand]:
     """1 つの屋根面(平面外形頂点列 + 単位法線)から垂木命令のリストを組み立てる。
 
     最急勾配方向(法線の水平成分)へ垂木を流し、それに直交する掃引方向へ掃引線を
     並べ、各掃引線を外形でクリップした区間を 1 本ずつ命令にする。掃引位置は
-    **屋根面の両端(e_min・e_max＝ケラバ側)には必ず 1 本ずつ**置き、内部は
-    ``RAFTER_INTERVAL``(455mm)**以下**で割り付ける(中間は 455mm ちょうど・端数は
-    両端の 2 区間へ等分。``_sweep_positions``)。start=軒側(低い端)・end=棟側
-    (高い端)、天端 Z はストーリ Elevation を足した絶対値。ほぼ水平な面・広がりが
-    極小の面は空リスト。区間の平面投影長が極小(隅木際の極小片・端で退化した面等)の
-    ものは ``_MIN_RAFTER_LENGTH`` 未満として配置しない。
+    **屋根面の両端の垂木を端から垂木幅の半分だけ内側**へ寄せ(端に軸を合わせると
+    垂木幅の半分がはみ出すため)、内部は ``RAFTER_INTERVAL``(455mm)**以下**で
+    割り付ける(中間は 455mm ちょうど・端数は両端の 2 区間へ等分。``_sweep_positions``)。
+
+    **start=軒側(支持点)・end=棟側(高い端)**。支持点は屋根面(垂木下端)が
+    横架材天端(最上階は軒高)の Z レベル ``beam_top_z`` と交わる点(=軒桁の中心線
+    ＝横架材高さとの交点)で、``elevation`` はその ``beam_top_z``。支持点より軒側
+    (低い部分)=軒の出は ``overhang``(支持点→軒先の水平距離)に入れる。``beam_top_z``
+    が None、または屋根面の下端(軒先)が既に ``beam_top_z`` 以上で支持点が取れない場合
+    は start=軒先のまま overhang=0 にする。``embedment``(支持部分の差し込み)は支持点の
+    真下にある軒桁(``story_members``)の桁幅の半分(``_girder_width_at``)。``label`` は
+    垂木の仕様ラベル(``45×45@455``)。天端 Z はストーリ Elevation を足した絶対値。
+    ほぼ水平な面・広がりが極小の面は空リスト。区間の平面投影長が極小(隅木際の極小片・
+    端で退化した面等)のものは ``_MIN_RAFTER_LENGTH`` 未満として配置しない。
     """
     nx, ny, nz = normal
     dh = math.hypot(nx, ny)
@@ -168,6 +234,11 @@ def _rafters_for_plane(
     span = e_max - e_min
     if span < _MIN_RAFTER_LENGTH:
         return []
+    members = story_members or []
+    # 仕様ラベル(全垂木で共通。断面・間隔が決め打ちのため)。
+    w = int(round(DEFAULT_RAFTER_WIDTH))
+    h = int(round(DEFAULT_RAFTER_HEIGHT))
+    label = f'{w}×{h}@{int(round(RAFTER_INTERVAL))}'
     # 面の e 方向の広がり [e_min, e_max] の**両端の垂木は屋根面の端から垂木幅の
     # 半分だけ内側**へ寄せ(端に軸を合わせると垂木幅の半分がはみ出すため)、内部は
     # ``RAFTER_INTERVAL``(455mm)**以下**で割り付ける(中間は 455mm ちょうど・
@@ -195,33 +266,67 @@ def _rafters_for_plane(
         hits.sort()
         for j in range(0, len(hits) - 1, 2):
             _d_hi, hx, hy = hits[j]        # d 最小 = 高い側 = 棟側
-            _d_lo, lx_, ly_ = hits[j + 1]  # d 最大 = 低い側 = 軒側
+            _d_lo, lx_, ly_ = hits[j + 1]  # d 最大 = 低い側 = 軒先
             length = math.hypot(lx_ - hx, ly_ - hy)
             if length < _MIN_RAFTER_LENGTH:
                 continue
+            z_tip = z_at(lx_, ly_)      # 軒先の天端 Z
+            z_ridge = z_at(hx, hy)      # 棟側の天端 Z
+            # 支持点 = 屋根面が横架材天端(軒高)Z と交わる点。軒先→棟の線上で
+            # z=beam_top_z となる位置 s。軒先が既に beam_top_z 以上(s<=0)や
+            # 面全体が下(s>=1)なら支持点は取れないので軒先のままにする。
+            sx, sy, support_z, overhang = lx_, ly_, z_tip, 0.0
+            if beam_top_z is not None:
+                dz = z_ridge - z_tip
+                s = (beam_top_z - z_tip) / dz if dz > _FLAT_TOL else 0.0
+                if 0.0 < s < 1.0:
+                    sx = lx_ + s * (hx - lx_)
+                    sy = ly_ + s * (hy - ly_)
+                    support_z = beam_top_z
+                    overhang = math.hypot(sx - lx_, sy - ly_)
+            csx, csy = sx - center_x, sy - center_y
+            chx, chy = hx - center_x, hy - center_y
+            embedment = _girder_width_at(
+                csx, csy, chx - csx, chy - csy, members) / 2.0
             commands.append({
                 'layer': layer,
                 'class': CLASS_TARUKI,
                 'width': DEFAULT_RAFTER_WIDTH,
                 'height': DEFAULT_RAFTER_HEIGHT,
-                # start=軒側(低い端)、end=棟側(高い端)
-                'start': [lx_ - center_x, ly_ - center_y],
-                'end': [hx - center_x, hy - center_y],
-                'elevation': z_at(lx_, ly_),
-                'end_elevation': z_at(hx, hy),
+                # start=軒側(支持点)、end=棟側(高い端)
+                'start': [csx, csy],
+                'end': [chx, chy],
+                'elevation': support_z,
+                'end_elevation': z_ridge,
+                'overhang': overhang,
+                'embedment': embedment,
+                'label': label,
             })
     return commands
 
 
-def build_rafter_commands(ifc_file: ifcopenshell.file) -> list[RafterCommand]:
+def build_rafter_commands(
+    ifc_file: ifcopenshell.file,
+    members: list[MemberCommand] | None = None,
+) -> list[RafterCommand]:
     """IFC の屋根版から垂木命令のリストを組み立てる。
 
     FL ストーリ(名前が FL で終わる IfcBuildingStorey)を Elevation 昇順に走査し、
     各ストーリに含まれる ``屋根版`` の IfcSlab から垂木を導出する。配置先レイヤは
     そのストーリの ``n-垂木``(母屋レイヤの直上、``story.py`` が生成)。ストーリの
-    ローカル配置 Z(=Elevation)を足して天端を絶対 Z にする。ストーリが無ければ
-    空リスト。走査順(ストーリ→含有要素)に対して決定的。
+    ローカル配置 Z(=Elevation)を足して天端を絶対 Z にする。
+
+    支持点(start)は屋根面が横架材天端(最上階は軒高)の Z レベルと交わる点にする
+    ため、各階の横架材天端 Z(``elevation + resolve_beam_top_offset``、最上階は軒高
+    ＝ ``elevation``)を求めて ``_rafters_for_plane`` に渡す。差し込み(``embedment``)に
+    使う桁幅は受ける軒桁(横架材命令)から相互参照するため、``members``(横架材命令。
+    未指定なら内部で ``build_member_commands`` を組み立てる)を階ごとにレイヤ接頭辞で
+    絞って渡す。ストーリが無ければ空リスト。走査順(ストーリ→含有要素)に対して決定的。
     """
+    if members is None:
+        from .member import build_member_commands
+        members = build_member_commands(ifc_file)
+
     _, center_x, center_y = resolve_lines(ifc_file)
 
     storeys = sorted(
@@ -235,9 +340,17 @@ def build_rafter_commands(ifc_file: ifcopenshell.file) -> list[RafterCommand]:
 
     commands: list[RafterCommand] = []
     for i, storey in enumerate(storeys):
-        prefix = layer_prefix_for(i, i == top_idx)
+        is_top = (i == top_idx)
+        prefix = layer_prefix_for(i, is_top)
         layer = f'{prefix}-{LEVEL_TARUKI}'
         elevation = float(storey.Elevation or 0.0)
+        # 支持点が乗る横架材天端の絶対 Z(最上階は軒高＝offset 0)。
+        if is_top:
+            beam_top_z = elevation
+        else:
+            beam_top_z = elevation + resolve_beam_top_offset(storey)
+        # 桁幅参照用に同じ階(同じレイヤ接頭辞)の横架材だけを渡す。
+        story_members = [m for m in members if m['layer'].startswith(f'{prefix}-')]
         for rel in storey.ContainsElements or ():
             for element in rel.RelatedElements:
                 if not element.is_a('IfcSlab'):
@@ -249,5 +362,6 @@ def build_rafter_commands(ifc_file: ifcopenshell.file) -> list[RafterCommand]:
                     continue
                 verts, normal = plane
                 commands.extend(_rafters_for_plane(
-                    verts, normal, layer, elevation, center_x, center_y))
+                    verts, normal, layer, elevation, center_x, center_y,
+                    beam_top_z, story_members))
     return commands
