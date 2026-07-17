@@ -277,30 +277,12 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     return True
 
 
-def refresh_viewports(viewport_handles: list[Any]) -> None:
-    """作成済みビューポートを ``vs.UpdateVP`` で更新し直す。
-
-    **デザインレイヤの並べ替え(``reorder_story_layers``)の後**に呼ぶことで、
-    並べ替えによって out-of-date になったビューポートを実際に再描画し、床・野地板を
-    最背面へ回した新しい重ね順を反映させる。``UpdateVP`` は VW が「最新」とみなす
-    ビューポートに対しては何もしない(no-op)ため、**ビューポートを作成してから
-    並べ替える**(=並べ替えが既存ビューポートを out-of-date にする)順序が前提。
-    ビューポートを並べ替えの後に作成すると、そのビューポートは並べ替えによって
-    dirty にならず、``UpdateVP`` を何度呼んでも再描画されない(``CreateVP`` 時の
-    古い重ね順のキャッシュのまま=床・野地板が前面のまま残る)。ユーザーが手動で
-    「ビューポートを更新」すると反映されるのと同じ再描画を、この呼び出しが担う。
-    """
-    for viewport in viewport_handles:
-        vs.UpdateVP(viewport)
-
-
 def execute_sheets(
     commands: list[SheetCommand],
     tags: list[TagCommand] | None = None,
     member_handles: dict[int, Any] | None = None,
     counters: dict[str, int] | None = None,
     legends: list[LegendCommand] | None = None,
-    viewport_handles: list[Any] | None = None,
 ) -> int:
     """sheet 命令のリストを実行し、作成シート数を返す。
 
@@ -314,12 +296,15 @@ def execute_sheets(
     渡すと配置したタグ数・凡例数を ``counters['tags']`` / ``counters['legends']`` に
     記録する。
 
-    ``viewport_handles`` を渡すと、作成したビューポートのハンドルをそのリストへ
-    追記する。呼び出し側(``execute_document``)は **この関数の後に
-    ``reorder_story_layers`` でデザインレイヤを並べ替え、そのあと
-    ``refresh_viewports`` でこれらのビューポートを更新し直す**(並べ替えが
-    ビューポートを out-of-date にしてから ``UpdateVP`` することで床・野地板を
-    最背面へ回した重ね順を反映させる。``refresh_viewports`` の説明参照)。
+    なお、床・野地板レイヤを最背面へ回す並べ替え(``reorder_story_layers``)の結果は
+    **インポート直後のビューポート描画には反映されない**(レイヤパレット・ビュー
+    ポートのプロパティ上は新しい順なのに描画だけ古い順で床が柱梁を覆い隠す)。VW 上の
+    検証で、並べ替えは既存ビューポートを out-of-date にせず、``UpdateVP`` も
+    ``ReDrawAll`` も ``Project 2D`` トグルによる強制再描画も効かないことを確認した
+    (手動「ビューポートを更新」またはファイルの開き直しでのみ反映される)。スクリプト
+    内での自動反映は VW の制約上できないため、無駄な更新処理は行わず、この描画反映は
+    ユーザーの手動操作に委ねる(``document.py`` のスキーマ・上位の ``execute_document``
+    参照)。
     """
     tags = tags or []
     member_handles = member_handles or {}
@@ -330,8 +315,6 @@ def execute_sheets(
     for command in commands:
         sheet_layer, viewport = draw_sheet(command)
         if viewport is not None and viewport != vs.Handle(0):
-            if viewport_handles is not None:
-                viewport_handles.append(viewport)
             vp_layers = set(command['viewport']['layers'])
             for tag in tags:
                 if tag['layer'] not in vp_layers:
@@ -357,10 +340,6 @@ def execute_sheets(
     # 保持したまま by-style の内容のみ更新される。
     if legend_count:
         vs.UpdateStyledObjects(_GRAPHIC_LEGEND_STYLE)
-    # ここではビューポートを更新し直さない。デザインレイヤの並べ替え
-    # (reorder_story_layers)より前にビューポートを作成し、並べ替えでビューポートを
-    # out-of-date にしてから refresh_viewports(=UpdateVP)で再描画する必要があるため
-    # (execute_document がこの順で呼ぶ。refresh_viewports の説明参照)。
     if counters is not None:
         counters['tags'] = tag_count
         counters['legends'] = legend_count

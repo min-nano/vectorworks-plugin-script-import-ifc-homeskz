@@ -178,10 +178,8 @@ class TestExecuteSheets:
             ('VP_HANDLE', vw_sheet._OV_VP_PROJECT_2D, False),
             ('VP_HANDLE', vw_sheet._OV_VP_PROJECT_2D, True),
         ]
-        # Project 2D OFF のあと(3D「上」の描画)と draw_viewport の最終描画で
-        # UpdateVP が 2 回呼ばれ、最終状態は Project 2D ON(=2D/平面)になる。
-        # 並べ替え後のビューポート再描画(refresh_viewports)は execute_sheets では
-        # なく execute_document が別途行うため、ここには現れない。
+        # Project 2D OFF のあと(3D「上」の描画)と最終描画で UpdateVP が 2 回呼ばれ、
+        # 最終状態は Project 2D ON(=2D/平面)になる。
         update_calls = [c.args for c in vs_mock.UpdateVP.call_args_list]
         assert update_calls == [('VP_HANDLE',), ('VP_HANDLE',)]
 
@@ -255,53 +253,6 @@ class TestExecuteSheets:
 
         # シート自体は作成扱い、ビューポート設定は行わない
         assert count == 1
-        vs_mock.UpdateVP.assert_not_called()
-
-    def test_collects_created_viewport_handles(self) -> None:
-        # 作成したビューポートのハンドルを viewport_handles に集める
-        # (execute_document が並べ替え後の refresh_viewports に使う)。
-        vs_mock = _make_vs_mock(['1-横架材天端', '2-横架材天端', '共通'])
-        vs_mock.CreateVP.side_effect = ['VP1', 'VP2']
-        vw_sheet = _load(vs_mock)
-
-        sheets = [
-            make_floor_command('2', '1階床伏図', ['1-横架材天端', '共通']),
-            make_floor_command('3', '2階床伏図', ['2-横架材天端', '共通']),
-        ]
-        handles: list[Any] = []
-        vw_sheet.execute_sheets(sheets, viewport_handles=handles)
-
-        assert handles == ['VP1', 'VP2']
-
-    def test_failed_viewport_not_collected(self) -> None:
-        # ビューポートが作れなかったシートはハンドルを集めない
-        vs_mock = _make_vs_mock(_TARGET_LAYERS)
-        vs_mock.CreateVP.return_value = vs_mock.Handle(0)
-        vw_sheet = _load(vs_mock)
-
-        handles: list[Any] = []
-        vw_sheet.execute_sheets([make_command()], viewport_handles=handles)
-
-        assert handles == []
-
-
-class TestRefreshViewports:
-    def test_updates_each_viewport(self) -> None:
-        # 並べ替えで out-of-date になったビューポートを UpdateVP で再描画する
-        vs_mock = _make_vs_mock([])
-        vw_sheet = _load(vs_mock)
-
-        vw_sheet.refresh_viewports(['VP1', 'VP2'])
-
-        update_calls = [c.args for c in vs_mock.UpdateVP.call_args_list]
-        assert update_calls == [('VP1',), ('VP2',)]
-
-    def test_no_update_when_empty(self) -> None:
-        vs_mock = _make_vs_mock([])
-        vw_sheet = _load(vs_mock)
-
-        vw_sheet.refresh_viewports([])
-
         vs_mock.UpdateVP.assert_not_called()
 
 
