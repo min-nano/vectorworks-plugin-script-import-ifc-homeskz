@@ -277,45 +277,12 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     return True
 
 
-def refresh_viewports(viewport_handles: list[Any]) -> None:
-    """作成済みビューポートを**強制的に作り直して**レンダーを最新の重ね順にする。
-
-    **デザインレイヤの並べ替え(``reorder_story_layers``)の後**に呼ぶ。並べ替えは
-    床・野地板レイヤを最背面へ回すが、VW 上の検証(手順1〜3)で次が判明した:
-
-    - ドキュメントのレイヤ順は正しく、手動「ビューポートを更新」すれば床は背面に
-      回る(手順1)。デザインレイヤ自体の描画でも床は背面(手順3)。
-    - しかしインポート直後のビューポートは **out-of-date マークが付かない**(手順2)。
-      VW は「最新」とみなすため ``vs.UpdateVP`` は何もしない(no-op)。並べ替えは
-      既存ビューポートを dirty にせず、単純な ``UpdateVP`` では再描画されない。
-
-    そこで手動更新と同じ**強制再描画**を行う: まず ``vs.ReDrawAll`` で並べ替えの
-    結果をレンダーへ反映させ、続いて各ビューポートの投影ブール(``Project 2D``)を
-    OFF→ON とトグルしながら ``vs.UpdateVP`` する。プロパティのトグルはビューポートを
-    dirty にするため ``UpdateVP`` が no-op にならず、実際にレンダーキャッシュを
-    作り直す(``force_plan_view`` が投影キャッシュを作り直すのと同じ手法)。最終状態は
-    ``Project 2D`` = ON(2D/平面)に戻す。実挙動は VW 上で確認する方針。
-    """
-    if not viewport_handles:
-        return
-    # 並べ替え(HMoveForward)の結果をレンダーへ反映させる
-    vs.ReDrawAll()
-    for viewport in viewport_handles:
-        # Project 2D を OFF→ON とトグルしてビューポートを dirty にし、UpdateVP の
-        # no-op を回避して強制的に作り直す(手動「ビューポートを更新」に相当)。
-        vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, False)
-        vs.UpdateVP(viewport)
-        vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, True)
-        vs.UpdateVP(viewport)
-
-
 def execute_sheets(
     commands: list[SheetCommand],
     tags: list[TagCommand] | None = None,
     member_handles: dict[int, Any] | None = None,
     counters: dict[str, int] | None = None,
     legends: list[LegendCommand] | None = None,
-    viewport_handles: list[Any] | None = None,
 ) -> int:
     """sheet 命令のリストを実行し、作成シート数を返す。
 
@@ -329,12 +296,15 @@ def execute_sheets(
     渡すと配置したタグ数・凡例数を ``counters['tags']`` / ``counters['legends']`` に
     記録する。
 
-    ``viewport_handles`` を渡すと、作成したビューポートのハンドルをそのリストへ
-    追記する。呼び出し側(``execute_document``)は **この関数の後に
-    ``reorder_story_layers`` でデザインレイヤを並べ替え、そのあと
-    ``refresh_viewports`` でこれらのビューポートを更新し直す**(並べ替えが
-    ビューポートを out-of-date にしてから ``UpdateVP`` することで床・野地板を
-    最背面へ回した重ね順を反映させる。``refresh_viewports`` の説明参照)。
+    なお、床・野地板レイヤを最背面へ回す並べ替え(``reorder_story_layers``)の結果は
+    **インポート直後のビューポート描画には反映されない**(レイヤパレット・ビュー
+    ポートのプロパティ上は新しい順なのに描画だけ古い順で床が柱梁を覆い隠す)。VW 上の
+    検証で、並べ替えは既存ビューポートを out-of-date にせず、``UpdateVP`` も
+    ``ReDrawAll`` も ``Project 2D`` トグルによる強制再描画も効かないことを確認した
+    (手動「ビューポートを更新」またはファイルの開き直しでのみ反映される)。スクリプト
+    内での自動反映は VW の制約上できないため、無駄な更新処理は行わず、この描画反映は
+    ユーザーの手動操作に委ねる(``document.py`` のスキーマ・上位の ``execute_document``
+    参照)。
     """
     tags = tags or []
     member_handles = member_handles or {}
@@ -345,8 +315,6 @@ def execute_sheets(
     for command in commands:
         sheet_layer, viewport = draw_sheet(command)
         if viewport is not None and viewport != vs.Handle(0):
-            if viewport_handles is not None:
-                viewport_handles.append(viewport)
             vp_layers = set(command['viewport']['layers'])
             for tag in tags:
                 if tag['layer'] not in vp_layers:
@@ -372,10 +340,6 @@ def execute_sheets(
     # 保持したまま by-style の内容のみ更新される。
     if legend_count:
         vs.UpdateStyledObjects(_GRAPHIC_LEGEND_STYLE)
-    # ここではビューポートを更新し直さない。デザインレイヤの並べ替え
-    # (reorder_story_layers)より前にビューポートを作成し、並べ替えでビューポートを
-    # out-of-date にしてから refresh_viewports(=UpdateVP)で再描画する必要があるため
-    # (execute_document がこの順で呼ぶ。refresh_viewports の説明参照)。
     if counters is not None:
         counters['tags'] = tag_count
         counters['legends'] = legend_count
