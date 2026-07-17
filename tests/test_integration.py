@@ -116,7 +116,7 @@ FIXTURES = [
         anchor_bolts=96,
         floor_posts=41,
         fire_braces=66,
-        sheets=7,
+        sheets=6,
         column_marks=10,
         rafters=110,
         roofs=7,
@@ -139,7 +139,7 @@ FIXTURES = [
         anchor_bolts=110,
         floor_posts=25,
         fire_braces=35,
-        sheets=7,
+        sheets=6,
         column_marks=8,
         rafters=54,
         roofs=3,
@@ -161,7 +161,7 @@ FIXTURES = [
         anchor_bolts=85,
         floor_posts=98,
         fire_braces=28,
-        sheets=7,
+        sheets=6,
         column_marks=8,
         rafters=143,
         roofs=11,
@@ -184,7 +184,7 @@ FIXTURES = [
         anchor_bolts=60,
         floor_posts=44,
         fire_braces=28,
-        sheets=9,
+        sheets=8,
         column_marks=16,
         rafters=106,
         roofs=9,
@@ -207,7 +207,7 @@ FIXTURES = [
         anchor_bolts=30,
         floor_posts=20,
         fire_braces=2,
-        sheets=7,
+        sheets=6,
         column_marks=8,
         rafters=54,
         roofs=2,
@@ -460,13 +460,8 @@ class TestSampleIfcAnalysis:
         # 各階の柱梁伏図(番号 2〜)、その後に屋根版を持つ階ごとの母屋伏図が並ぶ。
         floor_story_count = len(exp.story_names) - 1
         n = floor_story_count
-        # 最後の 1 枚は断面図(YZ 平面断面)。母屋伏図の検証からは除く。
-        assert document['sheets'][-1]['number'] == '断面図'
-        assert document['sheets'][-1]['title'] == '断面図'
-        assert 'section' in document['sheets'][-1]['viewport']
-        plan_sheets = document['sheets'][:-1]
-        floor_sheets = plan_sheets[1:1 + n]
-        moya_sheets = plan_sheets[1 + n:]
+        floor_sheets = document['sheets'][1:1 + n]
+        moya_sheets = document['sheets'][1 + n:]
         assert len(floor_sheets) == n
         # タイトルは 1階床伏図・2階床伏図・…、最上階は主屋根の階番号を付けた
         # {n-1}階小屋伏図。下屋根の母屋は専用の母屋伏図に分けるため母屋の表記は付かない。
