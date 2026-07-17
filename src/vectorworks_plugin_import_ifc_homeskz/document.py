@@ -135,7 +135,14 @@
                 # 柱頭・柱脚金物の仕様文字列(該当金物が無ければ "")。member_id
                 # にも連結されるが、構造化された記録として個別にも保持する。
                 "top_hardware": "柱頭金物:(ろ)",    # 柱頭金物の仕様
-                "bottom_hardware": "柱脚金物:(ろ)"  # 柱脚金物の仕様
+                "bottom_hardware": "柱脚金物:(ろ)",  # 柱脚金物の仕様
+                # 上下端の高さ基準(横架材天端=最上階は軒高のストーリレベルへの
+                # バインド)。下端は当階の横架材天端、上端は柱(管柱・通し柱)なら
+                # 上階(story_offset=1)の横架材天端、小屋束(上階が無い)なら当階
+                # (story_offset=0)の横架材天端にバインドする。offset はバインド先
+                # レベルの絶対 Z から実際の下端/上端 Z までの距離 (mm)。
+                "bottom_bound": {"story_offset": 0, "level": "横架材天端", "offset": 0.0},
+                "top_bound": {"story_offset": 1, "level": "横架材天端", "offset": 0.0}
             }
         ],
         "walls": [
@@ -429,7 +436,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 30
+DOCUMENT_VERSION = 31
 
 
 class LevelCommand(TypedDict):
@@ -561,6 +568,8 @@ ColumnCommand = TypedDict('ColumnCommand', {
     'elevation': float,
     'top_hardware': str,
     'bottom_hardware': str,
+    'bottom_bound': StoryBoundCommand,
+    'top_bound': StoryBoundCommand,
 })
 """柱 (StructuralMember オブジェクト) を鉛直材として描画する命令。
 
@@ -569,10 +578,12 @@ ColumnCommand = TypedDict('ColumnCommand', {
 保持する(構造材ツールに金物専用フィールドが無いため)。class は割り当てる柱種別
 クラス名。structural_use は構造材ツールの構造用途 (StructuralUse) 値で、管柱・通し柱は
 "4"(柱)、小屋束は "5"(小屋束)。小屋束を柱用途にすると VW の柱高さモデルで上端
-高さが崩れるため小屋束用途にする。柱の上端はパスのジオメトリ(elevation + height)で
-決まり、ストーリレベルへの高さバインドは使わない(鉛直材ではバインドの高さが
-パス由来の部材長に加算され上端が二重になるため)。position・elevation・height は
-パスのジオメトリ(XY と下端 Z・長さ)に使う。
+高さが崩れるため小屋束用途にする。position・elevation・height はパスのジオメトリ
+(XY と下端 Z・長さ)に使う。bottom_bound / top_bound は上下端の高さ基準で、横架材
+天端(最上階は軒高)のストーリレベルにバインドする。柱(管柱・通し柱)は下端を当階、
+上端を上階(story_offset=1)の横架材天端に、小屋束は下端・上端とも当階の横架材天端に
+バインドする。offset はバインド先レベルの絶対 Z から実際の下端/上端 Z までの距離で
+パスのジオメトリと一致する(二重加算にならず、編集時の高さリセットを防ぐ)。
 """
 
 
@@ -1066,6 +1077,8 @@ def _validate_column(index: int, command: Any) -> None:
     for key in ('top_hardware', 'bottom_hardware'):
         _require(isinstance(command.get(key), str),
                  f'{where}.{key} は文字列である必要があります')
+    for key in ('bottom_bound', 'top_bound'):
+        _validate_story_bound(where, key, command.get(key))
 
 
 def _validate_wall(index: int, command: Any) -> None:

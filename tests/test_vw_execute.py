@@ -177,7 +177,9 @@ def make_document() -> dict[str, Any]:
              'class': '04構造-02木造-03柱-02管柱', 'structural_use': '4',
              'position': [0.0, 0.0],
              'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
-             'top_hardware': '', 'bottom_hardware': ''},
+             'top_hardware': '', 'bottom_hardware': '',
+             'bottom_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+             'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -56.0}},
         ],
         'walls': [
             {'layer': 'F-立上り', 'class': '04構造-01基礎-03立ち上がり',

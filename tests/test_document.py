@@ -77,6 +77,8 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
                 'top_hardware': '柱頭金物:(ろ)', 'bottom_hardware': '柱脚金物:(ろ)',
+                'bottom_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+                'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -56.0},
             },
         ],
         'walls': [

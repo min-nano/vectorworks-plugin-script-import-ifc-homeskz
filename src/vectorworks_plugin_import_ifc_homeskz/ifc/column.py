@@ -6,13 +6,21 @@ IFC の IfcColumn を走査し、各階の柱レイヤ(``n-柱``)に配置する
 通し柱は柱、小屋束は小屋束を設定する(小屋束を柱用途にすると VW の柱高さ
 モデルで上端高さが崩れるため)。
 
-**柱の高さはパスのジオメトリ(下端 Z + 柱高さ)で決まり、ストーリレベルへの
-バインド(SetObjectStoryBound)は使わない。** 構造材ツールの高さバインドは
-「バインドで指定した高さ」を「パス由来の部材長」に**加算**するため、鉛直材の
-柱では両者が同一方向(Z)に重なり部材長が二重になって上端が崩れる(梁は部材長が
-水平方向でバインドが Z 方向のため二重にならない)。そのため柱は下端 Z
-(``elevation`` = ストーリ高さ + ローカル配置 Z の絶対値)と柱高さ(``height``)だけを
-命令に持ち、描画フェーズがパスを絶対 Z に配置して素直に描く。
+**柱・小屋束の上下端高さは横架材天端(最上階は軒高)のストーリレベルにバインド
+する**(梁と同じ仕組み)。柱(管柱・通し柱)は下端を当階の横架材天端、上端を上階
+(次階)の横架材天端にバインドし、小屋束は下端・上端とも当階の横架材天端に
+バインドする。``offset`` はバインド先レベルの絶対 Z から実際の下端/上端の絶対 Z
+までの距離で、下端 Z(``elevation`` = ストーリ高さ + ローカル配置 Z の絶対値)と
+柱高さ(``height``)から算出する。
+
+**VW の構造材ツールは上下端 story bound の offset 差(top − bottom)をパス由来の
+部材長に加算する。** 柱は上端を上階にバインドし offset 差が ≈0 になるため二重加算は
+生じないが、小屋束(上階が無く上下端とも当階の横架材天端にバインドする)で上端 offset
+を天端相当(bottom + height)にすると柱高さが二重加算され上端が約 2 倍になる。そこで
+**小屋束は上端 offset を下端と同値にして加算分を 0 にし**、上端高さはパス(下端 +
+height)に委ねる。描画フェーズはパスを絶対 Z に配置してから ``SetObjectStoryBound``
+で上下端をこのレベル・オフセットにバインドし、編集時に高さがレイヤ基準へリセットされる
+のを防ぐ。
 
 構造材 ID (member_id) は ``{幅}×{成} - {種別}`` に柱頭・柱脚金物の仕様を連結
 した文字列にする。構造材ツールには金物専用フィールドが無いため、金物仕様は
@@ -30,13 +38,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..document import ColumnCommand
+from ..document import ColumnCommand, StoryBoundCommand
 from .grid import resolve_lines
 from .member import _get_profile_dims
 from .story import (
+    LEVEL_BEAM_TOP,
     LEVEL_COLUMN,
+    LEVEL_EAVES,
     get_local_placement_z,
     layer_prefix_for,
+    resolve_beam_top_offset,
 )
 from .structural_class import CLASS_KOYAZUKA, resolve_column_class
 
@@ -209,8 +220,9 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
     配置座標は通り芯と同じグリッド中心オフセットで補正する。
     柱は各階の柱レイヤ(``n-柱``)に配置し、梁と同じ構造材ツールで鉛直材として
     描く。下端 Z(``elevation``)はストーリ高さ + ローカル配置 Z の絶対値、
-    上端は下端 + 柱高さ(``height``)で、絶対 Z の固定パスとして描画する
-    (ストーリレベルへの高さバインドは使わない)。
+    上端は下端 + 柱高さ(``height``)。上下端高さは横架材天端(最上階は軒高)の
+    ストーリレベルにバインドする(``bottom_bound`` / ``top_bound``。柱は当階と
+    上階、小屋束は当階の横架材天端)。
 
     構造材 ID(``member_id``)は ``{幅}×{成} - {種別}`` に柱頭・柱脚金物の仕様を
     連結した文字列。柱頭・柱脚金物 (IfcMechanicalFastener) は柱と同じ平面座標に
@@ -229,6 +241,12 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
 
     top_idx = len(storeys) - 1
     elevations = [float(s.Elevation or 0.0) for s in storeys]
+    # 各階の横架材天端(最上階は軒高)の絶対 Z。柱の上下端をこの高さにバインドする。
+    beam_top_abs = [
+        elevations[i] if i == top_idx
+        else elevations[i] + resolve_beam_top_offset(s)
+        for i, s in enumerate(storeys)
+    ]
 
     commands: list[ColumnCommand] = []
 
@@ -286,6 +304,36 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                     if is_koyazuka
                     else STRUCTURAL_USE_COLUMN)
 
+                # 上下端高さを横架材天端(最上階は軒高)のストーリレベルにバインドする。
+                # 下端は当階の横架材天端、上端は柱(管柱・通し柱)なら上階(次階)の
+                # 横架材天端、小屋束(上階が無い)なら当階の横架材天端にバインドし、
+                # offset はバインド先レベルの絶対 Z から実際の下端/上端 Z までの距離。
+                current_level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
+                current_top_abs = beam_top_abs[i]
+                bottom_offset = bottom_abs - current_top_abs
+                bottom_bound: StoryBoundCommand = {
+                    'story_offset': 0, 'level': current_level,
+                    'offset': bottom_offset}
+                if is_koyazuka or is_top:
+                    # 小屋束(および上階の無い最上階の柱)は上下端とも当階の横架材天端に
+                    # バインドする。**上端の offset は下端と同値にする**: VW の構造材ツールは
+                    # 上下端 story bound の offset 差(top − bottom)をパス由来の部材長に
+                    # 加算するため、パスが既に柱高さ(height)を持つ小屋束で上端 offset を
+                    # 天端相当(bottom + height)にすると柱高さが二重に加算され上端が約 2 倍に
+                    # なる。offset 差を 0 にすれば加算分が消え、上端高さはパス(下端 + height)
+                    # が担う。柱(管柱・通し柱)は上端を上階にバインドし offset 差が ≈0 に
+                    # なるため二重加算が生じない。
+                    top_bound: StoryBoundCommand = {
+                        'story_offset': 0, 'level': current_level,
+                        'offset': bottom_offset}
+                else:
+                    # 柱(管柱・通し柱)は上端を上階(次階)の横架材天端にバインドする。
+                    next_is_top = (i + 1 == top_idx)
+                    next_level = LEVEL_EAVES if next_is_top else LEVEL_BEAM_TOP
+                    top_bound = {
+                        'story_offset': 1, 'level': next_level,
+                        'offset': top_abs - beam_top_abs[i + 1]}
+
                 commands.append({
                     'layer': layer_name,
                     'member_id': member_id,
@@ -298,6 +346,8 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                     'elevation': bottom_abs,
                     'top_hardware': top_hardware,
                     'bottom_hardware': bottom_hardware,
+                    'bottom_bound': bottom_bound,
+                    'top_bound': top_bound,
                 })
 
     return commands
