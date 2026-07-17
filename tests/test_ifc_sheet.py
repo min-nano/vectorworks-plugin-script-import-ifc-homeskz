@@ -248,12 +248,46 @@ class TestBuildLegendCommands:
 
 
 class TestBuildSheetCommands:
-    def test_foundation_then_floor_framing_then_moya(self) -> None:
-        # 基礎伏図に続けて各階の柱梁伏図が並び、最後に屋根版を持つ階ごとの母屋伏図
-        # (下屋根=1階母屋伏図・主屋根=2階母屋伏図)が来る
+    def test_foundation_then_floor_framing_then_moya_then_section(self) -> None:
+        # 基礎伏図に続けて各階の柱梁伏図が並び、屋根版を持つ階ごとの母屋伏図
+        # (下屋根=1階母屋伏図・主屋根=2階母屋伏図)、最後に断面図が来る
         ifc = _open('伏図次郎【2階】.ifc')
         sheets = sheet.build_sheet_commands(ifc)
         assert [s['title'] for s in sheets] == [
             '基礎伏図', '1階床伏図', '2階床伏図', '2階小屋伏図',
-            '1階母屋伏図', '2階母屋伏図']
-        assert [s['number'] for s in sheets] == ['1', '2', '3', '4', '5', '6']
+            '1階母屋伏図', '2階母屋伏図', '断面図']
+        # シートレイヤ番号は連番、断面図はレイヤ名 "断面図"。図番は先行 6 枚に続く 7。
+        assert [s['number'] for s in sheets] == [
+            '1', '2', '3', '4', '5', '6', '断面図']
+        assert sheets[-1]['viewport']['drawing_number'] == '7'
+
+
+class TestBuildSectionSheetCommands:
+    def test_no_section_without_stories(self) -> None:
+        # ストーリ(建物)が無ければ断面図は作らない
+        empty = ifcopenshell.file()
+        assert sheet.build_section_sheet_commands(empty) == []
+
+    def test_section_sheet_from_fixture(self) -> None:
+        ifc = _open('伏図次郎【2階】.ifc')
+        sheets = sheet.build_section_sheet_commands(ifc, drawing_number=7)
+        assert len(sheets) == 1
+        command = sheets[0]
+        # シートレイヤ名(=番号)・タイトルはともに "断面図"
+        assert command['number'] == '断面図'
+        assert command['title'] == '断面図'
+        viewport = command['viewport']
+        assert viewport['drawing_title'] == '断面図'
+        assert viewport['drawing_number'] == '7'
+        # 断面は全デザインレイヤを表示するため layers は縮尺参照(通り芯)のみ
+        assert viewport['layers'] == ['共通']
+        section = viewport['section']
+        # 建物中心を通る YZ 平面(X=建物中心=センタリング済みで 0)で切る垂直な切断線
+        assert section['line_start'][0] == 0.0
+        assert section['line_end'][0] == 0.0
+        assert section['line_start'][1] < section['line_end'][1]
+        # X- 方向を見る=切断線より -X 側の点で向きを示す
+        assert section['look_point'][0] < 0.0
+        # 奥行き・鉛直範囲は建物全体を覆う正の値、下端 < 上端
+        assert section['depth'] > 0.0
+        assert section['start_height'] < section['end_height']

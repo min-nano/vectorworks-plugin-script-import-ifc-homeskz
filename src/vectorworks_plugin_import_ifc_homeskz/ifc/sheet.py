@@ -41,6 +41,13 @@
   to=半整数より高いため小屋束レイヤは含まれない)、母屋を支える小屋束の位置は平面の
   伏図記号で示す(小屋束伏図記号は span 方式への移行後に別途対応する)。
 
+- **断面図**(``build_section_sheet_commands``): 建物中心を通る **YZ 平面**(X=建物中心)で
+  切断し **X- 方向を見た**断面ビューポートを 1 つ、"断面図" シートレイヤに配置する。座標は
+  グリッド中心でセンタリング済みなので建物中心 X は 0。切断線は Y 方向に建物全長 + 余裕ぶん
+  伸ばし、奥行き・鉛直範囲は建物全体(基礎下端〜屋根上端)を覆う値にする。ビューポートは
+  ``ViewportCommand`` の ``section`` を持ち、描画フェーズが平面ではなく断面ビューポートとして
+  作る。ストーリ(建物)が無い、または通り芯が無く切断線の範囲を決められない場合は作らない。
+
 さらに ``build_legend_commands`` は基礎伏図に **グラフィック凡例**(VW 標準の
 「グラフィック凡例」PIO)を配置する legend 命令を組み立てる。基礎伏図ビューポートに
 表示されるシンボル(既定ではアンカーボルト)を対象にし、実際に配置された
@@ -61,7 +68,7 @@ from ..document import (
 from .anchor_bolt import SYMBOL_M12, SYMBOL_M16
 from .column import collect_column_spans
 from .footing import has_foundation
-from .grid import TARGET_LAYER
+from .grid import TARGET_LAYER, resolve_centered_bounds
 from .rebar import CLASS_REBAR
 from .story import (
     LAYER_FOUNDATION_ANCHOR,
@@ -142,6 +149,21 @@ FLOOR_PLAN_START_NUMBER = 2
 # 小屋組(母屋・垂木・野地板)を梁組と分けて表示する。柱梁伏図の最後に続けて
 # シートレイヤ番号を振る。タイトルは屋根が架かる階番号を付けた "{index}階母屋伏図"。
 MOYA_PLAN_LABEL = '母屋'
+
+# 断面図シートの構成。建物中心を通る YZ 平面(X=建物中心)で切断し X- 方向を見た
+# 断面ビューポートを 1 つ配置する。シートレイヤ名(=番号)・タイトルはともに "断面図"。
+SECTION_SHEET_NUMBER = '断面図'
+SECTION_SHEET_TITLE = '断面図'
+# 断面の見る方向(水平単位ベクトル)。X- 方向を見る=[-1, 0]。切断線から見る側を示す
+# look_point の向きに使う。
+SECTION_LOOK = (-1.0, 0.0)
+# 切断線の Y 方向・断面の奥行きに付ける余裕(mm)。建物外形より少し広く取る。
+SECTION_MARGIN = 1000.0
+# 断面の鉛直範囲に付ける余裕(mm)。start_height はストーリ最下端(または GL=0)から、
+# end_height はストーリ最上端(軒高)から、それぞれこの余裕ぶん外側に広げて基礎下端・
+# 屋根上端まで確実に覆う。屋根は最上階(軒高)より上に伸びるため上側を大きめに取る。
+SECTION_BOTTOM_MARGIN = 1000.0
+SECTION_TOP_MARGIN = 3000.0
 
 
 def build_foundation_sheet_commands(
@@ -331,6 +353,62 @@ def build_moya_sheet_commands(
     return commands
 
 
+def build_section_sheet_commands(
+    ifc_file: ifcopenshell.file,
+    drawing_number: int = 1,
+) -> list[SheetCommand]:
+    """断面図シートの sheet 命令を組み立てて返す。
+
+    建物中心を通る **YZ 平面**(X=建物中心)で切断し **X- 方向を見た**断面ビューポートを
+    1 つ、"断面図" シートレイヤに配置する命令を返す。座標はグリッド中心でセンタリング済み
+    なので建物中心 X は 0。切断線は Y 方向に建物全長 + 余裕ぶん伸ばし、奥行き・鉛直範囲は
+    建物全体(基礎下端〜屋根上端)を覆う値にする。
+
+    ストーリ(建物)が無い、または通り芯が無く切断線の範囲を決められない場合は空リストを
+    返す。``drawing_number`` はビューポートの図番(他のシートに続けて振った番号)。
+    """
+    stories = collect_stories(ifc_file)
+    if not stories:
+        return []
+    bounds = resolve_centered_bounds(ifc_file)
+    if bounds is None:
+        return []
+    min_x, min_y, max_x, max_y = bounds
+    mid_y = (min_y + max_y) / 2.0
+    # 建物中心を通る YZ 平面(X=建物中心=センタリング済みで 0)で切る。切断線は Y 方向に
+    # 建物全長 + 余裕ぶん伸ばした線。
+    cut_x = 0.0
+    line_start = [cut_x, min_y - SECTION_MARGIN]
+    line_end = [cut_x, max_y + SECTION_MARGIN]
+    # 見る方向(X-)を示す点=切断線より -X 側の点。
+    look_x, look_y = SECTION_LOOK
+    look_point = [cut_x + look_x * SECTION_MARGIN, mid_y + look_y * SECTION_MARGIN]
+    # 奥行き=建物の X 全幅 + 余裕(切断面から見える範囲)。
+    depth = (max_x - min_x) + 2 * SECTION_MARGIN
+    # 鉛直範囲=基礎下端(GL=0 以下)〜屋根上端(軒高 + 余裕)。
+    elevations = [elev for elev, _ in stories]
+    start_height = min([0.0, *elevations]) - SECTION_BOTTOM_MARGIN
+    end_height = max(elevations) + SECTION_TOP_MARGIN
+    return [{
+        'number': SECTION_SHEET_NUMBER,
+        'title': SECTION_SHEET_TITLE,
+        'viewport': {
+            'drawing_title': SECTION_SHEET_TITLE,
+            'drawing_number': str(drawing_number),
+            # 断面は全デザインレイヤを表示するため、layers は縮尺参照(通り芯)のみ。
+            'layers': [TARGET_LAYER],
+            'section': {
+                'line_start': line_start,
+                'line_end': line_end,
+                'look_point': look_point,
+                'depth': depth,
+                'start_height': start_height,
+                'end_height': end_height,
+            },
+        },
+    }]
+
+
 def build_legend_commands(
     ifc_file: ifcopenshell.file,
     anchor_bolts: list[AnchorBoltCommand],
@@ -367,12 +445,15 @@ def build_sheet_commands(
 ) -> list[SheetCommand]:
     """sheet 命令のリストを組み立てて返す。
 
-    基礎伏図(基礎がある場合のみ)に続けて、各階の柱梁伏図、最後に母屋伏図を
+    基礎伏図(基礎がある場合のみ)に続けて、各階の柱梁伏図、母屋伏図、最後に断面図を
     組み立てる。柱梁伏図・母屋伏図はともに柱の span レイヤを切断レベルで絞るため
-    columns を渡す(未指定なら内部で組み立てる)。
+    columns を渡す(未指定なら内部で組み立てる)。断面図の図番は先行するシート数に
+    続けて振る。
     """
-    return [
+    plans = [
         *build_foundation_sheet_commands(ifc_file),
         *build_floor_framing_sheet_commands(ifc_file, columns),
         *build_moya_sheet_commands(ifc_file, columns),
     ]
+    sections = build_section_sheet_commands(ifc_file, len(plans) + 1)
+    return [*plans, *sections]

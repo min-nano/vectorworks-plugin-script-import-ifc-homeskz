@@ -4,10 +4,10 @@
 描画フェーズ(``vw`` パッケージ)が消費する JSON 直列化可能な dict。
 このモジュールは vs にも ifcopenshell にも依存しない。
 
-スキーマ (version 30):
+スキーマ (version 33):
 
     {
-        "version": 30,
+        "version": 33,
         "stories": [
             {
                 "name": "1階",            # VectorWorks のストーリ名
@@ -317,6 +317,32 @@
                     # (例: 基礎伏図では配筋クラスを隠し、断面でのみ表示する)。
                     "hidden_classes": ["04構造-01基礎-09鉄筋"]
                 }
+            },
+            {
+                # 断面ビューポート。建物中心を通る YZ 平面(X=建物中心)で切断し
+                # X- 方向を見た図を「断面図」シートレイヤに配置する。viewport に
+                # section を持たせると平面(Top/Plan)ではなく断面ビューポートを作る。
+                "number": "断面図",
+                "title": "断面図",
+                "viewport": {
+                    "drawing_title": "断面図",
+                    "drawing_number": "5",
+                    # 縮尺参照用のデザインレイヤ(断面は全デザインレイヤを表示する)。
+                    "layers": ["共通"],
+                    "section": {
+                        # 切断線(平面 2D・センタリング済み mm)。建物中心を通る
+                        # YZ 平面なので X=建物中心(=0)で Y 方向に伸びる線。
+                        "line_start": [0.0, -5000.0],
+                        "line_end": [0.0, 5000.0],
+                        # 見る方向を示す点(切断線から見る側=X- 側の点)。
+                        "look_point": [-1000.0, 0.0],
+                        # 断面の奥行き(切断面から見える範囲, mm)。
+                        "depth": 12000.0,
+                        # 断面の鉛直範囲(絶対 Z, mm)。
+                        "start_height": -1000.0,
+                        "end_height": 9000.0
+                    }
+                }
             }
         ],
         "tags": [
@@ -447,7 +473,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, TypedDict
 
-DOCUMENT_VERSION = 32
+DOCUMENT_VERSION = 33
 
 
 class LevelCommand(TypedDict):
@@ -781,6 +807,31 @@ class JointCommand(TypedDict):
     angle: float
 
 
+class SectionViewCommand(TypedDict):
+    """断面ビューポートの切断面情報。
+
+    ビューポートを平面(Top/Plan)ではなく **断面ビューポート**として作るための切断面を
+    定義する。VW の ``CreateSectionViewport`` に 1 対 1 で対応する:
+    ``(line_start, line_end, look_point, depth, start_height, end_height, シートレイヤ)``。
+
+    - ``line_start`` / ``line_end``: 切断線の 2 点(平面 2D・センタリング済み mm)。この 2 点を
+      通る鉛直面が切断面になる。建物中心を通る YZ 平面で切るなら X=建物中心(センタリング済みで
+      0)・Y 方向に伸びる線。
+    - ``look_point``: 見る方向を示す点(切断線から見る側の点、平面 2D)。X- 方向を見る断面では
+      切断線より -X 側の点を置く。
+    - ``depth``: 断面が見込む奥行き(切断面から見る方向へ見える範囲, mm)。
+    - ``start_height`` / ``end_height``: 断面の鉛直範囲(絶対 Z, mm)。建物全体を切るため基礎下端
+      から屋根上端までを余裕をもって覆う値。
+    """
+
+    line_start: list[float]
+    line_end: list[float]
+    look_point: list[float]
+    depth: float
+    start_height: float
+    end_height: float
+
+
 class _ViewportBase(TypedDict):
     drawing_title: str
     drawing_number: str
@@ -796,9 +847,14 @@ class ViewportCommand(_ViewportBase, total=False):
     非表示にするクラス名の並び(省略可・既定は非表示クラス無し)。クラスは伏図に必要な
     要素が欠けないよう既定で全表示だが、ここに挙げたクラスの図形だけは非表示にする
     (例: 基礎伏図では配筋クラスを隠し、断面でのみ表示する)。
+
+    section を持たせると平面(Top/Plan)ではなく **断面ビューポート**として作る(建物中心を
+    通る YZ 平面で切った断面図など)。断面ビューポートは建物全体を切るため layers の絞り込みは
+    行わず全デザインレイヤを表示し、layers は縮尺の参照にのみ使う。
     """
 
     hidden_classes: list[str]
+    section: SectionViewCommand
 
 
 class SheetCommand(TypedDict):
@@ -1263,6 +1319,22 @@ def _validate_viewport(where: str, viewport: Any) -> None:
         for j, name in enumerate(hidden_classes):
             _require(isinstance(name, str) and name,
                      f'{field}.hidden_classes[{j}] は非空文字列である必要があります')
+    section = viewport.get('section')
+    if section is not None:
+        _validate_section(field, section)
+
+
+def _validate_section(where: str, section: Any) -> None:
+    field = f'{where}.section'
+    _require(isinstance(section, dict), f'{field} は dict である必要があります')
+    for key in ('line_start', 'line_end', 'look_point'):
+        point = section.get(key)
+        _require(isinstance(point, list) and len(point) == 2
+                 and all(isinstance(v, (int, float)) for v in point),
+                 f'{field}.{key} は [x, y] の数値ペアである必要があります')
+    for key in ('depth', 'start_height', 'end_height'):
+        _require(isinstance(section.get(key), (int, float)),
+                 f'{field}.{key} は数値である必要があります')
 
 
 def _validate_sheet(index: int, command: Any) -> None:

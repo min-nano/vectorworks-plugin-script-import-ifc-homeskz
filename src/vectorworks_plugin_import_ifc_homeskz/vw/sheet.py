@@ -10,6 +10,11 @@
 (Top/Plan)投影に確定させる(``force_plan_view``。インポート直後に 3D の「上」
 ビューのように描画される不具合を防ぐ)。
 
+命令の viewport が ``section`` を持つ場合は平面ではなく **断面ビューポート**として作る
+(``vs.CreateSectionViewport``)。建物中心を通る YZ 平面で切った断面図など。断面は
+建物全体を切るためレイヤの絞り込みは行わず全デザインレイヤを表示する。断面ビューポート
+生成の ``vs`` 呼び出し列・挙動は他要素と同じく VectorWorks 上で最終確認する方針。
+
 シートレイヤ番号は VectorWorks ではシートレイヤ(=レイヤ)の名前がそのまま担うため、
 ``vs.CreateLayer`` に番号を渡してレイヤ名=シートレイヤ番号にする。シートレイヤタイトル・
 ビューポートの図面タイトル・図番は オブジェクト変数(``SetObjectVariableString`` の
@@ -29,7 +34,13 @@ from typing import Any
 
 import vs
 
-from ..document import LegendCommand, SheetCommand, TagCommand, ViewportCommand
+from ..document import (
+    LegendCommand,
+    SectionViewCommand,
+    SheetCommand,
+    TagCommand,
+    ViewportCommand,
+)
 
 # データタグの内部プラグイン名(VW の Data Tag ツール)。VW で最終確認する。
 _DATA_TAG_PLUGIN = 'Data Tag'
@@ -176,10 +187,59 @@ def force_plan_view(viewport: Any) -> None:
     vs.SetObjectVariableBoolean(viewport, _OV_VP_PROJECT_2D, True)
 
 
-def draw_viewport(
+def show_all_viewport_layers(viewport: Any, sheet_layer: Any) -> None:
+    """ビューポートで全デザインレイヤを表示する(断面は建物全体を切るため)。
+
+    全デザインレイヤ(FLayer→NextLayer)を辿って表示に設定する(ビューポートの親である
+    シートレイヤ自身は除く)。伏図(``configure_viewport_layers``)と違い一部レイヤに
+    絞り込まず、建物全体の断面を取れるよう全レイヤを表示する。
+    """
+    layer_h = vs.FLayer()
+    while layer_h != vs.Handle(0):
+        if layer_h != sheet_layer:
+            vs.SetVPLayerVisibility(viewport, layer_h, _VP_LAYER_VISIBLE)
+        layer_h = vs.NextLayer(layer_h)
+
+
+def draw_section_viewport(
+    viewport: ViewportCommand, sheet_layer: Any, section: SectionViewCommand,
+) -> Any:
+    """シートレイヤ上に断面ビューポートを 1 つ生成し、そのハンドルを返す。
+
+    ``vs.CreateSectionViewport`` で切断線(``line_start``/``line_end``)・見る方向を示す点
+    (``look_point``)・奥行き(``depth``)・鉛直範囲(``start_height``/``end_height``)から
+    断面ビューポートを作る(引数列は VW SDK の ``CreateSectionViewport`` に一致させる:
+    ``(pt1, pt2, pt3, depth, startHeight, endHeight, シートレイヤ)``)。断面は建物全体を切る
+    ため全デザインレイヤを表示し(``show_all_viewport_layers``)、クラス・縮尺を設定してから
+    図面タイトル・図番を設定し ``vs.UpdateVP`` で更新する(SDK の注記どおりレイヤ・クラスの
+    表示設定後に更新する)。断面ビューポートを生成できない環境(``CreateSectionViewport`` が
+    NIL を返す)では通常のビューポートにフォールバックする。断面ビューポート生成の
+    ``vs`` 呼び出し列・挙動は他要素と同じく VectorWorks 上で最終確認する方針。
+    """
+    x1, y1 = section['line_start']
+    x2, y2 = section['line_end']
+    px, py = section['look_point']
+    obj = vs.CreateSectionViewport(
+        (x1, y1), (x2, y2), (px, py),
+        section['depth'], section['start_height'], section['end_height'],
+        sheet_layer)
+    if obj == vs.Handle(0):
+        # 断面ビューポートを作れない場合は通常のビューポートにフォールバックする。
+        return draw_plan_viewport(viewport, sheet_layer)
+    vs.SetName(obj, viewport['drawing_title'])
+    show_all_viewport_layers(obj, sheet_layer)
+    configure_viewport_classes(obj, viewport.get('hidden_classes'))
+    configure_viewport_scale(obj, viewport['layers'])
+    vs.SetObjectVariableString(obj, _OV_VP_DRAWING_TITLE, viewport['drawing_title'])
+    vs.SetObjectVariableString(obj, _OV_VP_DRAWING_NUMBER, viewport['drawing_number'])
+    vs.UpdateVP(obj)
+    return obj
+
+
+def draw_plan_viewport(
     viewport: ViewportCommand, sheet_layer: Any,
 ) -> Any:
-    """シートレイヤ上にビューポートを 1 つ生成し、生成したビューポートハンドルを返す。
+    """シートレイヤ上に平面(Top/Plan)ビューポートを 1 つ生成し、そのハンドルを返す。
 
     ``vs.CreateVP`` でシートレイヤ上にビューポートを作り、表示レイヤを絞り込み、
     ビューを 2D/平面(Top/Plan)投影に確定させ、図面タイトル・図番を設定してから
@@ -197,6 +257,21 @@ def draw_viewport(
     vs.SetObjectVariableString(obj, _OV_VP_DRAWING_NUMBER, viewport['drawing_number'])
     vs.UpdateVP(obj)
     return obj
+
+
+def draw_viewport(
+    viewport: ViewportCommand, sheet_layer: Any,
+) -> Any:
+    """シートレイヤ上にビューポートを 1 つ生成し、生成したビューポートハンドルを返す。
+
+    ``section`` を持つビューポートは断面ビューポート(``draw_section_viewport``)として、
+    それ以外は平面(Top/Plan)ビューポート(``draw_plan_viewport``)として作る。
+    ビューポートが生成できない場合は None を返す。
+    """
+    section = viewport.get('section')
+    if section is not None:
+        return draw_section_viewport(viewport, sheet_layer, section)
+    return draw_plan_viewport(viewport, sheet_layer)
 
 
 def draw_sheet(command: SheetCommand) -> tuple[Any, Any]:
