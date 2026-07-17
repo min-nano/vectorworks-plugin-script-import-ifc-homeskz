@@ -117,7 +117,7 @@ FIXTURES = [
         floor_posts=41,
         fire_braces=66,
         sheets=7,
-        column_marks=5,
+        column_marks=10,
         rafters=110,
         roofs=7,
         rebars=76,
@@ -140,7 +140,7 @@ FIXTURES = [
         floor_posts=25,
         fire_braces=35,
         sheets=7,
-        column_marks=4,
+        column_marks=8,
         rafters=54,
         roofs=3,
         roof_stories={'2階'},
@@ -162,7 +162,7 @@ FIXTURES = [
         floor_posts=98,
         fire_braces=28,
         sheets=7,
-        column_marks=4,
+        column_marks=8,
         rafters=143,
         roofs=11,
         rebars=75,
@@ -185,7 +185,7 @@ FIXTURES = [
         floor_posts=44,
         fire_braces=28,
         sheets=9,
-        column_marks=8,
+        column_marks=16,
         rafters=106,
         roofs=9,
         rebars=55,
@@ -208,7 +208,7 @@ FIXTURES = [
         floor_posts=20,
         fire_braces=2,
         sheets=7,
-        column_marks=4,
+        column_marks=8,
         rafters=54,
         roofs=2,
         rebars=43,
@@ -492,12 +492,23 @@ class TestSampleIfcAnalysis:
             f'{i}階母屋伏図' for i in moya_indices]
         assert [s['number'] for s in moya_sheets] == [
             str(2 + n + k) for k in range(len(moya_indices))]
-        # 最上階(主屋根)の母屋伏図は母屋・垂木・野地板・通り芯(小屋束の伏図記号は後回し)。
-        assert moya_sheets[-1]['viewport']['layers'] == [
-            'R-母屋', 'R-垂木', 'R-野地板', '共通']
-        # 各伏図の表示レイヤは 通り芯 と 各階のストーリレイヤ(横架材・柱・床・母屋・
-        # 垂木・野地板・小屋束・下階柱)、および最下階のアンカーボルトのみ。
-        allowed = story_layers | {'共通'}
+        # 最上階(主屋根)の母屋伏図は母屋・垂木・野地板・(切断直下の主屋根小屋束の
+        # 伏図記号)・通り芯。切断(3.75 等)を含む span 柱レイヤは無く、切断直下の
+        # 小屋束(3.5 等)の伏図記号 {to}-柱伏図記号 だけが載る。
+        top_moya_layers = moya_sheets[-1]['viewport']['layers']
+        assert top_moya_layers[:3] == ['R-母屋', 'R-垂木', 'R-野地板']
+        assert top_moya_layers[-1] == '共通'
+        assert all(
+            layer.endswith('-柱伏図記号') for layer in top_moya_layers[3:-1])
+        # 各伏図の表示レイヤは 通り芯・各階のストーリレイヤ(横架材・柱 span・床・母屋・
+        # 垂木・野地板)・最下階のアンカーボルト・伏図記号レイヤ({to}-柱伏図記号)のみ。
+        # 伏図記号レイヤはストーリに縛られない独立レイヤ(story 命令には現れない)ため
+        # column_marks から集める。
+        mark_layers = {
+            command['layer'] for command in document['column_marks']
+            if command['style'] == '平面'
+        }
+        allowed = story_layers | {'共通'} | mark_layers
         for s in floor_sheets + moya_sheets:
             for layer in s['viewport']['layers']:
                 assert layer in allowed, \

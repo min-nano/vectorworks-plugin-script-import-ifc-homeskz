@@ -49,6 +49,20 @@ def parse_span_layer(name: str) -> tuple[float, float] | None:
         return float(parts[0]), float(parts[1])
     except ValueError:
         return None
+
+
+# 柱・小屋束の伏図記号(平面記号)を配置する専用レイヤの接尾辞。伏図記号は
+# span 柱レイヤの **span 上側の数値(to)** をプレフィックスにした ``{to}-柱伏図記号``
+# レイヤに描く(例 ``1to2.5-柱`` と ``2to2.5-柱`` の伏図記号はともに ``2.5-柱伏図記号``)。
+# 通り芯(``共通``)と同じくストーリに縛られない独立したデザインレイヤで、``共通`` の
+# 直下(スタック上段)に積む。各伏図は切断位置の直下(``to`` < 切断)の伏図記号レイヤ
+# だけを表示する(``ifc/sheet.py``)。
+LAYER_PLAN_MARK_SUFFIX = '柱伏図記号'
+
+
+def plan_mark_layer_name(to_level: float) -> str:
+    """span の ``to`` レベルから伏図記号レイヤ名 ``{to}-柱伏図記号`` を作る。"""
+    return f'{_fmt_span_level(to_level)}-{LAYER_PLAN_MARK_SUFFIX}'
 # 母屋(棟木を含む小屋組の上端材)を配置するレイヤ・レベル。最上階(屋根)で
 # 梁(小屋梁・軒桁)と重なって見にくいため、軒高レイヤと分けた専用レイヤに置く。
 LEVEL_MOYA = '母屋'
