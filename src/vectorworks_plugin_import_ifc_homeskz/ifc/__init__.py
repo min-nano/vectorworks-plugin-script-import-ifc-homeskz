@@ -62,6 +62,8 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
 
     # 横架材命令は断面寸法データタグの組み立てにも使うため一度だけ組み立てる
     members = build_member_commands(ifc_file)
+    # 柱命令は仕口(柱の側面に取り付く梁端部の判定)にも使うため一度だけ組み立てる
+    columns = build_column_commands(ifc_file)
     # 立上り命令は壁結合(交点はインデックス参照)の組み立てにも使うため一度だけ組み立てる
     walls = build_wall_commands(ifc_file)
     # アンカーボルト命令は基礎伏図のグラフィック凡例(載せるシンボルの判定)にも
@@ -77,7 +79,7 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         # members を渡す(支持点の桁幅を軒桁から相互参照する)
         'rafters': build_rafter_commands(ifc_file, members),
         'roofs': build_roof_commands(ifc_file),
-        'columns': build_column_commands(ifc_file),
+        'columns': columns,
         'walls': walls,
         'wall_joins': build_wall_join_commands(walls),
         'slabs': build_slab_commands(ifc_file, walls),
@@ -86,8 +88,9 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'floor_posts': build_floor_post_commands(ifc_file),
         'fire_braces': build_fire_brace_commands(ifc_file),
         # 仕口は横架材命令(食い込み調整済み)から受ける材のある端部を判定するため
-        # 一度だけ組み立てた members を渡す
-        'joints': build_joint_commands(members),
+        # 一度だけ組み立てた members を渡す。柱の側面に取り付く梁端部も仕口にするため
+        # columns も渡す
+        'joints': build_joint_commands(members, columns),
         'sheets': build_sheet_commands(ifc_file),
         'tags': build_tag_commands(members),
         'column_marks': build_column_mark_commands(ifc_file),
