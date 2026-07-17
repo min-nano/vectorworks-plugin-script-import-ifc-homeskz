@@ -54,6 +54,40 @@ class TestBuildFoundationSheetCommands:
             assert 'hidden_classes' not in command['viewport']
 
 
+class TestSpanLayersAtCut:
+    """切断レベルで span レイヤを絞るヘルパー(写り込み解消の中核)を直接検証する。"""
+
+    # 2 階建て(1階・2階・屋根)の span レイヤ:
+    # 1to2=1階管柱, 2to2.5=下屋束, 2to3=2階管柱, 3to3.5=主屋根束, 1to3=通し柱
+    SPANS = [
+        (1.0, 2.0, '1to2-柱'),
+        (1.0, 3.0, '1to3-柱'),
+        (2.0, 2.5, '2to2.5-柱'),
+        (2.0, 3.0, '2to3-柱'),
+        (3.0, 3.5, '3to3.5-柱'),
+    ]
+
+    def test_first_floor_cut_shows_first_floor_and_through(self) -> None:
+        # 1 階床伏図(切断 1.25): 1階管柱と通し柱
+        assert sheet._span_layers_at_cut(self.SPANS, 1.25) == ['1to2-柱', '1to3-柱']
+
+    def test_second_floor_cut_shows_second_floor_and_dormer_and_through(self) -> None:
+        # 2 階床伏図(切断 2.25): 通し柱・下屋束・2階管柱(1階管柱 1to2 は 2.25 を含まない)
+        assert sheet._span_layers_at_cut(self.SPANS, 2.25) == [
+            '1to3-柱', '2to2.5-柱', '2to3-柱']
+
+    def test_roof_cut_excludes_dormer_koyazuka(self) -> None:
+        # 2 階小屋伏図(切断 3.25): 主屋根束のみ。下屋束(2to2.5)は含まない=写り込み解消。
+        # 通し柱 1to3(to=3)も 3.25 は含まないため出ない。
+        assert sheet._span_layers_at_cut(self.SPANS, 3.25) == ['3to3.5-柱']
+
+    def test_boundary_is_inclusive(self) -> None:
+        # from ≤ cut ≤ to の境界は含む
+        assert sheet._span_layers_at_cut([(2.0, 2.5, '2to2.5-柱')], 2.0) == ['2to2.5-柱']
+        assert sheet._span_layers_at_cut([(2.0, 2.5, '2to2.5-柱')], 2.5) == ['2to2.5-柱']
+        assert sheet._span_layers_at_cut([(2.0, 2.5, '2to2.5-柱')], 2.75) == []
+
+
 class TestBuildFloorFramingSheetCommands:
     def test_no_sheet_without_stories(self) -> None:
         # ストーリが無ければ柱梁伏図シートは作らない
