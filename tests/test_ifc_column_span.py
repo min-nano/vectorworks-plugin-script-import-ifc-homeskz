@@ -56,33 +56,53 @@ class TestParseSpanLayer:
 
 
 class TestResolveColumnToLevel:
-    # 各階の横架材(床梁)下端。index は 0 起点で base 階の上の階を参照する。
+    # 各階の横架材(床梁)下端・天端。index は 0 起点で base 階の上の階を参照する。
+    # 天端(TOPS)は下端(BOTTOMS)より梁背ぶん上。最上階(index 2)の天端は軒高。
     BOTTOMS = [590.0, 3165.0, 6120.0]
+    TOPS = [830.0, 3405.0, 6400.0]
 
     def test_kudabashira_reaches_next_floor(self) -> None:
-        # 1 階管柱: 上端が 2 階梁下端(3165)以上・屋根梁下端(6120)未満 → 次階=to 2
-        to = resolve_column_to_level(0, 3300.0, self.BOTTOMS)
+        # 1 階管柱: 上端が 2 階梁下端(3165)以上・2 階梁天端(3405)未満 → 次階=to 2
+        to = resolve_column_to_level(0, 3300.0, self.BOTTOMS, self.TOPS)
         assert to == 2.0
 
     def test_roof_post_does_not_reach_next_floor(self) -> None:
         # 下屋の小屋束: 上端が直上階の梁下端(3165)未満 → 届かず from + 0.5
-        to = resolve_column_to_level(1, 4000.0, self.BOTTOMS)  # base=2 階
-        assert to == 2.5
+        to = resolve_column_to_level(1, 4000.0, self.BOTTOMS, self.TOPS)
+        assert to == 2.5  # base=2 階
 
     def test_through_column_reaches_two_floors_up(self) -> None:
-        # 通し柱(1・2 階): 上端が屋根梁下端(6120)以上 → 3 階床=to 3
-        to = resolve_column_to_level(0, 6200.0, self.BOTTOMS)
+        # 通し柱(1・2 階): 上端が屋根梁下端(6120)以上・軒高(6400)未満 → 3 階床=to 3
+        to = resolve_column_to_level(0, 6200.0, self.BOTTOMS, self.TOPS)
         assert to == 3.0
 
     def test_top_story_column_is_roof_post(self) -> None:
         # 最上階の柱(主屋根束): 上に階が無いため from + 0.5
-        to = resolve_column_to_level(2, 7000.0, self.BOTTOMS)
+        to = resolve_column_to_level(2, 7000.0, self.BOTTOMS, self.TOPS)
         assert to == 3.5
 
     def test_tolerance_counts_top_just_below_bottom_as_reached(self) -> None:
         # 下端よりわずか(許容値内)下でも到達とみなす
         top = self.BOTTOMS[1] - SPAN_LEVEL_TOL / 2
-        assert resolve_column_to_level(0, top, self.BOTTOMS) == 2.0
+        assert resolve_column_to_level(0, top, self.BOTTOMS, self.TOPS) == 2.0
+
+    def test_roof_post_reaching_top_story_above_eaves_is_half_level(
+        self,
+    ) -> None:
+        # 2 階建て(1階=0, 屋根=1)。1 階に立つ小屋束で上端が軒高(屋根の横架材
+        # 天端 3300)より高い → 屋根軒高の梁下端(3165)に達しても管柱ではなく
+        # 屋根束 → 1to2.5(reached + 1 + 0.5)。以前は 1to2 に誤分類していた。
+        bottoms = [590.0, 3165.0]
+        tops = [830.0, 3300.0]  # tops[1] = 軒高
+        to = resolve_column_to_level(0, 3500.0, bottoms, tops)
+        assert to == 2.5
+
+    def test_column_reaching_top_story_at_eaves_stays_integer(self) -> None:
+        # 対照: 上端が軒高(3300)以下で屋根軒高の梁下端に止まる柱は管柱扱いで to 2。
+        bottoms = [590.0, 3165.0]
+        tops = [830.0, 3300.0]
+        to = resolve_column_to_level(0, 3200.0, bottoms, tops)
+        assert to == 2.0
 
 
 class TestCollectColumnSpans:

@@ -85,13 +85,14 @@ SPAN_LEVEL_TOL = 1.0
 
 
 def resolve_column_to_level(
-    base_index: int, top_abs: float, beam_bottoms: list[float],
+    base_index: int, top_abs: float,
+    beam_bottoms: list[float], beam_tops: list[float],
 ) -> float:
     """柱上端が届く span の ``to`` レベル(1 始まり)を求める。
 
     ``base_index`` は 0 起点のストーリ番号で、柱の下端はその階の床(span では
     ``base_index + 1``)にある。上端 ``top_abs`` を base より上の各階の横架材(床梁)の
-    **下端**(``beam_bottoms``)と比べ、達した最上の階を求める:
+    **下端**(``beam_bottoms``)と比べ、達した最上の階(``reached``)を求める:
 
     - どの上階の横架材にも達しない(＝上端が直上階の梁下端未満) → その階には載らない
       屋根束扱いで **from + 0.5**(下屋の小屋束・棟束・主屋根の小屋束等)。管柱は必ず
@@ -102,17 +103,25 @@ def resolve_column_to_level(
     横架材の天端ではなく**下端**を境界にするのは、通常の管柱が横架材天端ではなく
     下端まで(＝梁を下から受ける高さ)しか来ないため。天端を境界にすると、ホームズ君の
     モデルで天端付近まで伸びた管柱を貫き(通し)と誤判定してしまう。
+
+    ただし**到達した最上階の横架材天端(最上階は軒高)より上端が高い柱**は、その階の
+    床/軒に下から受けられる管柱・通し柱ではなく、屋根面で止まる**屋根束**なので
+    **reached + 1 + 0.5** の半整数レベルにする(``beam_tops``＝各階の横架材天端の
+    絶対 Z)。これがないと、例えば軒高より高く突き出す小屋束が屋根軒高の梁下端に達した
+    だけで管柱扱いになり、``1to2.5`` に振り分けるべき柱が ``1to2`` になってしまう。
+    管柱・通し柱の上端は受ける梁の下端(＝横架材天端より梁背ぶん下)に止まるため
+    天端を超えず、この分岐には来ない。
     """
-    from_level = float(base_index + 1)
     reached = base_index  # 到達した最上階(0 起点)。初期値は自階=どの上階にも未到達
     for s in range(base_index + 1, len(beam_bottoms)):
         if top_abs >= beam_bottoms[s] - SPAN_LEVEL_TOL:
             reached = s
         else:
             break
-    if reached == base_index:
-        # 直上階の横架材にも達しない屋根束(小屋束等)
-        return from_level + 0.5
+    if reached == base_index or top_abs > beam_tops[reached] + SPAN_LEVEL_TOL:
+        # 直上階の横架材にも達しない、または到達階の横架材天端(軒高)を超えて
+        # 突き出す屋根束(小屋束等) → 到達階 +0.5 の半整数レベル
+        return float(reached + 1) + 0.5
     return float(reached + 1)
 
 
@@ -349,7 +358,8 @@ def build_column_commands(
                 top_abs = bottom_abs + height
 
                 # span(またぐレベル区間)ごとの専用レイヤに配置する。
-                to_level = resolve_column_to_level(i, top_abs, beam_bottoms)
+                to_level = resolve_column_to_level(
+                    i, top_abs, beam_bottoms, beam_top_abs)
                 layer_name = span_layer_name(i + 1, to_level)
 
                 column_type = resolve_column_type(element.ObjectType)
