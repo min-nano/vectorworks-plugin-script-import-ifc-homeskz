@@ -7,10 +7,15 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 
 import ifcopenshell
 
-from vectorworks_plugin_import_ifc_homeskz.document import MemberCommand
+from vectorworks_plugin_import_ifc_homeskz.document import (
+    ColumnCommand,
+    JointCommand,
+    MemberCommand,
+)
 from vectorworks_plugin_import_ifc_homeskz.ifc import joint
 
 from tests.conftest import load_fixture_ifc
@@ -18,6 +23,30 @@ from tests.conftest import load_fixture_ifc
 
 def _open(filename: str) -> ifcopenshell.file:
     return load_fixture_ifc(filename)
+
+
+def _column(
+    position: tuple[float, float],
+    width: float = 105.0,
+    depth: float = 105.0,
+    elevation: float = 245.0,
+    height: float = 2844.0,
+) -> ColumnCommand:
+    return {
+        'layer': '1-柱',
+        'member_id': 'x',
+        'class': '04構造-02木造-03柱-02管柱',
+        'structural_use': '4',
+        'position': [position[0], position[1]],
+        'width': width,
+        'depth': depth,
+        'height': height,
+        'elevation': elevation,
+        'top_hardware': '',
+        'bottom_hardware': '',
+        'bottom_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+        'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': 0.0},
+    }
 
 
 def _member(
@@ -75,7 +104,7 @@ class TestEndHasReceiver:
         b = _member('L', (1500.0, 60.0), (1500.0, 2000.0))
         geoms = [joint._member_geom(a), joint._member_geom(b)]
         members = [a, b]
-        assert joint._end_has_receiver(1, 1500.0, 60.0, geoms, members)
+        assert joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
 
     def test_through_member_free_end_is_not_received(self) -> None:
         # A の端点(0,0)/(3000,0)は B に取り付かない(B は A の中間に突き当たる)
@@ -83,8 +112,8 @@ class TestEndHasReceiver:
         b = _member('L', (1500.0, 60.0), (1500.0, 2000.0))
         geoms = [joint._member_geom(a), joint._member_geom(b)]
         members = [a, b]
-        assert not joint._end_has_receiver(0, 0.0, 0.0, geoms, members)
-        assert not joint._end_has_receiver(0, 3000.0, 0.0, geoms, members)
+        assert not joint._end_has_receiver(0, 0.0, 0.0, geoms, members, [])
+        assert not joint._end_has_receiver(0, 3000.0, 0.0, geoms, members, [])
 
     def test_parallel_splice_is_not_received(self) -> None:
         # 同一直線上の継ぎ手(平行)は受ける材にしない
@@ -92,15 +121,15 @@ class TestEndHasReceiver:
         b = _member('L', (1000.0, 0.0), (2000.0, 0.0))
         geoms = [joint._member_geom(a), joint._member_geom(b)]
         members = [a, b]
-        assert not joint._end_has_receiver(0, 1000.0, 0.0, geoms, members)
-        assert not joint._end_has_receiver(1, 1000.0, 0.0, geoms, members)
+        assert not joint._end_has_receiver(0, 1000.0, 0.0, geoms, members, [])
+        assert not joint._end_has_receiver(1, 1000.0, 0.0, geoms, members, [])
 
     def test_different_layer_is_not_received(self) -> None:
         a = _member('L1', (0.0, 0.0), (3000.0, 0.0))
         b = _member('L2', (1500.0, 60.0), (1500.0, 2000.0))
         geoms = [joint._member_geom(a), joint._member_geom(b)]
         members = [a, b]
-        assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members)
+        assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
 
     def test_separated_z_is_not_received(self) -> None:
         # 段差で Z 範囲が離れた相手は受ける材にしない
@@ -110,7 +139,70 @@ class TestEndHasReceiver:
                     elevation=2000.0, end_elevation=2000.0)
         geoms = [joint._member_geom(a), joint._member_geom(b)]
         members = [a, b]
-        assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members)
+        assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
+
+
+class TestColumnReceiver:
+    # 梁: 天端 425・背 180 → Z 範囲 [245, 425]
+    # 柱: 下端 -2575・高さ 3000 → Z 範囲 [-2575, 425](梁の Z 範囲を含む)
+    def test_beam_end_on_column_is_received(self) -> None:
+        # 梁の終端 (1500, 0) が柱の断面矩形に入り Z が重なるため受ける柱がある
+        beam = _member('1-横架材天端', (0.0, 0.0), (1500.0, 0.0))
+        col = _column((1500.0, 0.0), elevation=-2575.0, height=3000.0)
+        geoms = [joint._member_geom(beam)]
+        members = [beam]
+        col_geoms = [joint._column_geom(col)]
+        assert joint._end_has_receiver(
+            0, 1500.0, 0.0, geoms, members, col_geoms)
+
+    def test_beam_end_on_column_face_is_received(self) -> None:
+        # 柱の側面(x=1500-52.5)ちょうどに載る梁端も取り付きとみなす
+        beam = _member('1-横架材天端', (0.0, 0.0), (1447.5, 0.0))
+        col = _column((1500.0, 0.0), elevation=-2575.0, height=3000.0)
+        geoms = [joint._member_geom(beam)]
+        members = [beam]
+        col_geoms = [joint._column_geom(col)]
+        assert joint._end_has_receiver(
+            0, 1447.5, 0.0, geoms, members, col_geoms)
+
+    def test_beam_end_away_from_column_not_received(self) -> None:
+        beam = _member('1-横架材天端', (0.0, 0.0), (1500.0, 0.0))
+        col = _column((5000.0, 5000.0), elevation=-2575.0, height=3000.0)
+        geoms = [joint._member_geom(beam)]
+        members = [beam]
+        col_geoms = [joint._column_geom(col)]
+        assert not joint._end_has_receiver(
+            0, 1500.0, 0.0, geoms, members, col_geoms)
+
+    def test_column_z_separated_not_received(self) -> None:
+        # 柱の上端が梁の Z 範囲より下(梁が乗る柱の下端側=面で触れるだけ)は
+        # 取り付きとみなさない
+        beam = _member('1-横架材天端', (0.0, 0.0), (1500.0, 0.0))
+        col = _column((1500.0, 0.0), elevation=425.0, height=3000.0)
+        geoms = [joint._member_geom(beam)]
+        members = [beam]
+        col_geoms = [joint._column_geom(col)]
+        assert not joint._end_has_receiver(
+            0, 1500.0, 0.0, geoms, members, col_geoms)
+
+    def test_build_places_joint_at_column_supported_end(self) -> None:
+        # 柱に受けられる梁端に仕口が付く(横架材同士では受け材が無いケース)
+        beam = _member('1-横架材天端', (0.0, 0.0), (1500.0, 0.0))
+        col = _column((1500.0, 0.0), elevation=-2575.0, height=3000.0)
+        commands = joint.build_joint_commands([beam], [col])
+        col_end = [c for c in commands if c['position'] == [1500.0, 0.0]]
+        assert len(col_end) == 1
+        assert col_end[0]['symbol'] == '仕口'
+        assert col_end[0]['layer'] == '1-横架材天端'
+        # 自由端(0,0)には柱が無いので仕口は付かない
+        assert not [c for c in commands if c['position'] == [0.0, 0.0]]
+
+    def test_columns_default_empty(self) -> None:
+        # columns を省略しても従来どおり動く(横架材同士の判定のみ)
+        beam = _member('1-横架材天端', (0.0, 0.0), (1500.0, 0.0))
+        col = _column((1500.0, 0.0), elevation=-2575.0, height=3000.0)
+        assert joint.build_joint_commands([beam]) == []
+        assert joint.build_joint_commands([beam], [col])
 
 
 class TestDegenerateMembers:
@@ -125,7 +217,7 @@ class TestDegenerateMembers:
         other = _member('1-横架材天端', (0.0, 0.0), (3000.0, 0.0))
         geoms = [joint._member_geom(degenerate), joint._member_geom(other)]
         members = [degenerate, other]
-        assert not joint._end_has_receiver(0, 500.0, 500.0, geoms, members)
+        assert not joint._end_has_receiver(0, 500.0, 500.0, geoms, members, [])
 
     def test_build_skips_degenerate_member(self) -> None:
         # 退化した材は端部・向きが定まらないため joint 命令を出さない
@@ -217,3 +309,89 @@ class TestBuildFromFixture:
             assert joints
             for j in joints:
                 assert j['symbol'] == '仕口'
+
+
+class TestBuildFromFixtureWithColumns:
+    """柱を渡したときの仕口判定(柱に受けられる梁端)を実 IFC で検証する。"""
+
+    FILENAMES = (
+        'サンプル1 (住木邸新築工事).ifc',
+        '伏図次郎【2階】.ifc',
+        'スキップフロア_サンプル.ifc',
+        'グレー本モデルプラン1【3階】.ifc',
+        'グレー本モデルプラン2【3階】.ifc',
+    )
+
+    @staticmethod
+    def _position_in_any_column(
+        px: float, py: float,
+        col_geoms: list[joint._ColGeom],
+    ) -> bool:
+        return any(joint._point_in_column(px, py, c) for c in col_geoms)
+
+    @staticmethod
+    def _joint_counts(
+        commands: list[JointCommand],
+    ) -> Counter[tuple[str, tuple[float, ...]]]:
+        return Counter(
+            (c['layer'], tuple(c['position'])) for c in commands)
+
+    def test_columns_only_add_joints(self) -> None:
+        # 柱を渡しても横架材同士の仕口は消えない(受ける材判定は柱の有無に
+        # 依らないため、柱ありの仕口集合は柱なしの上位集合になる)。かつ実データで
+        # 柱に受けられる梁端の仕口が少なくとも 1 件は増える。
+        from vectorworks_plugin_import_ifc_homeskz.ifc import (
+            build_column_commands,
+            build_member_commands,
+        )
+        total_added = 0
+        for filename in self.FILENAMES:
+            ifc = _open(filename)
+            members = build_member_commands(ifc)
+            columns = build_column_commands(ifc)
+            without = joint.build_joint_commands(members)
+            with_cols = joint.build_joint_commands(members, columns)
+            base_counts = self._joint_counts(without)
+            ext_counts = self._joint_counts(with_cols)
+            # 柱なしの各仕口は柱ありにも必ず同数以上含まれる(上位集合)
+            for k, n in base_counts.items():
+                assert ext_counts[k] >= n
+            total_added += len(with_cols) - len(without)
+        assert total_added > 0
+
+    def test_added_joints_land_on_columns(self) -> None:
+        # 柱ありでのみ現れる仕口(=柱に受けられた梁端)は、いずれかの柱の
+        # 断面 footprint に載っている(実データでの幾何的な妥当性)。
+        from vectorworks_plugin_import_ifc_homeskz.ifc import (
+            build_column_commands,
+            build_member_commands,
+        )
+        for filename in self.FILENAMES:
+            ifc = _open(filename)
+            members = build_member_commands(ifc)
+            columns = build_column_commands(ifc)
+            col_geoms = [joint._column_geom(c) for c in columns]
+            without = {(c['layer'], tuple(c['position']))
+                       for c in joint.build_joint_commands(members)}
+            with_cols = joint.build_joint_commands(members, columns)
+            added = [c for c in with_cols
+                     if (c['layer'], tuple(c['position'])) not in without]
+            for c in added:
+                px, py = c['position']
+                assert self._position_in_any_column(px, py, col_geoms)
+
+    def test_result_is_order_independent_with_columns(self) -> None:
+        from vectorworks_plugin_import_ifc_homeskz.ifc import (
+            build_column_commands,
+            build_member_commands,
+        )
+        ifc = _open('伏図次郎【2階】.ifc')
+        members = build_member_commands(ifc)
+        columns = build_column_commands(ifc)
+        s1 = sorted((j['layer'], tuple(j['position']))
+                    for j in joint.build_joint_commands(members, columns))
+        s2 = sorted(
+            (j['layer'], tuple(j['position']))
+            for j in joint.build_joint_commands(
+                list(reversed(members)), list(reversed(columns))))
+        assert s1 == s2
