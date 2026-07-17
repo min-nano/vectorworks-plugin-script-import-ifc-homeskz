@@ -12,6 +12,17 @@ from ..document import StoryCommand
 # レイヤスタックの最上段に積むため並べ替え対象に含める。
 GRID_LAYER = '共通'
 
+# 背面(スタック最下段)へ回すレイヤのレベルタイプ。床(FL)・野地板のレイヤは、
+# 伏図ビューポートで柱・梁・柱記号を覆い隠さないよう、全ストーリの構造レイヤより
+# 背面へまとめる。ビューポートは常にドキュメントのデザインレイヤ重ね順で描画され
+# (ビューポート単位の重ね順オーバーライドは VW の API に無い)、かつ下階の柱レイヤ
+# (別ストーリ)も併せて表示するため、床・野地板を各ストーリ内で下げるだけでは足りず、
+# ドキュメント全体の最下段へ移す必要がある。ifc/story.py の LEVEL_FL / LEVEL_NOJIITA と
+# 一致させる(vw は ifc に依存しないため定数を再掲する)。
+LEVEL_FL = 'FL'
+LEVEL_NOJIITA = '野地板'
+_BACKGROUND_LEVEL_TYPES = (LEVEL_FL, LEVEL_NOJIITA)
+
 
 def create_story_level_via_template(
     story_handle: Any, level_type: str, elevation: float, desired_layer_name: str,
@@ -96,17 +107,28 @@ def desired_layer_order(commands: list[StoryCommand]) -> list[str]:
 
     最上段に通り芯レイヤ (``共通``)、続いて**最上階→最下階**の順に各ストーリの
     レイヤを並べる(命令は Elevation 昇順=最下階→最上階なので逆順に辿る)。各ストーリ
-    内のレイヤ順は命令の ``levels`` の並び(柱 → FL/軒高 → 横架材天端)に従う。
+    内のレイヤ順は命令の ``levels`` の並び(柱 → … → 横架材天端/軒高)に従う。
+
+    ただし**床(FL)・野地板レイヤは全ストーリ分をまとめてスタック最下段(背面)へ
+    回す**(``_BACKGROUND_LEVEL_TYPES``)。床・野地板を伏図ビューポートで柱・梁・
+    柱記号より背面に描くため。ビューポートは常にドキュメントのデザインレイヤ重ね順で
+    描画され、伏図には下階(別ストーリ)の柱レイヤも重ねて表示するので、床・野地板は
+    各ストーリ内で下げるだけでは足りず、全構造レイヤより後ろ=ドキュメント最下段へ
+    集める。最下段の中では上記と同じく最上階→最下階の順(上ほど前面)に並べる。
 
     例 (1階・2階・屋根):
-        共通, R-柱, R-軒高, 2-柱, 2-FL, 2-横架材天端,
-        1-柱, 1-FL, 1-横架材天端
+        共通, R-柱, R-軒高, 2-柱, 2-横架材天端, 1-柱, 1-横架材天端,
+        R-野地板, 2-FL, 1-FL
     """
     order: list[str] = [GRID_LAYER]
+    background: list[str] = []
     for command in reversed(commands):
         for level in command['levels']:
-            order.append(level['layer'])
-    return order
+            if level['type'] in _BACKGROUND_LEVEL_TYPES:
+                background.append(level['layer'])
+            else:
+                order.append(level['layer'])
+    return order + background
 
 
 def reorder_story_layers(commands: list[StoryCommand]) -> None:
