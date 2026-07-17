@@ -119,11 +119,11 @@ class TestBuildMoyaSheetCommands:
         assert command['number'] == '5'
         # 主屋根が架かる最上階の階番号(2階建て=2)を付ける
         assert command['title'] == '2階母屋伏図'
-        # 表示レイヤは母屋・垂木・小屋束記号・通り芯
+        # 表示レイヤは母屋・垂木・野地板・小屋束記号・通り芯
         assert command['viewport']['drawing_title'] == '2階母屋伏図'
         assert command['viewport']['drawing_number'] == '5'
         assert command['viewport']['layers'] == [
-            'R-母屋', 'R-垂木', 'R-小屋束', '共通']
+            'R-母屋', 'R-垂木', 'R-野地板', 'R-小屋束', '共通']
 
 
 def _anchor_bolt(symbol: str) -> AnchorBoltCommand:

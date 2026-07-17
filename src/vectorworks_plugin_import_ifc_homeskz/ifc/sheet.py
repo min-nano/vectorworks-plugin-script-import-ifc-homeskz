@@ -68,6 +68,7 @@ from .story import (
     LEVEL_FL,
     LEVEL_KOYAZUKA_MARK,
     LEVEL_MOYA,
+    LEVEL_NOJIITA,
     LEVEL_TARUKI,
     LEVEL_UNDER_COLUMN,
     collect_stories,
@@ -247,7 +248,8 @@ def build_moya_sheet_commands(
     最上階(屋根)の母屋・棟木・垂木を梁と分けて表示する伏図を 1 枚返す。
     シートレイヤ番号は柱梁伏図の最後(小屋伏図)に続けて振る。タイトルは主屋根が
     架かる階番号を付けた ``{階数}階母屋伏図``。表示レイヤは母屋(``R-母屋``)・
-    垂木(``R-垂木``)・小屋束記号(``R-小屋束``)・通り芯(``共通``)。母屋を支える
+    垂木(``R-垂木``)・野地板(``R-野地板``)・小屋束記号(``R-小屋束``)・通り芯
+    (``共通``)。母屋・垂木と同じレベルの野地板も併せて表示する。母屋を支える
     小屋束の位置を小屋束記号(柱束伏図記号 PIO)で示す。ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
@@ -268,6 +270,7 @@ def build_moya_sheet_commands(
             'layers': [
                 f'{prefix}-{LEVEL_MOYA}',
                 f'{prefix}-{LEVEL_TARUKI}',
+                f'{prefix}-{LEVEL_NOJIITA}',
                 f'{prefix}-{LEVEL_KOYAZUKA_MARK}',
                 TARGET_LAYER,
             ],

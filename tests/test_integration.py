@@ -462,11 +462,11 @@ class TestSampleIfcAnalysis:
         assert [s['number'] for s in floor_sheets] == [
             str(2 + i) for i in range(floor_story_count)]
         # 母屋伏図は最後で、番号は柱梁伏図に続く。タイトルは主屋根の階番号付き。
-        # 表示レイヤは母屋・小屋束記号・通り芯。
+        # 表示レイヤは母屋・垂木・野地板・小屋束記号・通り芯。
         assert moya_sheet['title'] == f'{floor_story_count - 1}階母屋伏図'
         assert moya_sheet['number'] == str(2 + floor_story_count)
         assert moya_sheet['viewport']['layers'] == [
-            'R-母屋', 'R-垂木', 'R-小屋束', '共通']
+            'R-母屋', 'R-垂木', 'R-野地板', 'R-小屋束', '共通']
         # 各伏図の表示レイヤは 通り芯 と 各階のストーリレイヤ(横架材・柱・床・母屋)、
         # および最下階のアンカーボルトのみ。
         allowed = story_layers | {'共通'}
