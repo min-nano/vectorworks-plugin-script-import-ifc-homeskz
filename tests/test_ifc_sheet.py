@@ -88,6 +88,28 @@ class TestSpanLayersAtCut:
         assert sheet._span_layers_at_cut([(2.0, 2.5, '2to2.5-柱')], 2.75) == []
 
 
+class TestPlanMarkLayerBelowCut:
+    """切断レベルの直下(to<切断)の伏図記号レイヤを返すヘルパーを検証する。"""
+
+    SPANS = TestSpanLayersAtCut.SPANS
+
+    def test_floor_cut_picks_integer_to_below(self) -> None:
+        # 2 階床伏図(切断 2.25): 直下 to=2(1階管柱 1to2)→ 2-柱伏図記号
+        assert sheet._plan_mark_layer_below_cut(self.SPANS, 2.25) == '2-柱伏図記号'
+
+    def test_moya_cut_picks_half_level_to_below(self) -> None:
+        # 1 階母屋伏図(切断 2.75): 直下 to=2.5(下屋束 2to2.5)→ 2.5-柱伏図記号
+        assert sheet._plan_mark_layer_below_cut(self.SPANS, 2.75) == '2.5-柱伏図記号'
+
+    def test_picks_greatest_to_strictly_below_cut(self) -> None:
+        # 2 階小屋伏図(切断 3.25): to<3.25 の最大は 3(2to3・1to3)→ 3-柱伏図記号
+        assert sheet._plan_mark_layer_below_cut(self.SPANS, 3.25) == '3-柱伏図記号'
+
+    def test_none_when_no_span_below_cut(self) -> None:
+        # 1 階床伏図(切断 1.25): to<1.25 の span は無い → 伏図記号レイヤ無し
+        assert sheet._plan_mark_layer_below_cut(self.SPANS, 1.25) is None
+
+
 class TestBuildFloorFramingSheetCommands:
     def test_no_sheet_without_stories(self) -> None:
         # ストーリが無ければ柱梁伏図シートは作らない
@@ -120,10 +142,11 @@ class TestBuildFloorFramingSheetCommands:
         middle = sheet.build_floor_framing_sheet_commands(ifc)[1]
         # 下屋根の母屋は専用の母屋伏図に分けるため、この階には母屋を重ねない
         assert middle['title'] == '2階床伏図'
-        # 切断 2.25 を含む span=2 階起点の柱(2to3=2階管柱・2to2.5=下屋束の断面)・床・
-        # 通り芯。下から届く通し柱があれば併せて出る。アンカーボルトは含まない。
+        # 切断 2.25 を含む span=2 階起点の柱(2to3=2階管柱・2to2.5=下屋束の断面)・
+        # 切断直下(to<2.25)の伏図記号 2-柱伏図記号(下階=1階管柱 1to2 の平面記号)・
+        # 床・通り芯。下から届く通し柱があれば併せて出る。アンカーボルトは含まない。
         assert middle['viewport']['layers'] == [
-            '2-横架材天端', '2to2.5-柱', '2to3-柱', '2-FL', '共通']
+            '2-横架材天端', '2to2.5-柱', '2to3-柱', '2-柱伏図記号', '2-FL', '共通']
 
     def test_roof_shows_beam_column_directly_below_grid(self) -> None:
         ifc = _open('伏図次郎【2階】.ifc')
@@ -131,10 +154,11 @@ class TestBuildFloorFramingSheetCommands:
         # 最上階は主屋根の階番号(2階小屋)を付ける。下屋根の母屋は専用の母屋伏図に
         # 分けるため小屋伏図には重ねない。
         assert roof['title'] == '2階小屋伏図'
-        # 軒高の横架材・切断 3.25 を含む span(3to3.5=主屋根束の断面)・通り芯。
+        # 軒高の横架材・切断 3.25 を含む span(3to3.5=主屋根束の断面)・切断直下
+        # (to<3.25)の伏図記号 3-柱伏図記号(2階管柱 2to3 の平面記号)・通り芯。
         # 下屋束(2to2.5、to=2.5)は切断 3.25 を含まないため写り込まない(解消)。
         assert roof['viewport']['layers'] == [
-            'R-軒高', '3to3.5-柱', '共通']
+            'R-軒高', '3to3.5-柱', '3-柱伏図記号', '共通']
 
 
 class TestBuildMoyaSheetCommands:
@@ -156,12 +180,14 @@ class TestBuildMoyaSheetCommands:
         # (2to2.5、to=2.5<2.75)は載らない(小屋束の断面は母屋伏図に出さない)。
         assert sheets[0]['viewport']['drawing_title'] == '1階母屋伏図'
         assert sheets[0]['viewport']['drawing_number'] == '5'
+        # 切断直下(to<2.75)の伏図記号は 2.5-柱伏図記号(下屋小屋束 2to2.5 の平面記号)。
         assert sheets[0]['viewport']['layers'] == [
-            '2-母屋', '2-垂木', '2-野地板', '2to3-柱', '共通']
+            '2-母屋', '2-垂木', '2-野地板', '2to3-柱', '2.5-柱伏図記号', '共通']
         # 主屋根(屋根)の母屋伏図: 切断レベル(2+1.75=3.75)を span が含む柱は無い
-        # (最上の柱 3to3.5 は to=3.5<3.75)ため柱レイヤは載らない。
+        # (最上の柱 3to3.5 は to=3.5<3.75)ため柱レイヤは載らない。切断直下
+        # (to<3.75)の伏図記号は 3.5-柱伏図記号(主屋根小屋束 3to3.5 の平面記号)。
         assert sheets[1]['viewport']['layers'] == [
-            'R-母屋', 'R-垂木', 'R-野地板', '共通']
+            'R-母屋', 'R-垂木', 'R-野地板', '3.5-柱伏図記号', '共通']
 
     def test_roof_only_shed_dormer_has_no_moya_layer(self) -> None:
         # 母屋の無い下屋根(片流れ等)の母屋伏図は母屋レイヤを含まず、垂木・野地板・
@@ -171,8 +197,9 @@ class TestBuildMoyaSheetCommands:
         sheets = sheet.build_moya_sheet_commands(ifc)
         # 2階の下屋根(母屋なし)と屋根の主屋根の 2 枚
         assert [s['title'] for s in sheets] == ['1階母屋伏図', '2階母屋伏図']
+        # 切断直下(to<2.75)の伏図記号は 2-柱伏図記号(1階管柱 1to2 の平面記号)。
         assert sheets[0]['viewport']['layers'] == [
-            '2-垂木', '2-野地板', '1to3-柱', '2to3-柱', '共通']
+            '2-垂木', '2-野地板', '1to3-柱', '2to3-柱', '2-柱伏図記号', '共通']
 
     def test_moya_sheet_column_cut_levels(self) -> None:
         # 母屋伏図の柱の切断レベルは「その階の床レベル + 0.75」。1階母屋伏図(i=1)は

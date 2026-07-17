@@ -19,6 +19,7 @@ from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
 )
 from vectorworks_plugin_import_ifc_homeskz.ifc.story import (
     parse_span_layer,
+    plan_mark_layer_name,
     span_layer_name,
 )
 
@@ -36,6 +37,17 @@ class TestSpanLayerName:
     def test_half_level_keeps_point_five(self) -> None:
         assert span_layer_name(2, 2.5) == '2to2.5-柱'
         assert span_layer_name(3.0, 3.5) == '3to3.5-柱'
+
+
+class TestPlanMarkLayerName:
+    def test_integer_to_has_no_decimal(self) -> None:
+        # span 上側の数値(to)をプレフィックスにした {to}-柱伏図記号
+        assert plan_mark_layer_name(2) == '2-柱伏図記号'
+        assert plan_mark_layer_name(3.0) == '3-柱伏図記号'
+
+    def test_half_to_keeps_point_five(self) -> None:
+        assert plan_mark_layer_name(2.5) == '2.5-柱伏図記号'
+        assert plan_mark_layer_name(3.5) == '3.5-柱伏図記号'
 
 
 class TestParseSpanLayer:

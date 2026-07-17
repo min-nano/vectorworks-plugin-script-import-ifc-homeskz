@@ -223,11 +223,14 @@ class _LayerListVS:
             self.layers[i], self.layers[i + 1] = self.layers[i + 1], self.layers[i]
 
 
-def _run_reorder(vs_mock: Any, commands: list[StoryCommand]) -> None:
+def _run_reorder(
+    vs_mock: Any, commands: list[StoryCommand],
+    top_layers: list[str] | None = None,
+) -> None:
     with patch.dict('sys.modules', {'vs': vs_mock}):
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_story)
-        vw_story.reorder_story_layers(commands)
+        vw_story.reorder_story_layers(commands, top_layers)
 
 
 class TestReorderStoryLayers:
@@ -261,6 +264,37 @@ class TestReorderStoryLayers:
         # (床 FL は背面=最下段へ回す)。
         assert vs_mock.layers == [
             '1-FL', '1-横架材天端', '1-柱', 'R-軒高', 'R-柱', '共通']
+
+    def test_places_plan_mark_layers_directly_below_grid(self) -> None:
+        # 伏図記号レイヤ({to}-柱伏図記号)は通り芯(共通)の直下に積む。
+        vs_mock = _LayerListVS(
+            ['共通', '1-柱', '1-横架材天端', '1-FL', 'R-柱', 'R-軒高',
+             '2-柱伏図記号'])
+        commands: list[StoryCommand] = [
+            {
+                'name': '1階', 'suffix': '1', 'elevation': 473.0,
+                'levels': [
+                    {'type': '1to2-柱', 'offset': -48.0, 'layer': '1-柱'},
+                    {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
+                    {'type': '横架材天端', 'offset': -48.0, 'layer': '1-横架材天端'},
+                ],
+            },
+            {
+                'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
+                'levels': [
+                    {'type': '2to3-柱', 'offset': 0.0, 'layer': 'R-柱'},
+                    {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
+                ],
+            },
+        ]
+
+        _run_reorder(vs_mock, commands, ['2-柱伏図記号'])
+
+        # ナビゲーション(上→下): 共通, 2-柱伏図記号, R-柱, R-軒高, 1-柱,
+        # 1-横架材天端, 1-FL。走査順(下→上)はその逆。
+        assert vs_mock.layers == [
+            '1-FL', '1-横架材天端', '1-柱', 'R-軒高', 'R-柱',
+            '2-柱伏図記号', '共通']
 
     def test_orders_three_stories(self) -> None:
         # 1階・2階・屋根。ナビゲーション(上→下)の希望順は

@@ -12,7 +12,7 @@ from ..document import validate_document
 from ..tracing import trace
 from .anchor_bolt import execute_anchor_bolts
 from .column import execute_columns
-from .column_mark import execute_column_marks
+from .column_mark import execute_column_marks, plan_mark_layers
 from .fire_brace import execute_fire_braces
 from .floor import execute_floors
 from .floor_post import execute_floor_posts
@@ -113,16 +113,19 @@ def execute_document(document: Any) -> dict[str, int]:
     # 仕口(受ける材のある横架材端部のシンボル)は横架材レイヤに配置する
     trace('execute_joints start')
     counts['joints'] = execute_joints(validated['joints'])
-    # 下階柱記号は直下階の柱を検索するため柱の描画後に配置する
+    # 断面記号・伏図記号(柱束伏図記号 PIO)は配置後のリセットで対象の柱を検索する
+    # ため柱の描画後に配置する。伏図記号レイヤ(``{to}-柱伏図記号``)はここで生成される。
     trace('execute_column_marks start')
     counts['column_marks'] = execute_column_marks(validated['column_marks'])
     # デザインレイヤのスタック順を整えてからシート(ビューポート)を描画する。
-    # 並べ替えで床・野地板を最背面へ回した結果はインポート直後のビューポート描画には
-    # 反映されず(手動更新/ファイル再オープンで反映)、スクリプト内での自動反映は
-    # VW の制約上できないため、余計な更新処理は行わない(execute_document の
-    # docstring 参照)。
+    # 伏図記号レイヤ(``{to}-柱伏図記号``)は通り芯(共通)の直下に積むため、
+    # 並べ替えに伏図記号レイヤの一覧を渡す。並べ替えで床・野地板を最背面へ回した
+    # 結果はインポート直後のビューポート描画には反映されず(手動更新/ファイル再
+    # オープンで反映)、スクリプト内での自動反映は VW の制約上できないため、余計な
+    # 更新処理は行わない(execute_document の docstring 参照)。
     trace('reorder_story_layers start')
-    reorder_story_layers(validated['stories'])
+    reorder_story_layers(
+        validated['stories'], plan_mark_layers(validated['column_marks']))
     counters: dict[str, int] = {}
     trace('execute_sheets start')
     counts['sheets'] = execute_sheets(

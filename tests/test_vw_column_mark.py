@@ -10,12 +10,13 @@ from vectorworks_plugin_import_ifc_homeskz.document import ColumnMarkCommand
 
 def make_command() -> ColumnMarkCommand:
     return {
-        'layer': '2-下階柱',
+        'layer': '2-柱伏図記号',
         'class': '01作図-04記号-04構造-一般',
-        'target_layer': '1-柱',
+        'target_layer': '1to2-柱',
         'target_class': '',
         'size': 300.0,
         'style': '平面',
+        'symbol': '柱伏図記号',
         'position': [0.0, 0.0],
     }
 
@@ -43,14 +44,14 @@ def _load(vs_mock: MagicMock) -> Any:
 
 class TestExecuteColumnMarks:
     def test_places_pio_and_sets_parameters(self) -> None:
-        vs_mock = _make_vs_mock({'2-下階柱'})
+        vs_mock = _make_vs_mock({'2-柱伏図記号'})
         vw_cm = _load(vs_mock)
 
         count = vw_cm.execute_column_marks([make_command()])
 
         assert count == 1
-        # アクティブレイヤを下階柱レイヤに切り替えてから PIO を配置する
-        vs_mock.Layer.assert_called_once_with('2-下階柱')
+        # アクティブレイヤを伏図記号レイヤに切り替えてから PIO を配置する
+        vs_mock.Layer.assert_called_once_with('2-柱伏図記号')
         args = vs_mock.CreateCustomObjectN.call_args.args
         assert args[0] == '柱束伏図記号'
         assert args[1] == (0.0, 0.0)
@@ -73,11 +74,13 @@ class TestExecuteColumnMarks:
         set_fields = {
             c.args[2]: c.args[3] for c in vs_mock.SetRField.call_args_list
         }
-        assert set_fields['TargetLayer'] == '1-柱'
+        assert set_fields['TargetLayer'] == '1to2-柱'
         assert set_fields['TargetClass'] == ''
         assert set_fields['MarkSize'] == '300'
         # 記号スタイル(平面/断面)を MarkStyle パラメータに設定する
         assert set_fields['MarkStyle'] == '平面'
+        # 伏図記号のシンボル(その span の種別のシンボル)を MarkSymbol に設定する
+        assert set_fields['MarkSymbol'] == '柱伏図記号'
         # レコード名は PIO プラグイン名
         for c in vs_mock.SetRField.call_args_list:
             assert c.args[0] == 'PIO_HANDLE'
@@ -86,7 +89,7 @@ class TestExecuteColumnMarks:
         vs_mock.ResetObject.assert_called_once_with('PIO_HANDLE')
 
     def test_formats_integer_size_without_trailing_zero(self) -> None:
-        vs_mock = _make_vs_mock({'2-下階柱'})
+        vs_mock = _make_vs_mock({'2-柱伏図記号'})
         vw_cm = _load(vs_mock)
 
         command = make_command()
@@ -98,18 +101,22 @@ class TestExecuteColumnMarks:
         }
         assert set_fields['MarkSize'] == '450'
 
-    def test_skips_when_layer_missing(self) -> None:
+    def test_creates_layer_when_missing(self) -> None:
+        # 伏図記号レイヤ({to}-柱伏図記号)は story 命令が生成しないため、
+        # 配置先レイヤが無ければ execute_column_marks が作成してから PIO を置く。
         vs_mock = _make_vs_mock(set())
         vw_cm = _load(vs_mock)
 
         count = vw_cm.execute_column_marks([make_command()])
 
-        assert count == 0
-        vs_mock.CreateCustomObjectN.assert_not_called()
+        assert count == 1
+        vs_mock.CreateLayer.assert_called_once_with('2-柱伏図記号', 1)
+        vs_mock.Layer.assert_called_once_with('2-柱伏図記号')
+        vs_mock.CreateCustomObjectN.assert_called_once()
 
     def test_skips_when_pio_cannot_be_created(self) -> None:
         # プラグイン未登録などで CreateCustomObjectN が NIL を返す場合は数えない
-        vs_mock = _make_vs_mock({'2-下階柱'})
+        vs_mock = _make_vs_mock({'2-柱伏図記号'})
         vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
         vw_cm = _load(vs_mock)
 
@@ -140,7 +147,7 @@ class TestExecuteColumnMarks:
         assert set_fields['MarkStyle'] == '断面'
 
     def test_passes_target_class_when_specified(self) -> None:
-        vs_mock = _make_vs_mock({'2-下階柱'})
+        vs_mock = _make_vs_mock({'2-柱伏図記号'})
         vw_cm = _load(vs_mock)
 
         command = make_command()
@@ -151,3 +158,22 @@ class TestExecuteColumnMarks:
             c.args[2]: c.args[3] for c in vs_mock.SetRField.call_args_list
         }
         assert set_fields['TargetClass'] == '04構造-02木造-03柱-02管柱'
+
+
+class TestPlanMarkLayers:
+    def test_returns_distinct_plan_layers_in_order(self) -> None:
+        vs_mock = _make_vs_mock(set())
+        vw_cm = _load(vs_mock)
+
+        section = make_command()
+        section['layer'] = '1to2-柱'
+        section['style'] = '断面'
+        plan_a = make_command()  # layer '2-柱伏図記号'
+        plan_b = make_command()
+        plan_b['layer'] = '2.5-柱伏図記号'
+        plan_a2 = make_command()  # 重複する平面レイヤ
+
+        layers = vw_cm.plan_mark_layers([section, plan_a, plan_b, plan_a2])
+
+        # 断面記号レイヤは含めず、平面記号レイヤを登場順・重複なしで返す
+        assert layers == ['2-柱伏図記号', '2.5-柱伏図記号']
