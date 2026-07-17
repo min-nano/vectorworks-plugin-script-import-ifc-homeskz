@@ -35,9 +35,11 @@ from .grid import resolve_lines
 from .story import (
     FOUNDATION_SUFFIX,
     LAYER_FOUNDATION_ANCHOR,
+    LAYER_FOUNDATION_FLOOR_POST,
     LAYER_FOUNDATION_SLAB,
     LAYER_FOUNDATION_WALL,
     LEVEL_BEAM_TOP,
+    LEVEL_FLOOR_POST,
     LEVEL_FOUNDATION_TOP,
     LEVEL_GL,
     LEVEL_SLAB_TOP,
@@ -376,10 +378,12 @@ def build_foundation_story_command(
     """基礎ストーリの story 命令を返す。基礎要素が無ければ None。
 
     ストーリ高さは GL=0。レベルは基礎天端(立上り天端の絶対 Z、F-アンカーボルト
-    レイヤ)・GL(0、F-立上りレイヤ)・底盤天端(底盤天端の絶対 Z、F-底盤レイヤ)。
-    ``levels`` の並びは希望スタック順(上→下)で、最上段に基礎天端(アンカーボルト)、
-    続いて立上り(GL)、底盤(底盤天端)を積むため基礎天端 → GL → 底盤天端 の順にする。
-    アンカーボルトの高さ基準は基礎天端レベルが担う。
+    レイヤ)・GL(0、F-立上りレイヤ)・床束(底盤天端の絶対 Z、F-床束レイヤ)・
+    底盤天端(底盤天端の絶対 Z、F-底盤レイヤ)。``levels`` の並びは希望スタック順
+    (上→下)で、最上段に基礎天端(アンカーボルト)、続いて立上り(GL)、床束、
+    底盤(底盤天端)を積むため 基礎天端 → GL → 床束 → 底盤天端 の順にする。
+    アンカーボルトの高さ基準は基礎天端レベル、床束(シンボル)の高さ基準は床束
+    レベル(底盤上端に揃える)が担う。
     """
     if not has_foundation(ifc_file):
         return None
@@ -397,6 +401,9 @@ def build_foundation_story_command(
             {'type': LEVEL_FOUNDATION_TOP, 'offset': foundation_top_offset,
              'layer': LAYER_FOUNDATION_ANCHOR},
             {'type': LEVEL_GL, 'offset': 0.0, 'layer': LAYER_FOUNDATION_WALL},
+            # 床束は基礎底盤上端(底盤天端)に立つため高さは底盤天端に揃える。
+            {'type': LEVEL_FLOOR_POST, 'offset': slab_top_offset,
+             'layer': LAYER_FOUNDATION_FLOOR_POST},
             {'type': LEVEL_SLAB_TOP, 'offset': slab_top_offset,
              'layer': LAYER_FOUNDATION_SLAB},
         ],
@@ -962,7 +969,10 @@ def build_wall_join_commands(walls: list[WallCommand]) -> list[WallJoinCommand]:
     return commands
 
 
-def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
+def build_slab_commands(
+    ifc_file: ifcopenshell.file,
+    walls: list[WallCommand] | None = None,
+) -> list[SlabCommand]:
     """基礎の底盤・地中梁から slab 命令のリストを組み立てる。
 
     平面外形を底盤天端レベルにセンタリングして格納し、天端の絶対 Z を elevation に
@@ -976,6 +986,13 @@ def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
     スタイルを選ぶ(``vw/footing.py`` 参照)。地中梁はスラブスタイルを適用しない
     ため ``thickness=None`` にする(スラブ厚は SetSlabHeight では設定できず=高さを
     設定する関数のため、スラブスタイルのコンポーネントが決める)。
+
+    命令を組み立てた後、``merge_slab_commands`` で**同じ厚さ・同じ高さで連続する
+    底盤**(基礎底盤系)を 1 枚のスラブに統合し、``align_slabs_to_wall_faces`` で
+    底盤の外周を立上り(基礎梁)の**外面に合わせて外側へ広げる**(ホームズ君 IFC の
+    底盤外形は立上りの壁心に一致しているため、外面まで半壁厚だけ広げる)。統合・
+    外面合わせとも底盤にだけ適用し、地中梁(``thickness=None``)はそのまま残す。
+    外面合わせに使う立上りは ``walls``(未指定なら ``build_wall_commands`` で組み立てる)。
     """
     slab_top = resolve_slab_top_elevation(ifc_file)
     slab_top_abs = slab_top if slab_top is not None else 0.0
@@ -1006,4 +1023,532 @@ def build_slab_commands(ifc_file: ifcopenshell.file) -> list[SlabCommand]:
             'thickness': style_thickness,
             'bound': bound,
         })
-    return commands
+    if walls is None:
+        walls = build_wall_commands(ifc_file)
+    return align_slabs_to_wall_faces(merge_slab_commands(commands), walls)
+
+
+# --- 底盤のマージ・外面合わせ ---
+# 隣接判定・同一直線判定・共線判定の許容値 (mm)。壁マージと同じ 1mm。
+_SLAB_MERGE_TOL = 1.0
+# 平行判定に使う単位方向ベクトルの外積(sin 角)の許容値。
+_SLAB_ANGLE_TOL = 1e-3
+# 交点計算で頂点を丸める小数桁(1e-4 mm = 0.1 ミクロン)。異なる底盤が共有する
+# 頂点・交点を同一視して境界追跡でつなぐため。
+_SLAB_ROUND = 4
+# 境界辺の分類で「辺のすぐ右(外側)」を判定する法線方向のサンプル距離 (mm)。
+# 部材寸法(mm 単位)より十分小さく、頂点丸め(0.1 ミクロン)より十分大きい。
+_SLAB_SIDE_EPS = 1e-2
+
+# 2D 座標(平面点)
+_Pt2 = tuple[float, float]
+
+
+def _slab_merge_key(slab: SlabCommand) -> tuple[object, ...]:
+    """底盤の統合可否を表すキー。レイヤ・クラス・コンクリート厚・高さ基準が
+    すべて一致する底盤同士だけを統合対象にする(offset は許容値で丸める)。"""
+    thickness = slab['thickness']
+    bound = slab['bound']
+    return (
+        slab['layer'], slab['class'], round(thickness or 0.0, 3),
+        bound['story_offset'], bound['level'],
+        round(bound['offset'] / _SLAB_MERGE_TOL),
+    )
+
+
+def _shoelace_signed(pts: list[_Pt2]) -> float:
+    """符号付き面積(CCW で正、CW で負)を返す。"""
+    total = 0.0
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        total += x1 * y2 - x2 * y1
+    return total / 2.0
+
+
+def _round_pt(pt: _Pt2) -> _Pt2:
+    return (round(pt[0], _SLAB_ROUND), round(pt[1], _SLAB_ROUND))
+
+
+def _clean_ring(boundary: list[list[float]]) -> list[_Pt2]:
+    """境界を丸めた頂点列にし、末尾の閉じ重複・連続する同一点を除く。"""
+    pts = [_round_pt((x, y)) for x, y in boundary]
+    out: list[_Pt2] = []
+    for p in pts:
+        if not out or out[-1] != p:
+            out.append(p)
+    if len(out) > 1 and out[0] == out[-1]:
+        out.pop()
+    return out
+
+
+def _point_in_poly(x: float, y: float, poly: list[_Pt2]) -> bool:
+    """点 (x, y) が単純多角形 poly の内部(境界は含めない近似)にあるか。
+
+    水平レイキャスト(半開ルール)による判定。呼び出し側は辺から法線方向へ
+    ``_SLAB_SIDE_EPS`` ずらした点を渡すため、辺ちょうどの縮退は問題にならない。
+    """
+    inside = False
+    n = len(poly)
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if (yi > y) != (yj > y):
+            xint = xi + (y - yi) * (xj - xi) / (yj - yi)
+            if x < xint:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _seg_split_points(a: _Pt2, b: _Pt2, c: _Pt2, d: _Pt2) -> list[_Pt2]:
+    """線分 ab を分割すべき点(線分 cd との交点)を ab 上の点として返す。
+
+    非平行なら区間内の交点、共線なら cd の端点を ab 上へ射影した点(区間内)を
+    返す。これで交差・T 字接合・共線オーバーラップの分割点をすべて拾う。
+    """
+    ax, ay = a
+    bx, by = b
+    cx, cy = c
+    dx, dy = d
+    rx, ry = bx - ax, by - ay
+    sx, sy = dx - cx, dy - cy
+    denom = rx * sy - ry * sx
+    r_len = math.hypot(rx, ry)
+    s_len = math.hypot(sx, sy)
+    if r_len <= 0.0 or s_len <= 0.0:
+        return []
+    out: list[_Pt2] = []
+    if abs(denom) > _SLAB_ANGLE_TOL * r_len * s_len:
+        t = ((cx - ax) * sy - (cy - ay) * sx) / denom
+        u = ((cx - ax) * ry - (cy - ay) * rx) / denom
+        if -1e-9 <= t <= 1.0 + 1e-9 and -1e-9 <= u <= 1.0 + 1e-9:
+            out.append((ax + t * rx, ay + t * ry))
+        return out
+    # 平行: 共線ならオーバーラップ端点を分割点にする
+    if abs((cx - ax) * ry - (cy - ay) * rx) > _SLAB_MERGE_TOL * r_len:
+        return []
+    for px, py in (c, d):
+        t = ((px - ax) * rx + (py - ay) * ry) / (r_len * r_len)
+        if -1e-9 <= t <= 1.0 + 1e-9:
+            out.append((ax + t * rx, ay + t * ry))
+    return out
+
+
+def _split_edge(
+    a: _Pt2, b: _Pt2, cuts: set[_Pt2],
+) -> list[tuple[_Pt2, _Pt2]]:
+    """有向辺 a→b を分割点 cuts で細分した有向部分辺のリストを返す。"""
+    ax, ay = a
+    bx, by = b
+    rx, ry = bx - ax, by - ay
+    length2 = rx * rx + ry * ry
+    params: dict[_Pt2, float] = {}
+    for pt in [a, b, *cuts]:
+        rp = _round_pt(pt)
+        t = (((rp[0] - ax) * rx + (rp[1] - ay) * ry) / length2
+             if length2 > 0.0 else 0.0)
+        if -1e-9 <= t <= 1.0 + 1e-9:
+            params[rp] = t
+    ordered = sorted(params, key=lambda p: params[p])
+    return [(ordered[i], ordered[i + 1])
+            for i in range(len(ordered) - 1) if ordered[i] != ordered[i + 1]]
+
+
+def _polygon_union(polys: list[list[_Pt2]]) -> list[list[_Pt2]] | None:
+    """任意向きの単純多角形群の和(union)の境界ループを返す。開ループなら None。
+
+    各多角形を CCW 向き(内部が左)に揃え、全辺を他辺との交点で細分する。細分した
+    有向辺のうち、辺のすぐ右(外側)がどの多角形にも含まれないものだけを union の
+    境界として残す(共有辺は両隣の多角形が右側に来て打ち消され、外周辺だけ残る)。
+    残った辺をつないでループにし、共線の中間点を除いて返す。CCW(正面積)ループが
+    外形、CW(負面積)ループが穴。呼び出し側が外形 1 個・穴無しの成分だけ統合する。
+    """
+    oriented = [p if _shoelace_signed(p) >= 0.0 else p[::-1] for p in polys]
+    directed: list[tuple[_Pt2, _Pt2]] = []
+    for poly in oriented:
+        n = len(poly)
+        for i in range(n):
+            directed.append((poly[i], poly[(i + 1) % n]))
+
+    m = len(directed)
+    cuts: list[set[_Pt2]] = [set() for _ in range(m)]
+    for i in range(m):
+        a, b = directed[i]
+        for j in range(m):
+            if i == j:
+                continue
+            c, d = directed[j]
+            for pt in _seg_split_points(a, b, c, d):
+                cuts[i].add(_round_pt(pt))
+
+    boundary: list[tuple[_Pt2, _Pt2]] = []
+    seen: set[tuple[_Pt2, _Pt2]] = set()
+    for i in range(m):
+        a, b = directed[i]
+        for p, q in _split_edge(a, b, cuts[i]):
+            if (p, q) in seen:
+                continue
+            seen.add((p, q))
+            mx, my = (p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0
+            ex, ey = q[0] - p[0], q[1] - p[1]
+            length = math.hypot(ex, ey)
+            if length <= 0.0:
+                continue
+            # 進行方向 p→q の右向き法線 (ey, -ex)/length。外側にはみ出した点。
+            rx = mx + _SLAB_SIDE_EPS * ey / length
+            ry = my - _SLAB_SIDE_EPS * ex / length
+            if not any(_point_in_poly(rx, ry, poly) for poly in oriented):
+                boundary.append((p, q))
+
+    return _chain_boundary(boundary)
+
+
+def _next_boundary_edge(
+    current: tuple[_Pt2, _Pt2], options: list[tuple[_Pt2, _Pt2]],
+) -> tuple[_Pt2, _Pt2]:
+    """境界追跡で分岐点に来たとき、内側を左に保つ次の辺(最も時計回り)を選ぶ。"""
+    (px, py), (qx, qy) = current
+    reverse = math.atan2(py - qy, px - qx)
+
+    def clockwise(edge: tuple[_Pt2, _Pt2]) -> float:
+        (ex1, ey1), (ex2, ey2) = edge
+        d = math.atan2(ey2 - ey1, ex2 - ex1)
+        a = (reverse - d) % (2.0 * math.pi)
+        return a if a > 1e-9 else 2.0 * math.pi
+
+    return min(options, key=clockwise)
+
+
+def _simplify_ring(ring: list[_Pt2]) -> list[_Pt2]:
+    """閉リング(末尾が先頭と重複)から共線の中間点を除いた頂点列を返す。"""
+    pts = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else ring
+    n = len(pts)
+    out: list[_Pt2] = []
+    for i in range(n):
+        ax, ay = pts[(i - 1) % n]
+        bx, by = pts[i]
+        cx, cy = pts[(i + 1) % n]
+        cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx)
+        if abs(cross) > _SLAB_MERGE_TOL:
+            out.append(pts[i])
+    return out
+
+
+def _chain_boundary(
+    edges: list[tuple[_Pt2, _Pt2]],
+) -> list[list[_Pt2]] | None:
+    """有向境界辺をつないで閉ループのリストにする。開ループが生じたら None。"""
+    from_map: dict[_Pt2, list[tuple[_Pt2, _Pt2]]] = {}
+    for edge in edges:
+        from_map.setdefault(edge[0], []).append(edge)
+    remaining = set(edges)
+    loops: list[list[_Pt2]] = []
+    while remaining:
+        start = min(remaining)
+        cur = start
+        ring: list[_Pt2] = [cur[0]]
+        while True:
+            remaining.discard(cur)
+            ring.append(cur[1])
+            if cur[1] == start[0]:
+                break
+            options = [e for e in from_map.get(cur[1], []) if e in remaining]
+            if not options:
+                return None
+            cur = _next_boundary_edge(cur, options)
+        simplified = _simplify_ring(ring)
+        if len(simplified) >= 3:
+            loops.append(simplified)
+    return loops
+
+
+def _collinear_overlap(a: _Pt2, b: _Pt2, c: _Pt2, d: _Pt2) -> float:
+    """共線の線分 ab・cd の重なり長さを返す(共線でなければ 0)。"""
+    ax, ay = a
+    bx, by = b
+    rx, ry = bx - ax, by - ay
+    r_len = math.hypot(rx, ry)
+    if r_len <= 0.0:
+        return 0.0
+    # cd が ab と平行かつ同一直線上か
+    sx, sy = d[0] - c[0], d[1] - c[1]
+    s_len = math.hypot(sx, sy)
+    if s_len <= 0.0:
+        return 0.0
+    if abs(rx * sy - ry * sx) > _SLAB_ANGLE_TOL * r_len * s_len:
+        return 0.0
+    if abs((c[0] - ax) * ry - (c[1] - ay) * rx) > _SLAB_MERGE_TOL * r_len:
+        return 0.0
+    tc = ((c[0] - ax) * rx + (c[1] - ay) * ry) / (r_len * r_len)
+    td = ((d[0] - ax) * rx + (d[1] - ay) * ry) / (r_len * r_len)
+    lo, hi = max(0.0, min(tc, td)), min(1.0, max(tc, td))
+    return (hi - lo) * r_len if hi > lo else 0.0
+
+
+def _polys_connected(a: list[_Pt2], b: list[_Pt2]) -> bool:
+    """底盤ポリゴン a・b が連続する(境界を共有 or 面で重なる)か。
+
+    辺どうしが正の長さで共線オーバーラップする(辺を共有)か、辺が内部で交差する
+    か、一方が他方の頂点を含む(面で重なる)とき連続とみなす。角(点)だけで
+    接する場合は連続としない。
+    """
+    na, nb = len(a), len(b)
+    for i in range(na):
+        a1, a2 = a[i], a[(i + 1) % na]
+        for j in range(nb):
+            b1, b2 = b[j], b[(j + 1) % nb]
+            if _collinear_overlap(a1, a2, b1, b2) > _SLAB_MERGE_TOL:
+                return True
+            # 内部で交差(端点を含まない真の交差)
+            for pt in _seg_split_points(a1, a2, b1, b2):
+                t = _param_on(a1, a2, pt)
+                u = _param_on(b1, b2, pt)
+                if _SLAB_ANGLE_TOL < t < 1.0 - _SLAB_ANGLE_TOL \
+                        and _SLAB_ANGLE_TOL < u < 1.0 - _SLAB_ANGLE_TOL:
+                    return True
+    if any(_point_in_poly(x, y, b) for x, y in a):
+        return True
+    if any(_point_in_poly(x, y, a) for x, y in b):
+        return True
+    return False
+
+
+def _param_on(a: _Pt2, b: _Pt2, p: _Pt2) -> float:
+    """線分 a→b 上の点 p の正規化パラメータ(0=a, 1=b)を返す。"""
+    rx, ry = b[0] - a[0], b[1] - a[1]
+    length2 = rx * rx + ry * ry
+    if length2 <= 0.0:
+        return 0.0
+    return ((p[0] - a[0]) * rx + (p[1] - a[1]) * ry) / length2
+
+
+def _slab_components(polys: dict[int, list[_Pt2]]) -> list[list[int]]:
+    """連続する(``_polys_connected``)底盤の連結成分をインデックス集合で返す。"""
+    idxs = sorted(polys)
+    parent = {i: i for i in idxs}
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for p in range(len(idxs)):
+        for q in range(p + 1, len(idxs)):
+            if _polys_connected(polys[idxs[p]], polys[idxs[q]]):
+                ra, rb = find(idxs[p]), find(idxs[q])
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+
+    comps: dict[int, list[int]] = {}
+    for i in idxs:
+        comps.setdefault(find(i), []).append(i)
+    return [sorted(c) for _root, c in sorted(comps.items())]
+
+
+def merge_slab_commands(slabs: list[SlabCommand]) -> list[SlabCommand]:
+    """同じ厚さ・同じ高さで連続する底盤(基礎底盤系)を 1 枚に統合する。
+
+    底盤(``thickness`` が非 None)を断面キー(``_slab_merge_key``＝レイヤ・クラス・
+    コンクリート厚・高さ基準)ごとにグループ化し、各グループ内で連続する底盤の
+    連結成分(``_slab_components``＝辺を共有 or 面で重なる連続底盤)を求め、成分ごとに
+    多角形の和(``_polygon_union``。任意向きの単純多角形に対応するため、傾いた底盤や
+    斜め辺=45 度取合いの底盤も統合できる)を 1 枚の底盤にする。統合できた成分の元命令は
+    取り除き、統合スラブを成分の先頭位置に置く。単独の底盤・和が穴を含む/複数外形に
+    分かれる成分・和の計算に失敗した成分(開ループ)はそのまま残す。地中梁
+    (``thickness=None``)は統合しない。グループ化・成分処理とも入力順に対して決定的。
+    """
+    base_indices = [i for i, s in enumerate(slabs) if s['thickness'] is not None]
+    groups: dict[tuple[object, ...], list[int]] = {}
+    order: list[tuple[object, ...]] = []
+    for i in base_indices:
+        key = _slab_merge_key(slabs[i])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(i)
+
+    dropped: set[int] = set()
+    merged_at: dict[int, list[SlabCommand]] = {}
+    for key in order:
+        idxs = groups[key]
+        polys = {i: _clean_ring(slabs[i]['boundary']) for i in idxs}
+        polys = {i: p for i, p in polys.items() if len(p) >= 3}
+        for comp in _slab_components(polys):
+            if len(comp) < 2:
+                continue
+            loops = _polygon_union([polys[i] for i in comp])
+            if loops is None:
+                continue
+            outer = [lp for lp in loops if _shoelace_signed(lp) > 0.0]
+            holes = [lp for lp in loops if _shoelace_signed(lp) < 0.0]
+            # 単一の外形・穴無しの成分だけ 1 枚に統合する(穴があると単一境界で
+            # 表せず、部屋の下までコンクリートで埋めると誤りになるため見送る)。
+            if len(outer) != 1 or holes:
+                continue
+            boundary = [[round(x, 6), round(y, 6)] for x, y in outer[0]]
+            first = min(comp)
+            base = slabs[first]
+            merged: SlabCommand = {
+                'layer': base['layer'],
+                'class': base['class'],
+                'boundary': boundary,
+                'elevation': base['elevation'],
+                'thickness': base['thickness'],
+                'bound': base['bound'],
+            }
+            merged_at.setdefault(first, []).append(merged)
+            dropped.update(comp)
+
+    result: list[SlabCommand] = []
+    for i, slab in enumerate(slabs):
+        if i in merged_at:
+            result.extend(merged_at[i])
+        if i in dropped:
+            continue
+        result.append(slab)
+    return result
+
+
+def _wall_half_thickness_for_edge(
+    a: _Pt2, b: _Pt2, walls: list[WallCommand],
+) -> float:
+    """底盤の辺 a→b に沿う立上りの半壁厚を返す(該当が無ければ 0)。
+
+    辺と壁芯が平行・同一直線上で区間が重なる立上りを探し、最も重なりの大きい
+    立上りの半壁厚を採る(底盤外形は立上りの壁心に一致するため、辺は壁芯上にある)。
+    """
+    ax, ay = a
+    bx, by = b
+    ex, ey = bx - ax, by - ay
+    length = math.hypot(ex, ey)
+    if length <= _SLAB_MERGE_TOL:
+        return 0.0
+    ux, uy = ex / length, ey / length
+    best = 0.0
+    best_overlap = _SLAB_MERGE_TOL
+    for wall in walls:
+        wx1, wy1 = wall['start']
+        wx2, wy2 = wall['end']
+        dx, dy = wx2 - wx1, wy2 - wy1
+        wlen = math.hypot(dx, dy)
+        if wlen <= _SLAB_MERGE_TOL:
+            continue
+        # 壁芯が辺と平行かつ同一直線上(端点の直交距離 ≈ 0)か
+        if abs(ux * dy - uy * dx) / wlen > _SLAB_ANGLE_TOL:
+            continue
+        if abs(ux * (wy1 - ay) - uy * (wx1 - ax)) > _SLAB_MERGE_TOL:
+            continue
+        t1 = ux * (wx1 - ax) + uy * (wy1 - ay)
+        t2 = ux * (wx2 - ax) + uy * (wy2 - ay)
+        overlap = min(max(t1, t2), length) - max(min(t1, t2), 0.0)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best = wall['thickness'] / 2.0
+    return best
+
+
+def _line_intersection(
+    p1: _Pt2, d1: _Pt2, p2: _Pt2, d2: _Pt2,
+) -> _Pt2 | None:
+    """点 p・方向 d の 2 直線の交点を返す。平行なら None。"""
+    denom = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(denom) < 1e-12:
+        return None
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    t = (dx * d2[1] - dy * d2[0]) / denom
+    return (p1[0] + t * d1[0], p1[1] + t * d1[1])
+
+
+def _offset_polygon(pts: list[_Pt2], dists: list[float]) -> list[_Pt2]:
+    """CCW ポリゴンの各辺 i を外向きへ ``dists[i]`` だけ移動した頂点列を返す。
+
+    各辺を外向き法線方向へ平行移動し、隣接する移動後の辺(直線)の交点を新しい
+    頂点にする。凸角は外側へ伸び、凹角(入隅)は詰まる(可変量の外側オフセット)。
+    """
+    n = len(pts)
+    lines: list[tuple[_Pt2, _Pt2]] = []
+    for i in range(n):
+        ax, ay = pts[i]
+        bx, by = pts[(i + 1) % n]
+        ex, ey = bx - ax, by - ay
+        length = math.hypot(ex, ey)
+        if length <= 0.0:
+            lines.append(((ax, ay), (1.0, 0.0)))
+            continue
+        ux, uy = ex / length, ey / length
+        nx, ny = uy, -ux  # CCW ポリゴンの外向き法線(進行方向の右)
+        lines.append(((ax + dists[i] * nx, ay + dists[i] * ny), (ux, uy)))
+    out: list[_Pt2] = []
+    for i in range(n):
+        q1, d1 = lines[(i - 1) % n]
+        q2, d2 = lines[i]
+        v = _line_intersection(q1, d1, q2, d2)
+        if v is None:
+            # 平行(同一直線の連続辺): 法線方向へずらした点で代用
+            ax, ay = pts[i]
+            ux, uy = d2
+            v = (ax + dists[i] * uy, ay - dists[i] * ux)
+        out.append(v)
+    return out
+
+
+def _offset_boundary_to_walls(
+    boundary: list[list[float]], walls: list[WallCommand],
+) -> list[list[float]] | None:
+    """底盤外形の各辺を、沿っている立上りの外面まで外側へ広げた外形を返す。
+
+    立上りに沿う辺が 1 つも無い(半壁厚 0 の辺だけ)なら None を返し、呼び出し側が
+    元の外形をそのまま使う(立上りの無い独立基礎底盤等は動かさない)。CCW に正規化
+    してから各辺の外側オフセット量(沿う立上りの半壁厚)を求め、``_offset_polygon``
+    で外形を広げる。
+    """
+    pts: list[_Pt2] = [(x, y) for x, y in boundary]
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if len(pts) < 3:
+        return None
+    if _shoelace_signed(pts) < 0.0:
+        pts = pts[::-1]
+    n = len(pts)
+    dists = [_wall_half_thickness_for_edge(pts[i], pts[(i + 1) % n], walls)
+             for i in range(n)]
+    if not any(d > 0.0 for d in dists):
+        return None
+    return [[round(x, 6), round(y, 6)] for x, y in _offset_polygon(pts, dists)]
+
+
+def align_slabs_to_wall_faces(
+    slabs: list[SlabCommand], walls: list[WallCommand],
+) -> list[SlabCommand]:
+    """底盤(基礎底盤系)の外周を立上りの外面に合わせて外側へ広げる。
+
+    ホームズ君 IFC の底盤外形は立上り(基礎梁)の**壁心**に一致しているため、
+    各底盤の外周辺のうち立上りに沿う辺を、その立上りの**外面**(壁心 + 半壁厚)まで
+    外側へ広げる。立上りに沿わない辺は動かさない(``_offset_boundary_to_walls``)。
+    地中梁(``thickness=None``)は対象外でそのまま残す。``walls`` が空なら無変更。
+    """
+    if not walls:
+        return slabs
+    result: list[SlabCommand] = []
+    for slab in slabs:
+        if slab['thickness'] is None:
+            result.append(slab)
+            continue
+        boundary = _offset_boundary_to_walls(slab['boundary'], walls)
+        if boundary is None:
+            result.append(slab)
+            continue
+        result.append({
+            'layer': slab['layer'],
+            'class': slab['class'],
+            'boundary': boundary,
+            'elevation': slab['elevation'],
+            'thickness': slab['thickness'],
+            'bound': slab['bound'],
+        })
+    return result

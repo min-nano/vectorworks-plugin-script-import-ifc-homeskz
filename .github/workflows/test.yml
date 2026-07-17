@@ -1,8 +1,6 @@
 name: Test
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
     branches: ["**"]
 
@@ -33,6 +31,11 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
+          # pip のダウンロード/ホイールキャッシュ (~/.cache/pip) を復元して
+          # ifcopenshell 等の大きなバイナリホイールの再取得を省く。
+          # 依存は pyproject.toml に定義されるためこれをキーにする。
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package and test dependencies
         run: pip install -e ".[test]"
@@ -42,7 +45,22 @@ jobs:
           python -c "import ifcopenshell; print(f'ifcopenshell {ifcopenshell.__version__} installed')"
           python -c "import pytest; print(f'pytest {pytest.__version__} installed')"
 
+      # VectorWorks 公式 vs.py スタブをキャッシュし、毎回の外部ダウンロードを省く。
+      # スタブは upstream の main から取得するため、キャッシュキーに ISO 週番号を
+      # 含めて週次で更新する (キャッシュヒット時はダウンロードをスキップ)。
+      - name: Get current ISO week
+        id: isoweek
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache VectorWorks vs.py stub
+        id: cache-vspy
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4
+        with:
+          path: tests/vs.py
+          key: vspy-${{ steps.isoweek.outputs.week }}
+
       - name: Download VectorWorks official vs.py stub
+        if: steps.cache-vspy.outputs.cache-hit != 'true'
         run: |
           curl -fsSL \
             https://raw.githubusercontent.com/Vectorworks/developer-scripting/main/Python/pages/files/vs.py \
@@ -53,14 +71,30 @@ jobs:
           fi
           echo "vs.py downloaded successfully"
 
+      # mypy の増分キャッシュ (.mypy_cache) を復元して型検査を高速化する。
+      # ソース・設定・Python バージョンが変わったらキーを更新する。
+      - name: Cache mypy
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ matrix.python-version }}-${{ hashFiles('src/**/*.py', 'tests/**/*.py', 'main.py', 'pyproject.toml') }}
+          restore-keys: |
+            mypy-${{ matrix.python-version }}-
+
       - name: Run type check (mypy)
         run: mypy
 
       - name: Run tests with coverage
+        # pytest-xdist でテストをコア数ぶんのワーカーに分散して並列実行する
+        # (-n auto)。--dist loadscope は同一モジュール/クラスのテストを同じ
+        # ワーカーに固めるため、フィクスチャ IFC の解析キャッシュ (conftest の
+        # load_fixture_ifc / 各ワーカー内で共有) の再利用が最大化される。
+        # pytest-cov はワーカー間のカバレッジを自動で結合する。
         # --cov-report=xml が Cobertura 形式の coverage.xml を出力する
-        # (GitHub Code Quality のカバレッジ機能が要求する形式)
+        # (GitHub Code Quality のカバレッジ機能が要求する形式)。
+        # --cov-report=term-missing で未カバー行をログにも出す。
         run: >-
-          pytest tests/ -v
+          pytest tests/ -n auto --dist loadscope
           --cov=src/vectorworks_plugin_import_ifc_homeskz
           --cov-report=xml --cov-report=term-missing
 

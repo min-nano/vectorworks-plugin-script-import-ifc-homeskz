@@ -96,17 +96,21 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         import vectorworks_plugin_import_ifc_homeskz.vw.column as vw_column
         import vectorworks_plugin_import_ifc_homeskz.vw.fire_brace as vw_fire
         import vectorworks_plugin_import_ifc_homeskz.vw.grid as vw_grid
+        import vectorworks_plugin_import_ifc_homeskz.vw.joint as vw_joint
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
+        import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
         import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
         importlib.reload(vw_member)
+        importlib.reload(vw_rafter)
         importlib.reload(vw_story)
         importlib.reload(vw_column)
         importlib.reload(vw_footing)
         importlib.reload(vw_anchor)
         importlib.reload(vw_fire)
+        importlib.reload(vw_joint)
         importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
@@ -122,6 +126,7 @@ def make_document() -> dict[str, Any]:
                 'levels': [
                     {'type': '基礎天端', 'offset': 400.0, 'layer': 'F-アンカーボルト'},
                     {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
+                    {'type': '床束', 'offset': 50.0, 'layer': 'F-床束'},
                     {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
                 ],
             },
@@ -137,6 +142,8 @@ def make_document() -> dict[str, Any]:
                 'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
                 'levels': [
                     {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
+                    {'type': '野地板', 'offset': 0.0, 'layer': 'R-野地板'},
+                    {'type': '垂木', 'offset': 0.0, 'layer': 'R-垂木'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
             },
@@ -153,12 +160,27 @@ def make_document() -> dict[str, Any]:
              'start_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
              'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}},
         ],
+        'rafters': [
+            {'layer': 'R-垂木', 'class': '04構造-02木造-05小屋組-05垂木',
+             'width': 45.0, 'height': 45.0, 'start': [0.0, 0.0], 'end': [0.0, 2730.0],
+             'elevation': 5973.0, 'end_elevation': 6900.0,
+             'overhang': 600.0, 'embedment': 52.5, 'label': '45×45@455'},
+        ],
+        'roofs': [
+            {'layer': 'R-野地板', 'class': '04構造-02木造-06耐力面材-03屋根',
+             'boundary': [[0.0, 0.0], [4000.0, 0.0], [4000.0, 3000.0], [0.0, 3000.0]],
+             'axis_start': [0.0, 0.0], 'axis_end': [4000.0, 0.0],
+             'upslope': [0.0, 3000.0], 'rise': 400.0, 'run': 1000.0,
+             'thickness': 12.0, 'elevation': 5973.0},
+        ],
         'columns': [
             {'layer': '1-柱', 'member_id': '105×105 - 管柱',
              'class': '04構造-02木造-03柱-02管柱', 'structural_use': '4',
              'position': [0.0, 0.0],
              'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
-             'top_hardware': '', 'bottom_hardware': ''},
+             'top_hardware': '', 'bottom_hardware': '',
+             'bottom_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+             'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -56.0}},
         ],
         'walls': [
             {'layer': 'F-立上り', 'class': '04構造-01基礎-03立ち上がり',
@@ -173,24 +195,53 @@ def make_document() -> dict[str, Any]:
              'elevation': 50.0, 'thickness': 150.0,
              'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0}},
         ],
+        'floors': [
+            {'layer': '1-FL', 'class': '04構造-02木造-06耐力面材-02床',
+             'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0],
+                          [0.0, 2000.0]],
+             'thickness': 24.0, 'elevation': 425.0,
+             'bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0}},
+        ],
         'anchor_bolts': [
             {'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
              'position': [0.0, 0.0]},
+        ],
+        'floor_posts': [
+            {'layer': 'F-床束', 'symbol': '床束', 'position': [910.0, 0.0]},
         ],
         'fire_braces': [
             {'layer': '1-横架材天端', 'symbol': '鋼製火打',
              'position': [500.0, -500.0], 'angle': -45.0},
         ],
+        'joints': [
+            {'layer': '1-横架材天端', 'symbol': '仕口',
+             'position': [3000.0, 0.0], 'angle': 180.0},
+        ],
         'sheets': [
             {'number': '1', 'title': '基礎伏図',
              'viewport': {'drawing_title': '基礎伏図', 'drawing_number': '1',
-                          'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通']}},
+                          'layers': ['F-底盤', 'F-立上り', 'F-床束',
+                                     'F-アンカーボルト', '共通']}},
         ],
         'tags': [],
         'column_marks': [
-            {'layer': 'R-下階柱', 'class': '01作図-04記号-04構造-一般',
-             'target_layer': '1-柱', 'target_class': '',
-             'size': 300.0, 'position': [0.0, 0.0]},
+            {'layer': '2-柱伏図記号', 'class': '01作図-04記号-04構造-一般',
+             'target_layer': '1to2-柱', 'target_class': '',
+             'size': 300.0, 'style': '平面', 'symbol': '柱伏図記号',
+             'position': [0.0, 0.0]},
+        ],
+        'legends': [
+            {'number': '1', 'style': '基礎伏図凡例', 'position': [0.0, 0.0],
+             'items': [{'symbol': 'アンカーボルト_M12',
+                        'label': '土台用アンカーボルトM12'}]},
+        ],
+        'rebars': [
+            {'layer': 'F-立上り', 'class': '04構造-01基礎-09鉄筋',
+             'mode': 'beam', 'closed': False,
+             'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
+             'section_size': '120×500', 'top_bars': '1-D13',
+             'bottom_bars': '1-D13', 'stirrup': 'D10@250',
+             'main_bar': '', 'dist_bar': '', 'slab_thickness': 0.0},
         ],
     }
 
@@ -199,22 +250,33 @@ class TestExecuteDocument:
     def test_executes_all_commands_and_returns_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         counts = _run_execute_document(vs_mock, make_document())
-        assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'columns': 1,
-                          'walls': 1, 'wall_joins': 0, 'slabs': 1,
-                          'anchor_bolts': 1, 'fire_braces': 1, 'column_marks': 1,
-                          'sheets': 1, 'tags': 0}
+        assert counts == {'stories': 3, 'grids': 1, 'members': 1, 'rafters': 1,
+                          'roofs': 1,
+                          'columns': 1, 'walls': 1, 'wall_joins': 0, 'slabs': 1,
+                          'floors': 1, 'rebars': 1,
+                          'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
+                          'joints': 1,
+                          'column_marks': 1, 'sheets': 1, 'tags': 0,
+                          'legends': 1}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
-                    'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
-                    'sheets': [], 'tags': [], 'column_marks': []}
+                    'members': [], 'rafters': [], 'roofs': [], 'columns': [],
+                    'walls': [],
+                    'wall_joins': [], 'slabs': [], 'floors': [],
+                    'anchor_bolts': [], 'floor_posts': [],
+                    'fire_braces': [], 'joints': [], 'sheets': [], 'tags': [],
+                    'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
-        assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'columns': 0,
-                          'walls': 0, 'wall_joins': 0, 'slabs': 0,
-                          'anchor_bolts': 0, 'fire_braces': 0, 'column_marks': 0,
-                          'sheets': 0, 'tags': 0}
+        assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
+                          'roofs': 0,
+                          'columns': 0, 'walls': 0, 'wall_joins': 0, 'slabs': 0,
+                          'floors': 0, 'rebars': 0,
+                          'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
+                          'joints': 0,
+                          'column_marks': 0, 'sheets': 0, 'tags': 0,
+                          'legends': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

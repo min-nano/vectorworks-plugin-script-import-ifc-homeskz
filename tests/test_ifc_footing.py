@@ -6,14 +6,13 @@
 from __future__ import annotations
 
 import math
-import os
 
 import ifcopenshell
 import ifcopenshell.guid
 
-from vectorworks_plugin_import_ifc_homeskz.ifc import footing, open_ifc
+from vectorworks_plugin_import_ifc_homeskz.ifc import footing
 
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
+from tests.conftest import load_fixture_ifc
 
 
 def _identity_placement() -> footing._Placement:
@@ -93,7 +92,7 @@ class TestAxisPlacementHelpers:
 
 def _open(name: str) -> ifcopenshell.file:
     # サニタイズ付きで開く(古い ifcopenshell でも基礎を取りこぼさないため)
-    return open_ifc(os.path.join(FIXTURES_DIR, name))
+    return load_fixture_ifc(name)
 
 
 class TestBuildFromFixture:
@@ -114,10 +113,11 @@ class TestBuildFromFixture:
         assert story['suffix'] == 'F'
         assert story['elevation'] == 0.0
         # 並びは希望スタック順(上→下): 基礎天端(アンカーボルト) → GL(立上り)
-        # → 底盤天端(底盤)。基礎天端は立上り天端 400.0。
+        # → 床束 → 底盤天端(底盤)。基礎天端は立上り天端 400.0、床束は底盤上端 50.0。
         assert story['levels'] == [
             {'type': '基礎天端', 'offset': 400.0, 'layer': 'F-アンカーボルト'},
             {'type': 'GL', 'offset': 0.0, 'layer': 'F-立上り'},
+            {'type': '床束', 'offset': 50.0, 'layer': 'F-床束'},
             {'type': '底盤天端', 'offset': 50.0, 'layer': 'F-底盤'},
         ]
 
@@ -176,6 +176,227 @@ class TestBuildFromFixture:
         assert any(o < 0.0 for o in offsets)
         # 底盤(基礎底盤系)はスラブスタイル用のコンクリート厚を持つ
         assert any(s['thickness'] is not None for s in slabs)
+
+    def test_continuous_base_slabs_are_merged(self) -> None:
+        # 連続する同厚の基礎底盤(ベタ基礎)は 1 枚に統合される。伏図次郎は
+        # offset=0 の底盤 12 枚が 1 枚の L 字ポリゴンに、独立基礎底盤(offset≠0)は
+        # そのまま残る。統合後は同一グループに連続する矩形ペアが残らない。
+        ifc = _open(self.FILENAME)
+        slabs = footing.build_slab_commands(ifc)
+        base = [s for s in slabs if s['thickness'] is not None]
+        # 12 枚の連続底盤 → 1 枚。独立基礎底盤は別高さ(別グループ)で残る。
+        assert len(base) == 2
+        merged = max(base, key=lambda s: len(s['boundary']))
+        assert len(merged['boundary']) > 4  # L 字(6 頂点)
+
+    def test_base_slab_outer_boundary_matches_wall_outer_face(self) -> None:
+        # 底盤外形は立上りの壁心にあるため、外面(壁心 + 半壁厚)まで広がる。
+        # 伏図次郎の外周立上りは全て 120mm 厚。統合底盤の外周(最大 x)が、統合前
+        # (壁心)の外周より半壁厚(60mm)外へ動いていることを確認する。
+        ifc = _open(self.FILENAME)
+        walls = footing.build_wall_commands(ifc)
+        with_face = footing.build_slab_commands(ifc, walls)
+        # 外面合わせを掛けない場合(壁心のまま)の統合底盤
+        centerline = footing.build_slab_commands(ifc, [])
+        big_face = max((s for s in with_face if s['thickness'] is not None),
+                       key=lambda s: len(s['boundary']))
+        big_center = max((s for s in centerline if s['thickness'] is not None),
+                         key=lambda s: len(s['boundary']))
+        face_max_x = max(x for x, _y in big_face['boundary'])
+        center_max_x = max(x for x, _y in big_center['boundary'])
+        # 壁厚 120 の半分だけ外へ動いている
+        assert math.isclose(face_max_x - center_max_x, 60.0, abs_tol=0.5)
+
+
+def _slab(
+    boundary: list[list[float]], thickness: float | None = 150.0,
+    offset: float = 0.0, layer: str = footing.LAYER_FOUNDATION_SLAB,
+) -> footing.SlabCommand:
+    return {
+        'layer': layer,
+        'class': footing.CLASS_FOUNDATION_SLAB,
+        'boundary': boundary,
+        'elevation': 50.0 + offset,
+        'thickness': thickness,
+        'bound': {
+            'story_offset': 0, 'level': footing.LEVEL_SLAB_TOP, 'offset': offset},
+    }
+
+
+def _rect_boundary(
+    x1: float, y1: float, x2: float, y2: float,
+) -> list[list[float]]:
+    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+
+
+class TestMergeSlabCommands:
+    """連続する同厚・同高さの底盤(基礎底盤系)を 1 枚に統合する。"""
+
+    def test_two_adjacent_rects_merge_into_one(self) -> None:
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0)),
+            _slab(_rect_boundary(1000.0, 0.0, 2000.0, 1000.0)),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 1
+        xs = [x for x, _y in merged[0]['boundary']]
+        ys = [y for _x, y in merged[0]['boundary']]
+        assert min(xs) == 0.0 and max(xs) == 2000.0
+        assert min(ys) == 0.0 and max(ys) == 1000.0
+        assert len(merged[0]['boundary']) == 4  # 1 つの矩形
+
+    def test_l_shape_merge_has_six_vertices(self) -> None:
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 2000.0, 2000.0)),
+            _slab(_rect_boundary(0.0, 2000.0, 1000.0, 3000.0)),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 1
+        assert len(merged[0]['boundary']) == 6
+
+    def test_gap_between_rects_not_merged(self) -> None:
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0)),
+            _slab(_rect_boundary(1100.0, 0.0, 2000.0, 1000.0)),
+        ]
+        assert len(footing.merge_slab_commands(slabs)) == 2
+
+    def test_corner_touching_not_merged(self) -> None:
+        # 角(点)だけで接する底盤は連続とみなさない
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0)),
+            _slab(_rect_boundary(1000.0, 1000.0, 2000.0, 2000.0)),
+        ]
+        assert len(footing.merge_slab_commands(slabs)) == 2
+
+    def test_different_thickness_not_merged(self) -> None:
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0), thickness=150.0),
+            _slab(_rect_boundary(1000.0, 0.0, 2000.0, 1000.0), thickness=180.0),
+        ]
+        assert len(footing.merge_slab_commands(slabs)) == 2
+
+    def test_different_height_not_merged(self) -> None:
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0), offset=0.0),
+            _slab(_rect_boundary(1000.0, 0.0, 2000.0, 1000.0), offset=-100.0),
+        ]
+        assert len(footing.merge_slab_commands(slabs)) == 2
+
+    def test_ground_beams_not_merged(self) -> None:
+        # 地中梁(thickness=None)は連続していても統合しない
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0), thickness=None),
+            _slab(_rect_boundary(1000.0, 0.0, 2000.0, 1000.0), thickness=None),
+        ]
+        assert len(footing.merge_slab_commands(slabs)) == 2
+
+    def test_ring_with_hole_not_merged(self) -> None:
+        # 中空(穴)になる連結成分は単一境界で表せないため統合しない(元のまま)。
+        # 4 本の帯で四角い輪(中央に穴)を作る。
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 3000.0, 500.0)),      # 下辺
+            _slab(_rect_boundary(0.0, 2500.0, 3000.0, 3000.0)),  # 上辺
+            _slab(_rect_boundary(0.0, 0.0, 500.0, 3000.0)),      # 左辺
+            _slab(_rect_boundary(2500.0, 0.0, 3000.0, 3000.0)),  # 右辺
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 4  # 穴があるため統合されず元のまま
+
+    def test_single_slab_passthrough_unchanged(self) -> None:
+        slab = _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0))
+        merged = footing.merge_slab_commands([slab])
+        assert merged == [slab]
+
+    def test_chamfered_slab_merges_with_diagonal_edge(self) -> None:
+        # 斜め辺(45 度取合い)を持つ底盤も、連続する矩形底盤と 1 枚に統合される
+        # (任意向きの多角形和のため、軸平行以外の辺も扱える)。
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 2000.0, 2000.0)),
+            _slab(_rect_boundary(2000.0, 0.0, 4000.0, 2000.0)),
+            # 上に載る五角形(右上が 45 度に欠けた形)
+            _slab([[0.0, 2000.0], [2000.0, 2000.0], [2000.0, 3000.0],
+                   [1000.0, 3000.0]]),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 1
+        pts = merged[0]['boundary']
+        # 斜め辺(x も y も動く辺)が外形に含まれる
+        assert any(a[0] != b[0] and a[1] != b[1]
+                   for a, b in zip(pts, pts[1:] + pts[:1]))
+
+    def test_rotated_group_merges(self) -> None:
+        # グリッドごと回転した底盤群(斜めの建物)も連続していれば統合される。
+        def rot(boundary: list[list[float]], deg: float) -> list[list[float]]:
+            a = math.radians(deg)
+            c, s = math.cos(a), math.sin(a)
+            return [[x * c - y * s, x * s + y * c] for x, y in boundary]
+
+        slabs = [
+            _slab(rot(_rect_boundary(0.0, 0.0, 2000.0, 1000.0), 30.0)),
+            _slab(rot(_rect_boundary(2000.0, 0.0, 4000.0, 1000.0), 30.0)),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 1
+
+    def test_disjoint_groups_stay_separate(self) -> None:
+        # 連続する 2 枚 + 離れた 1 枚 → 統合 1 枚 + 単独 1 枚 = 2 枚
+        slabs = [
+            _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0)),
+            _slab(_rect_boundary(1000.0, 0.0, 2000.0, 1000.0)),
+            _slab(_rect_boundary(5000.0, 5000.0, 6000.0, 6000.0)),
+        ]
+        merged = footing.merge_slab_commands(slabs)
+        assert len(merged) == 2
+
+    def test_empty_returns_empty(self) -> None:
+        assert footing.merge_slab_commands([]) == []
+
+
+class TestAlignSlabsToWallFaces:
+    """底盤の外周を立上りの外面(壁心 + 半壁厚)まで外側へ広げる。"""
+
+    def test_edge_on_wall_centerline_offsets_outward(self) -> None:
+        # 200mm 厚の立上りが底盤の 4 辺の壁心に沿う → 各辺が半壁厚 100 外へ広がる
+        slab = _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0))
+        walls = [
+            _wall([0.0, 0.0], [1000.0, 0.0], thickness=200.0),
+            _wall([1000.0, 0.0], [1000.0, 1000.0], thickness=200.0),
+            _wall([1000.0, 1000.0], [0.0, 1000.0], thickness=200.0),
+            _wall([0.0, 1000.0], [0.0, 0.0], thickness=200.0),
+        ]
+        result = footing.align_slabs_to_wall_faces([slab], walls)
+        assert len(result) == 1
+        xs = [x for x, _y in result[0]['boundary']]
+        ys = [y for _x, y in result[0]['boundary']]
+        assert min(xs) == -100.0 and max(xs) == 1100.0
+        assert min(ys) == -100.0 and max(ys) == 1100.0
+
+    def test_edge_without_wall_not_moved(self) -> None:
+        # 沿う立上りが無い底盤(独立基礎底盤等)は動かさない
+        slab = _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0))
+        far_wall = _wall([9000.0, 9000.0], [9000.0, 10000.0], thickness=200.0)
+        result = footing.align_slabs_to_wall_faces([slab], [far_wall])
+        assert result[0]['boundary'] == slab['boundary']
+
+    def test_ground_beam_not_offset(self) -> None:
+        slab = _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0), thickness=None)
+        walls = [_wall([0.0, 0.0], [1000.0, 0.0], thickness=200.0)]
+        result = footing.align_slabs_to_wall_faces([slab], walls)
+        assert result[0]['boundary'] == slab['boundary']
+
+    def test_no_walls_returns_unchanged(self) -> None:
+        slab = _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0))
+        assert footing.align_slabs_to_wall_faces([slab], []) == [slab]
+
+    def test_per_edge_thickness(self) -> None:
+        # 上辺だけ 300mm 厚の立上り、他辺は立上り無し → 上辺だけ 150 外へ広がる
+        slab = _slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0))
+        walls = [_wall([0.0, 1000.0], [1000.0, 1000.0], thickness=300.0)]
+        result = footing.align_slabs_to_wall_faces([slab], walls)
+        ys = [y for _x, y in result[0]['boundary']]
+        assert max(ys) == 1150.0   # 上辺は外面(1000 + 150)へ
+        assert min(ys) == 0.0      # 下辺は動かない
 
 
 def _wall(

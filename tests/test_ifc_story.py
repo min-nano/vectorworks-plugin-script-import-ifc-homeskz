@@ -10,10 +10,27 @@ from vectorworks_plugin_import_ifc_homeskz.ifc.story import (
     build_story_commands,
     collect_stories,
     collect_story_moya_flags,
+    collect_story_roof_flags,
     get_local_placement_z,
     resolve_beam_top_offset,
     story_has_moya,
+    story_has_roof,
 )
+
+
+def add_roof_slab(
+    ifc: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    name: str = '屋根版:1_1',
+) -> ifcopenshell.entity_instance:
+    """指定した ``Name`` を持つ屋根版 IfcSlab を storey 配下に追加する。"""
+    slab = ifc.create_entity('IfcSlab', Name=name)
+    ifc.create_entity(
+        'IfcRelContainedInSpatialStructure',
+        RelatingStructure=storey,
+        RelatedElements=[slab],
+    )
+    return slab
 
 
 def add_named_beam(
@@ -174,7 +191,47 @@ class TestCollectStoryMoyaFlags:
         assert collect_story_moya_flags(ifc) == [False, True, True]
 
 
+class TestStoryHasRoof:
+    def test_true_when_roof_slab_present(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '2FL', 3273.0)
+        add_roof_slab(ifc, storey, '屋根版:1_1')
+        assert story_has_roof(storey) is True
+
+    def test_false_for_non_roof_slab(self) -> None:
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        add_roof_slab(ifc, storey, '床版:1')
+        assert story_has_roof(storey) is False
+
+    def test_collect_roof_flags_follow_elevation_order(self) -> None:
+        ifc = ifcopenshell.file()
+        roof = make_storey(ifc, 'RFL', 5973.0)
+        make_storey(ifc, '1FL', 473.0)
+        second = make_storey(ifc, '2FL', 3273.0)
+        add_roof_slab(ifc, second, '屋根版:1_1')   # 下屋根
+        add_roof_slab(ifc, roof, '屋根版:2_1')      # 主屋根
+        assert collect_story_roof_flags(ifc) == [False, True, True]
+
+
 class TestBuildStoryCommands:
+    def test_shed_dormer_without_moya_gets_taruki_but_no_moya(self) -> None:
+        """母屋の無い下屋根(屋根版のみ)の階は垂木・野地板・小屋束記号を持つが母屋は持たない。"""
+        ifc = ifcopenshell.file()
+        make_storey(ifc, '1FL', 473.0, [('IfcColumn', -48.0)])
+        second = make_storey(ifc, '2FL', 3273.0, [('IfcSlab', -36.0)])
+        add_roof_slab(ifc, second, '屋根版:1_1')  # 母屋は追加しない
+        make_storey(ifc, 'RFL', 5973.0)
+
+        commands = build_story_commands(ifc)
+
+        # 2 階は屋根版を持つが母屋を持たないため、垂木・野地板レベルのみ(母屋レベルなし)。
+        # 垂木・野地板は横架材天端の直上に積む。柱は span レイヤに載るが、このテストの
+        # 柱は断面が無く span レイヤが生成されないため 柱 レベルは付かない。
+        assert commands[1]['name'] == '2階'
+        assert [lv['type'] for lv in commands[1]['levels']] == [
+            'FL', '野地板', '垂木', '横架材天端']
+
     def test_intermediate_story_with_moya_gets_moya_level(self) -> None:
         """下屋根の母屋を含む中間階には 母屋 レベルが横架材天端の直上に入る。"""
         ifc = ifcopenshell.file()
@@ -186,17 +243,16 @@ class TestBuildStoryCommands:
         commands = build_story_commands(ifc)
 
         # 中間階(2階)は 母屋 レベルを横架材天端の直前に持ち、高さは横架材天端に揃える
+        # (このテストの柱は断面が無く span レイヤが生成されないため 柱 レベルは付かない)
         assert commands[1]['name'] == '2階'
         assert commands[1]['levels'] == [
-            {'type': '柱', 'offset': -36.0, 'layer': '2-柱'},
             {'type': 'FL', 'offset': 0.0, 'layer': '2-FL'},
-            {'type': '下階柱', 'offset': -36.0, 'layer': '2-下階柱'},
             {'type': '母屋', 'offset': -36.0, 'layer': '2-母屋'},
             {'type': '横架材天端', 'offset': -36.0, 'layer': '2-横架材天端'},
         ]
-        # 母屋を持たない 1 階は従来どおり
+        # 母屋を持たない 1 階は FL と横架材天端のみ
         assert [lv['type'] for lv in commands[0]['levels']] == [
-            '柱', 'FL', '横架材天端']
+            'FL', '横架材天端']
 
     def test_builds_commands_for_three_stories(self) -> None:
         ifc = ifcopenshell.file()
@@ -206,11 +262,12 @@ class TestBuildStoryCommands:
 
         commands = build_story_commands(ifc)
 
+        # このテストの柱は断面が無く span レイヤが生成されないため 柱 レベルは付かない。
+        # 下階柱・小屋束(伏図記号)レベルは span 方式で廃止した。
         assert commands == [
             {
                 'name': '1階', 'suffix': '1', 'elevation': 473.0,
                 'levels': [
-                    {'type': '柱', 'offset': -48.0, 'layer': '1-柱'},
                     {'type': 'FL', 'offset': 0.0, 'layer': '1-FL'},
                     {'type': '横架材天端', 'offset': -48.0, 'layer': '1-横架材天端'},
                 ],
@@ -218,18 +275,15 @@ class TestBuildStoryCommands:
             {
                 'name': '2階', 'suffix': '2', 'elevation': 3273.0,
                 'levels': [
-                    {'type': '柱', 'offset': -36.0, 'layer': '2-柱'},
                     {'type': 'FL', 'offset': 0.0, 'layer': '2-FL'},
-                    {'type': '下階柱', 'offset': -36.0, 'layer': '2-下階柱'},
                     {'type': '横架材天端', 'offset': -36.0, 'layer': '2-横架材天端'},
                 ],
             },
             {
                 'name': '屋根', 'suffix': 'R', 'elevation': 5973.0,
                 'levels': [
-                    {'type': '柱', 'offset': 0.0, 'layer': 'R-柱'},
-                    {'type': '下階柱', 'offset': 0.0, 'layer': 'R-下階柱'},
-                    {'type': '小屋束', 'offset': 0.0, 'layer': 'R-小屋束'},
+                    {'type': '野地板', 'offset': 0.0, 'layer': 'R-野地板'},
+                    {'type': '垂木', 'offset': 0.0, 'layer': 'R-垂木'},
                     {'type': '母屋', 'offset': 0.0, 'layer': 'R-母屋'},
                     {'type': '軒高', 'offset': 0.0, 'layer': 'R-軒高'},
                 ],
@@ -246,7 +300,25 @@ class TestBuildStoryCommands:
         assert commands[0]['name'] == '屋根'
         assert commands[0]['suffix'] == 'R'
         level_types = [level['type'] for level in commands[0]['levels']]
-        assert level_types == ['柱', '小屋束', '母屋', '軒高']
+        assert level_types == ['野地板', '垂木', '母屋', '軒高']
+
+    def test_span_column_levels_stacked_on_top(self) -> None:
+        """柱の span レイヤは base ストーリの levels 先頭(スタック最上段)に (from, to)
+        昇順で積まれ、level type はレイヤ名と同じ。"""
+        ifc = ifcopenshell.file()
+        make_storey(ifc, '1FL', 473.0, [('IfcColumn', -48.0)])
+        make_storey(ifc, '2FL', 3273.0, [('IfcSlab', -36.0)])
+        make_storey(ifc, 'RFL', 5973.0)
+        column_layers = {0: ['1to2-柱'], 1: ['2to2.5-柱', '2to3-柱']}
+
+        commands = build_story_commands(ifc, column_layers)
+
+        assert commands[0]['levels'][0] == {
+            'type': '1to2-柱', 'offset': -48.0, 'layer': '1to2-柱'}
+        assert commands[1]['levels'][:2] == [
+            {'type': '2to2.5-柱', 'offset': -36.0, 'layer': '2to2.5-柱'},
+            {'type': '2to3-柱', 'offset': -36.0, 'layer': '2to3-柱'},
+        ]
 
     def test_empty_ifc_returns_empty_list(self) -> None:
         assert build_story_commands(ifcopenshell.file()) == []

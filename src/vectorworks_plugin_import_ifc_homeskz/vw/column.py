@@ -6,13 +6,13 @@
 プロファイルを与えて配置し、構造用途 (StructuralUse) を命令の structural_use
 (管柱・通し柱="4"=柱、小屋束="5"=小屋束)で設定する。
 
-**柱の高さはパスのジオメトリ(下端の絶対 Z + 柱高さ)で決まり、
-SetObjectStoryBound は使わない。** 構造材ツールの高さバインドはバインドで指定した
-高さをパス由来の部材長に**加算**するため、鉛直材の柱では両者が同一方向(Z)に
-重なり部材長が二重になって上端が崩れる(例: 高さ 783.6 の小屋束にバインド
-オフセット 783.6 を与えると部材長 1567.6 になり上端が 783.6 高く描かれる)。梁は
-部材長が水平方向でバインドが Z 方向のため二重にならない。柱は Move3D で下端の
-絶対位置へ配置したパスの高さでそのまま描く。
+柱の高さはパスのジオメトリ(下端の絶対 Z + 柱高さ)で確定させたうえで、上下端を
+横架材天端(最上階は軒高)のストーリレベルに ``SetObjectStoryBound`` でバインドする
+(梁と同じ仕組み)。柱(管柱・通し柱)は下端を当階、上端を上階の横架材天端に、
+小屋束は下端・上端とも当階の横架材天端にバインドする。命令の offset はバインド先
+レベルの絶対 Z から実ジオメトリ(パスで配置した下端/上端の絶対 Z)までの距離で、
+パスと一致するため二重加算にならない(梁と同じく Move3D で置いた高さとバインドの
+高さが一致する)。バインドにより編集時に高さがレイヤ基準へリセットされるのを防ぐ。
 """
 from __future__ import annotations
 
@@ -30,9 +30,10 @@ def draw_column(command: ColumnCommand) -> None:
     パスはローカル原点 (0,0,0) から鉛直方向(高さ分)に定義し、
     CreateCustomObjectPath 後に Move3D で下端の絶対位置 (XY + 下端 Z) へ移動する。
     続いて構造用途 (StructuralUse) を命令の structural_use (柱="4"/小屋束="5") で
-    設定する。高さはパスのジオメトリで決まるため SetObjectStoryBound は使わない
-    (鉛直材ではバインドの高さがパス由来の部材長に加算され上端が二重になるため。
-    モジュール docstring 参照)。
+    設定し、上下端の高さ基準を SetObjectStoryBound で横架材天端(最上階は軒高)の
+    ストーリレベルにバインドする(始端=下端=0、終端=上端=1。boundType=2=Story)。
+    offset はパスで配置した実ジオメトリと一致するため二重加算にならず、編集時に
+    高さがレイヤ基準へリセットされるのを防ぐ(モジュール docstring 参照)。
     断面は width×depth の矩形プロファイル。member_id(柱頭・柱脚金物の仕様を
     含む構造材 ID)を MemberID フィールドに格納する。プラグインスタイル
     (STYLE_NAME)を SetPluginStyle で関連付ける。SetPluginStyle はパラメータの
@@ -66,6 +67,15 @@ def draw_column(command: ColumnCommand) -> None:
         vs.Move3D(x, y, z_bottom)
         vs.SetClass(obj, command['class'])
         vs.SetPluginStyle(obj, STYLE_NAME)
+        # 上下端の高さ基準をストーリレベルにバインドする(下端=0、上端=1、
+        # boundType=2=Story)。柱は当階と上階、小屋束は当階の横架材天端(最上階は
+        # 軒高)。offset はパスで配置した実ジオメトリと一致するため二重加算にならない。
+        bottom = command['bottom_bound']
+        top = command['top_bound']
+        vs.SetObjectStoryBound(
+            obj, 0, 2, bottom['story_offset'], bottom['level'], bottom['offset'])
+        vs.SetObjectStoryBound(
+            obj, 1, 2, top['story_offset'], top['level'], top['offset'])
         vs.SetRField(obj, PLUGIN_NAME, 'MemberID', command['member_id'])
         vs.SetRField(obj, PLUGIN_NAME, 'ProfileShape', 'Rectangle')
         vs.SetRField(obj, PLUGIN_NAME, 'MajorBreadth', str(w))

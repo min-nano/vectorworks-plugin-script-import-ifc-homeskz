@@ -49,6 +49,17 @@ def make_tag(layer: str = '1-横架材天端', member_index: int = 0) -> TagComm
     }
 
 
+def make_legend(number: str = '1', style: str = '基礎伏図凡例') -> dict[str, Any]:
+    return {
+        'number': number,
+        'style': style,
+        'position': [0.0, 0.0],
+        'items': [
+            {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
+        ],
+    }
+
+
 def _handle(name: str) -> str:
     return 'HANDLE_' + name
 
@@ -100,6 +111,7 @@ def _make_vs_mock(
     vs_mock.CreateLayer.side_effect = create_layer
     vs_mock.CreateVP.return_value = 'VP_HANDLE'
     vs_mock.CreateCustomObject.return_value = 'TAG_HANDLE'
+    vs_mock.CreateCustomObjectN.return_value = 'LEGEND_HANDLE'
     # デザインレイヤの縮尺(1:50 相当)
     vs_mock.GetLScale.return_value = 50.0
     return vs_mock
@@ -168,7 +180,7 @@ class TestExecuteSheets:
             ('VP_HANDLE', vw_sheet._OV_VP_PROJECT_2D, True),
         ]
         # Project 2D OFF のあと(3D「上」の描画)と最終描画で UpdateVP が 2 回呼ばれ、
-        # 最終状態は Project 2D ON(=2D/平面)になる
+        # 最終状態は Project 2D ON(=2D/平面)になる。
         update_calls = [c.args for c in vs_mock.UpdateVP.call_args_list]
         assert update_calls == [('VP_HANDLE',), ('VP_HANDLE',)]
 
@@ -203,6 +215,25 @@ class TestExecuteSheets:
         cls_calls = [c.args for c in vs_mock.SetVPClassVisibility.call_args_list]
         for name in classes:
             assert ('VP_HANDLE', name, vw_sheet._VP_CLASS_VISIBLE) in cls_calls
+
+    def test_hides_named_classes(self) -> None:
+        rebar = '04構造-01基礎-09鉄筋'
+        classes = ['なし', '04構造-01基礎-03立ち上がり', rebar]
+        vs_mock = _make_vs_mock(_TARGET_LAYERS, classes=classes)
+        vw_sheet = _load(vs_mock)
+
+        command = make_command()
+        command['viewport']['hidden_classes'] = [rebar]
+        vw_sheet.execute_sheets([command])
+
+        cls_calls = [c.args for c in vs_mock.SetVPClassVisibility.call_args_list]
+        # hidden_classes に挙げた配筋クラスは非表示 (1) にする
+        assert ('VP_HANDLE', rebar, vw_sheet._VP_CLASS_HIDDEN) in cls_calls
+        assert ('VP_HANDLE', rebar, vw_sheet._VP_CLASS_VISIBLE) not in cls_calls
+        # それ以外のクラスは従来どおり表示 (0)
+        for name in ['なし', '04構造-01基礎-03立ち上がり']:
+            assert ('VP_HANDLE', name, vw_sheet._VP_CLASS_VISIBLE) in cls_calls
+            assert ('VP_HANDLE', name, vw_sheet._VP_CLASS_HIDDEN) not in cls_calls
 
     def test_matches_viewport_scale_to_design_layer(self) -> None:
         vs_mock = _make_vs_mock(_TARGET_LAYERS)
@@ -337,3 +368,106 @@ class TestExecuteSheetsWithTags:
         assert count == 1
         assert counters['tags'] == 0
         vs_mock.CreateCustomObject.assert_not_called()
+
+
+class TestExecuteSheetsWithLegends:
+    def test_places_legend_on_matching_sheet(self) -> None:
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend()], counters=counters)
+
+        # 配置先シートレイヤ(番号 1)をアクティブにしてグラフィック凡例 PIO を
+        # 挿入位置・showPref=False で作る
+        vs_mock.Layer.assert_any_call('1')
+        vs_mock.CreateCustomObjectN.assert_called_once_with(
+            vw_sheet._GRAPHIC_LEGEND_PLUGIN, (0.0, 0.0), 0, False)
+        # ソース定義(シンボル + 基礎伏図ビューポートフィルタ)を持つプラグイン
+        # スタイルを関連付ける
+        vs_mock.SetPluginStyle.assert_any_call(
+            'LEGEND_HANDLE', vw_sheet._GRAPHIC_LEGEND_STYLE)
+        # 箱幅を既定値に設定して可視化し(サイズ 0 でハンドルを掴めないのを防ぐ)、
+        # ResetObject で反映する
+        vs_mock.SetRField.assert_called_once_with(
+            'LEGEND_HANDLE', vw_sheet._GRAPHIC_LEGEND_PLUGIN,
+            vw_sheet._LEGEND_WIDTH_FIELD, vw_sheet._LEGEND_BOX_WIDTH)
+        vs_mock.ResetObject.assert_any_call('LEGEND_HANDLE')
+        # 全配置後にスタイルからセル(シンボル)を再計算してインスタンスへ反映する
+        vs_mock.UpdateStyledObjects.assert_called_once_with(
+            vw_sheet._GRAPHIC_LEGEND_STYLE)
+        assert counters['legends'] == 1
+
+    def test_uses_command_style_and_updates_each_style_once(self) -> None:
+        # 基礎伏図凡例(基礎伏図)と床伏図凡例(床伏図)を別スタイルで配置し、
+        # 各スタイルにつき UpdateStyledObjects を 1 回ずつ呼ぶ
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command(), make_floor_command()],
+            legends=[
+                make_legend('1', '基礎伏図凡例'),
+                make_legend('2', '床伏図凡例'),
+            ],
+            counters=counters)
+
+        # 命令の style をそのまま関連付ける(基礎伏図凡例・床伏図凡例)
+        vs_mock.SetPluginStyle.assert_any_call('LEGEND_HANDLE', '基礎伏図凡例')
+        vs_mock.SetPluginStyle.assert_any_call('LEGEND_HANDLE', '床伏図凡例')
+        # 使用した各スタイルにつき 1 回ずつ再計算する
+        styles = {
+            call.args[0] for call in vs_mock.UpdateStyledObjects.call_args_list}
+        assert styles == {'基礎伏図凡例', '床伏図凡例'}
+        assert vs_mock.UpdateStyledObjects.call_count == 2
+        assert counters['legends'] == 2
+
+    def test_legend_not_placed_on_non_matching_sheet(self) -> None:
+        # シートレイヤ番号が一致しない凡例は載せない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend('2')], counters=counters)
+
+        vs_mock.CreateCustomObjectN.assert_not_called()
+        # 凡例を 1 つも置かなければスタイル更新も呼ばない
+        vs_mock.UpdateStyledObjects.assert_not_called()
+        assert counters['legends'] == 0
+
+    def test_no_legend_when_list_empty(self) -> None:
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vw_sheet = _load(vs_mock)
+
+        vw_sheet.execute_sheets([make_command()])
+
+        vs_mock.CreateCustomObjectN.assert_not_called()
+
+    def test_legend_not_counted_when_creation_fails(self) -> None:
+        # PIO が作れない(プラグイン未登録等)場合はカウントしない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend()], counters=counters)
+
+        assert counters['legends'] == 0
+
+    def test_no_legend_when_sheet_layer_creation_fails(self) -> None:
+        # シートレイヤが作れない場合は凡例を載せない
+        vs_mock = _make_vs_mock(_TARGET_LAYERS)
+        vs_mock.CreateLayer.side_effect = None
+        vs_mock.CreateLayer.return_value = vs_mock.Handle(0)
+        vw_sheet = _load(vs_mock)
+
+        counters: dict[str, int] = {}
+        vw_sheet.execute_sheets(
+            [make_command()], legends=[make_legend()], counters=counters)
+
+        assert counters['legends'] == 0
+        vs_mock.CreateCustomObjectN.assert_not_called()

@@ -56,15 +56,20 @@ def _make_vs_mock(existing_layers: set[str]) -> MagicMock:
     return vs_mock
 
 
+def _style_handle(name: str) -> str:
+    """スタイル名に対応するテスト用ハンドル文字列。"""
+    return 'STYLE_H_' + name
+
+
 def _make_style_vs_mock(
     styles: set[str], existing_layers: set[str] | None = None,
 ) -> MagicMock:
     """スラブスタイルの解決を検証するための vs モック。
 
     ``styles`` は現在ドキュメントに存在するスラブスタイル名の集合。
-    ``BuildResourceList`` / ``GetNameFromResourceList`` でこの一覧を返し、
-    ``GetObject`` はスタイル名・レイヤ名に対してハンドルを返す。``SetName`` で
-    付けた新スタイル名は以後 ``GetObject`` が見つけられるよう既知集合に加える。
+    ``BuildResourceList`` / ``GetNameFromResourceList`` / ``GetResourceFromList``
+    でこの一覧と各スタイルのハンドルを返す(``GetObject`` はレイヤの存在確認だけに
+    使い、スタイルには使わない)。``GetParent`` は親コンテナを返す。
     """
     if existing_layers is None:
         existing_layers = {'F-底盤'}
@@ -78,19 +83,18 @@ def _make_style_vs_mock(
     def name_from_list(list_id: int, index: int) -> str:
         return style_list[index - 1]  # 1-based
 
-    vs_mock.GetNameFromResourceList.side_effect = name_from_list
+    def resource_from_list(list_id: int, index: int) -> str:
+        return _style_handle(style_list[index - 1])
 
-    known = set(styles) | set(existing_layers)
+    vs_mock.GetNameFromResourceList.side_effect = name_from_list
+    vs_mock.GetResourceFromList.side_effect = resource_from_list
+    vs_mock.GetParent.return_value = 'PARENT'
 
     def get_obj(name: str) -> object:
-        return ('HANDLE_' + name) if name in known else null_handle
+        # レイヤの存在確認用。スタイルの取得には使わない。
+        return ('HANDLE_' + name) if name in existing_layers else null_handle
 
     vs_mock.GetObject.side_effect = get_obj
-
-    def set_name(handle: object, name: str) -> None:
-        known.add(name)
-
-    vs_mock.SetName.side_effect = set_name
     vs_mock.LNewObj.return_value = object()
     vs_mock.CreateSlab.return_value = 'SLAB'
     vs_mock.CreateDuplicateObject.return_value = 'DUP'
@@ -264,8 +268,8 @@ class TestSlabStyles:
         vw_footing.execute_slabs([make_slab_command()])
 
         vs_mock.CreateDuplicateObject.assert_not_called()
-        # ref 番号は -Name2Index(スタイル名)
-        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', -42)
+        # ref 番号は正の Name2Index(スタイル名)(VW でスラブスタイルは正値のみ適用)
+        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', 42)
 
     def test_creates_style_for_non_default_thickness(self) -> None:
         # 180mm は既定スタイルを複製し、コンクリート厚(#1)を 180 にして適用する
@@ -276,12 +280,14 @@ class TestSlabStyles:
         command['thickness'] = 180.0
         vw_footing.execute_slabs([command])
 
-        vs_mock.CreateDuplicateObject.assert_called_once()
+        # 複製元は列挙で得た既定スタイルのハンドル、挿入先は親コンテナ(GetParent)
+        vs_mock.CreateDuplicateObject.assert_called_once_with(
+            _style_handle(BASE_SLAB_STYLE), 'PARENT')
         target = '基礎スラブ - コンクリート 180mm / 捨てコン 30mm / 砕石 100mm'
         vs_mock.SetName.assert_called_once_with('DUP', target)
         # 最上層(#1)= コンクリートの厚みを 180 に設定
         vs_mock.SetComponentWidth.assert_called_once_with('DUP', 1, 180.0)
-        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', -42)
+        vs_mock.SetSlabStyle.assert_called_once_with('SLAB', 42)
 
     def test_finds_base_style_regardless_of_blinding_gravel_thickness(self) -> None:
         # 捨てコン・砕石の厚みが既定と違っても既定スタイルを見つけ、派生名にも引き継ぐ

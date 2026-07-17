@@ -15,17 +15,67 @@ if TYPE_CHECKING:
 LEVEL_FL = 'FL'
 LEVEL_BEAM_TOP = '横架材天端'
 LEVEL_EAVES = '軒高'
-LEVEL_COLUMN = '柱'
+# 柱・小屋束は span(またぐレベル区間)ごとに専用レイヤ ``{from}to{to}-柱`` に
+# 配置する。from は柱が立つ床レベル(1 始まり・GL=0)、to は上端が届く床/母屋
+# レベル。管柱は次階に達して整数、小屋束・屋根束は屋根面で止まって半整数(+0.5)、
+# 通し柱は複数階ぶん上の床に達する。各伏図はその切断レベルを span が含むレイヤ
+# だけを表示するため、下屋の小屋束(例 ``2to2.5``)が上階の小屋伏図(切断 3.25)に
+# 写り込まなくなる。
+LAYER_COLUMN_SUFFIX = '柱'
+
+
+def _fmt_span_level(value: float) -> str:
+    """span レベルを文字列にする(整数は小数点なし、半整数は ``.5`` 付き)。"""
+    if value == int(value):
+        return str(int(value))
+    return str(value)
+
+
+def span_layer_name(from_level: float, to_level: float) -> str:
+    """柱の span からデザインレイヤ名 ``{from}to{to}-柱`` を作る。"""
+    return f'{_fmt_span_level(from_level)}to{_fmt_span_level(to_level)}-{LAYER_COLUMN_SUFFIX}'
+
+
+def parse_span_layer(name: str) -> tuple[float, float] | None:
+    """``{from}to{to}-柱`` レイヤ名を (from, to) に分解する。span 柱レイヤでなければ None。"""
+    suffix = f'-{LAYER_COLUMN_SUFFIX}'
+    if not name.endswith(suffix):
+        return None
+    core = name[: -len(suffix)]
+    parts = core.split('to')
+    if len(parts) != 2:
+        return None
+    try:
+        return float(parts[0]), float(parts[1])
+    except ValueError:
+        return None
+
+
+# 柱・小屋束の伏図記号(平面記号)を配置する専用レイヤの接尾辞。伏図記号は
+# span 柱レイヤの **span 上側の数値(to)** をプレフィックスにした ``{to}-柱伏図記号``
+# レイヤに描く(例 ``1to2.5-柱`` と ``2to2.5-柱`` の伏図記号はともに ``2.5-柱伏図記号``)。
+# 通り芯(``共通``)と同じくストーリに縛られない独立したデザインレイヤで、``共通`` の
+# 直下(スタック上段)に積む。各伏図は切断位置の直下(``to`` < 切断)の伏図記号レイヤ
+# だけを表示する(``ifc/sheet.py``)。
+LAYER_PLAN_MARK_SUFFIX = '柱伏図記号'
+
+
+def plan_mark_layer_name(to_level: float) -> str:
+    """span の ``to`` レベルから伏図記号レイヤ名 ``{to}-柱伏図記号`` を作る。"""
+    return f'{_fmt_span_level(to_level)}-{LAYER_PLAN_MARK_SUFFIX}'
 # 母屋(棟木を含む小屋組の上端材)を配置するレイヤ・レベル。最上階(屋根)で
 # 梁(小屋梁・軒桁)と重なって見にくいため、軒高レイヤと分けた専用レイヤに置く。
 LEVEL_MOYA = '母屋'
-# 下階柱記号(柱束伏図記号 PIO)を配置するレイヤ・レベル。各階の伏図に直下階
-# (N-1)の柱を記号化するため、横架材天端(最上階は軒高)レイヤの直上に積む。
-LEVEL_UNDER_COLUMN = '下階柱'
-# 小屋束の伏図記号(柱束伏図記号 PIO)を配置するレイヤ・レベル。最上階(屋根)の
-# 小屋束を母屋伏図に記号化するため、母屋レイヤの直上に専用レイヤを積む。柱の下階柱
-# 記号とはクラスで分けた別オブジェクトにする(小屋束記号節参照)。最上階のみ持つ。
-LEVEL_KOYAZUKA_MARK = '小屋束'
+# 垂木を配置するレイヤ・レベル。垂木は屋根版(屋根面)の勾配・外形から導出し、
+# 母屋の上に載る。母屋・棟木と重ならないよう母屋レイヤの直上に独立させて積む。
+# 高さは母屋(横架材天端/軒高)に揃える(実描画の Z は屋根版由来の絶対値で
+# FramingMember に持たせるためレベルのオフセットには依存しない)。
+LEVEL_TARUKI = '垂木'
+# 野地板(屋根の下地合板)を配置するレイヤ・レベル。野地板は屋根版(屋根面)の
+# 勾配・外形から屋根ツール(BeginRoof)で描き、垂木の上に載る。垂木と重ならない
+# よう垂木レイヤの直上に独立させて積む。高さは垂木(横架材天端/軒高)に揃える
+# (実描画の Z は屋根版由来の絶対値で屋根オブジェクトが持つためオフセットには依存しない)。
+LEVEL_NOJIITA = '野地板'
 STORY_ROOF = '屋根'
 
 # 基礎(立上り・底盤・アンカーボルト)用のストーリ・レベル・レイヤ
@@ -34,9 +84,13 @@ FOUNDATION_SUFFIX = 'F'
 LEVEL_GL = 'GL'
 LEVEL_SLAB_TOP = '底盤天端'
 LEVEL_FOUNDATION_TOP = '基礎天端'  # アンカーボルトの高さ基準(立上り天端)
+# 床束(シンボル)を配置するレベル・レイヤ。床束は基礎底盤上端(底盤天端)に立つ
+# ため高さは底盤天端に揃える。底盤(F-底盤)と分けた専用レイヤに置く。
+LEVEL_FLOOR_POST = '床束'
 LAYER_FOUNDATION_WALL = f'{FOUNDATION_SUFFIX}-立上り'
 LAYER_FOUNDATION_SLAB = f'{FOUNDATION_SUFFIX}-底盤'
 LAYER_FOUNDATION_ANCHOR = f'{FOUNDATION_SUFFIX}-アンカーボルト'
+LAYER_FOUNDATION_FLOOR_POST = f'{FOUNDATION_SUFFIX}-床束'
 
 
 def get_local_placement_z(element: ifcopenshell.entity_instance) -> float | None:
@@ -91,6 +145,37 @@ def story_has_moya(storey: ifcopenshell.entity_instance) -> bool:
             if member_class_from_name(element.Name) in (CLASS_MOYA, CLASS_MUNAGI):
                 return True
     return False
+
+
+def story_has_roof(storey: ifcopenshell.entity_instance) -> bool:
+    """階に属する IfcSlab から屋根面(``屋根版``)を含むか判定する。
+
+    垂木は屋根版(屋根面)から導出するため、屋根版を含む階は垂木レイヤ(``n-垂木``)
+    を持つ。中間階に架かる下屋根(下屋)は母屋を持たないこともある(単純な片流れ
+    下屋等)ため、垂木レイヤの有無は母屋(``story_has_moya``)ではなく屋根版の有無で
+    判定する。1 つでもあれば True を返す。この判定は垂木の描画側(``ifc/rafter.py``)
+    が屋根版から垂木を配置する階と一致させる必要がある。
+    """
+    for rel in storey.ContainsElements or ():
+        for element in rel.RelatedElements:
+            if element.is_a('IfcSlab') and (element.Name or '').startswith('屋根版'):
+                return True
+    return False
+
+
+def collect_story_roof_flags(ifc_file: ifcopenshell.file) -> list[bool]:
+    """``collect_stories`` と同じ Elevation 昇順で、各階が屋根版を含むか返す。
+
+    各要素は ``story_has_roof`` による判定の結果。屋根版を含む階は垂木レイヤ
+    (``n-垂木``)を持つ。最上階(屋根)は主屋根の屋根版を必ず含むが、判定は
+    ``is_top`` でも保証する(build_story_commands 参照)。
+    """
+    storeys = [
+        s for s in ifc_file.by_type('IfcBuildingStorey')
+        if (s.Name or '').upper().endswith('FL')
+    ]
+    storeys.sort(key=lambda s: float(s.Elevation or 0.0))
+    return [story_has_roof(s) for s in storeys]
 
 
 def collect_story_moya_flags(ifc_file: ifcopenshell.file) -> list[bool]:
@@ -152,28 +237,41 @@ def layer_prefix_for(index: int, is_top: bool) -> str:
     return story_suffix_for(index, is_top)
 
 
-def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
+def build_story_commands(
+    ifc_file: ifcopenshell.file,
+    column_layers_by_story: dict[int, list[str]] | None = None,
+) -> list[StoryCommand]:
     """IFC のストーリから story 命令のリストを組み立てる。
 
     一般階は FL(0) と 横架材天端(負オフセット)、最上階は 軒高(0) を構造レベルとし、
-    さらに各階に柱配置用の 柱 レベル(高さは横架材天端=最上階は軒高に揃える)を加える。
-    柱は 柱 レイヤに梁と同じ構造材ツールで配置する。
+    さらに各階に柱・小屋束を配置する **span レベル**(``{from}to{to}-柱`` レイヤ。
+    ``column_layers_by_story`` がその階を base=from とする span レイヤを (from, to) 昇順で
+    渡す)を、高さを横架材天端(最上階は軒高)に揃えて加える。span レベルの type はレイヤ名
+    (一意)。span 方式では従来の 下階柱記号・小屋束記号(平面伏図記号)レベルは廃止した
+    (柱の表示は伏図の切断レベルで制御する。母屋伏図向けの小屋束伏図記号は移行後に別途対応)。
 
-    加えて最下階(下に柱が無い)以外の各階には、直下階(N-1)の柱を伏図に記号化する
-    下階柱記号(柱束伏図記号 PIO)を置く 下階柱 レベルを、横架材天端(最上階は軒高)
-    レイヤの直上に積む。母屋(棟木含む)を梁と分けて配置する 母屋 レベルは、最上階
-    (屋根)は常に、中間階は下屋根(下屋)の小屋組を名前判定(``story_has_moya`` /
-    ``collect_story_moya_flags``)で含む場合に、横架材天端(最上階は軒高)レイヤの
-    直上に積む。最上階はさらにその母屋レイヤの直上に小屋束を母屋伏図へ記号化する
-    小屋束 レベル(柱束伏図記号 PIO の配置先)を積む(中間階の下屋根には付けない)。
+    母屋(棟木含む)を梁と分けて配置する 母屋 レベルは、最上階(屋根)は常に、中間階は
+    下屋根(下屋)の小屋組を名前判定(``story_has_moya`` / ``collect_story_moya_flags``)で
+    含む場合に、横架材天端(最上階は軒高)レイヤの直上に積む。垂木・野地板の各レベルは、
+    最上階(屋根)は常に、中間階は屋根版(屋根面)を含む場合に、母屋レイヤの直上に積む
+    (下屋根は母屋を持たなくても屋根版があれば垂木・野地板を持つ)。
 
-    ``levels`` の並び順は**デザインレイヤの希望スタック順(上→下)**を表す。柱レイヤを
-    FL(最上階は軒高)レイヤの直上に積むため 柱 レベルを先頭に置く。実際のレイヤ並びは
+    ``levels`` の並び順は**デザインレイヤの希望スタック順(上→下)**を表す。span 柱レイヤを
+    FL(最上階は軒高)レイヤの直上に積むため span レベルを先頭に置く。実際のレイヤ並びは
     描画フェーズ(vw.story)が HMoveForward で命令の順序どおりに揃える(レイヤの高さ
-    オフセットに依存しない)。
+    オフセットに依存しない)。span レイヤは実在する柱から決まるため未指定なら遅延 import で
+    組み立てる(story→column の循環 import を避けるため関数内 import)。
     """
     stories = collect_stories(ifc_file)
     moya_flags = collect_story_moya_flags(ifc_file)
+    roof_flags = collect_story_roof_flags(ifc_file)
+    # 柱は span(またぐレベル区間)ごとの専用レイヤ ``{from}to{to}-柱`` に配置する。
+    # 各ストーリに載せる span レイヤは実在する柱から決まるため、未指定なら遅延 import で
+    # 組み立てる(story→column の循環 import を避けるため関数内 import)。
+    if column_layers_by_story is None:
+        from .column import build_column_commands, collect_column_layers_by_story
+        column_layers_by_story = collect_column_layers_by_story(
+            build_column_commands(ifc_file))
 
     commands: list[StoryCommand] = []
     n = len(stories)
@@ -194,38 +292,39 @@ def build_story_commands(ifc_file: ifcopenshell.file) -> list[StoryCommand]:
                 {'type': LEVEL_BEAM_TOP, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_BEAM_TOP}'},
             ]
-        # 下階柱記号のレイヤ。直下階(N-1)の柱を伏図に記号化するため、横架材天端
-        # (最上階は軒高)レイヤの**直上**に積む(levels の末尾=横架材天端/軒高の
-        # 直前に挿入する)。最下階(i=0)は下に柱が無いため作らない。高さは横架材天端
-        # (最上階は軒高)に揃える。
-        if i >= 1:
-            levels.insert(
-                len(levels) - 1,
-                {'type': LEVEL_UNDER_COLUMN, 'offset': column_offset,
-                 'layer': f'{prefix}-{LEVEL_UNDER_COLUMN}'})
-        # 母屋(棟木含む)を配置するレイヤ。最上階(屋根)は常に、中間階は下屋根の
-        # 小屋組(母屋・棟木)を含む場合に、横架材天端(最上階は軒高)レイヤの直上に
-        # 積む(levels の末尾=横架材天端/軒高の直前に挿入する)。高さは横架材天端
-        # (最上階は軒高)に揃える(offset=column_offset。最上階は 0)ため実描画の
-        # 高さは母屋部材の天端バインドが担い、この offset には依存しない。加えて
-        # 最上階(屋根)は母屋伏図に小屋束を記号化する小屋束記号レイヤ(母屋レイヤの
-        # 直上)も積む(中間階の下屋根には小屋束記号を付けない)。
+        # 小屋組の上端材(母屋・棟木)・垂木・野地板を横架材天端(最上階は軒高)レイヤの
+        # 直上に積む。母屋レイヤは最上階(屋根)は常に、中間階は下屋根の小屋組(母屋・棟木)
+        # を名前判定で含む場合に持つ。垂木・野地板レイヤは最上階は常に、中間階は屋根版
+        # (屋根面)を含む場合に持つ(下屋根は母屋を持たなくても屋根版=垂木・野地板が
+        # あるため、母屋とは別に屋根版の有無で判定する)。スタックは 横架材天端/軒高 ←
+        # 母屋 ← 垂木 ← 野地板(上ほど上段)で、垂木を母屋の直上、野地板を垂木の直上に積む
+        # (母屋が無ければ横架材天端/軒高の直上)。高さはいずれも横架材天端(最上階は軒高)
+        # に揃える(offset=column_offset。最上階は 0)ため実描画の高さは母屋・垂木・野地板の
+        # 要素が持ち、この offset には依存しない。
+        tail = len(levels) - 1  # FL(最上階は軒高)/横架材天端 の位置(この直前に挿入)
         if is_top or moya_flags[i]:
             levels.insert(
-                len(levels) - 1,
+                tail,
                 {'type': LEVEL_MOYA, 'offset': column_offset,
                  'layer': f'{prefix}-{LEVEL_MOYA}'})
-            if is_top:
-                levels.insert(
-                    len(levels) - 2,
-                    {'type': LEVEL_KOYAZUKA_MARK, 'offset': 0.0,
-                     'layer': f'{prefix}-{LEVEL_KOYAZUKA_MARK}'})
-        # 柱を配置するレイヤ。高さは横架材天端(最上階は軒高)に揃える。
-        # levels の先頭=スタック最上段とし、FL(最上階は軒高)レイヤの直上に来るようにする。
-        levels.insert(
-            0,
-            {'type': LEVEL_COLUMN, 'offset': column_offset,
-             'layer': f'{prefix}-{LEVEL_COLUMN}'})
+        if is_top or roof_flags[i]:
+            levels.insert(
+                tail,
+                {'type': LEVEL_TARUKI, 'offset': column_offset,
+                 'layer': f'{prefix}-{LEVEL_TARUKI}'})
+            # 野地板は垂木の直上(垂木の後に tail へ挿入して 1 段上に積む)。
+            levels.insert(
+                tail,
+                {'type': LEVEL_NOJIITA, 'offset': column_offset,
+                 'layer': f'{prefix}-{LEVEL_NOJIITA}'})
+        # 柱を配置する span レイヤ(``{from}to{to}-柱``)。この階を base(from=i+1)とする
+        # span を (from, to) 昇順で levels の先頭=スタック最上段に積む(FL/軒高レイヤの
+        # 直上)。高さは横架材天端(最上階は軒高)に揃える(柱の上下端はバインド先レベルで
+        # 決まりこの offset には依存しない)。level type はレイヤ名と同じ一意な文字列にする。
+        for layer in reversed(column_layers_by_story.get(i, [])):
+            levels.insert(
+                0,
+                {'type': layer, 'offset': column_offset, 'layer': layer})
         commands.append({
             'name': story_name_for(i, is_top),
             'suffix': story_suffix_for(i, is_top),

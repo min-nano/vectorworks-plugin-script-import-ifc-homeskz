@@ -1,115 +1,117 @@
 """解析フェーズ (ifc.column_mark) のテスト。vs 非依存。
 
-各階の下階柱記号 (柱束伏図記号 PIO) の命令が、直下階 (N-1) の柱レイヤを検索対象に
-して横架材天端の直上レイヤ (n-下階柱) に組み立てられること、および最上階の
-小屋束記号が屋根の柱レイヤ (R-柱) を小屋束クラスで絞って R-小屋束 レイヤに
-組み立てられることを検証する。
+柱・小屋束は span(``{from}to{to}-柱``)ごとのレイヤに配置され、各 span レイヤは単一
+種別(柱=構造用途 4、小屋束=構造用途 5)。実在する span レイヤごとに、そのレイヤ自身に
+重ねる**断面記号**(記号スタイル=断面)と、span の ``to`` をプレフィックスにした
+``{to}-柱伏図記号`` レイヤに描く**伏図記号**(記号スタイル=平面。柱の span=柱伏図記号・
+小屋束の span=束伏図記号)が組み立てられることを検証する。柱用と小屋束用は別々の
+span レイヤ・別々のシンボルとして配置される。
 """
 from __future__ import annotations
 
 import json
+from typing import cast
 
-import ifcopenshell
-
+from vectorworks_plugin_import_ifc_homeskz.document import ColumnCommand
 from vectorworks_plugin_import_ifc_homeskz.ifc.column_mark import (
     DEFAULT_MARK_SIZE,
-    MARK_CLASS,
+    MARK_STYLE_PLAN,
+    MARK_STYLE_SECTION,
+    PLAN_MARK_CLASS,
+    SECTION_MARK_CLASS,
+    SYMBOL_COLUMN,
+    SYMBOL_KOYAZUKA,
     build_column_mark_commands,
 )
-from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import (
-    CLASS_KOYAZUKA,
-    CLASS_KUDABASHIRA,
-)
 
 
-def make_storey(
-    ifc: ifcopenshell.file, name: str, elevation: float
-) -> ifcopenshell.entity_instance:
-    return ifc.create_entity('IfcBuildingStorey', Name=name, Elevation=elevation)
+def _column(layer: str, structural_use: str = '4') -> ColumnCommand:
+    """テスト用の最小 column 命令(build_column_mark_commands は layer と
+    structural_use だけを見る)。既定は柱(構造用途 4)。"""
+    return cast(ColumnCommand, {'layer': layer, 'structural_use': structural_use})
 
 
 class TestBuildColumnMarkCommands:
-    def test_empty_ifc_returns_empty(self) -> None:
-        assert build_column_mark_commands(ifcopenshell.file()) == []
+    def test_no_columns_returns_empty(self) -> None:
+        assert build_column_mark_commands([]) == []
 
-    def test_single_story_only_koyazuka_mark(self) -> None:
-        # ストーリが 1 つだけ (=最上階=最下階) なら下階柱記号は作らないが、
-        # 屋根の小屋束を母屋伏図に記号化する小屋束記号は作る
-        ifc = ifcopenshell.file()
-        make_storey(ifc, 'RFL', 0.0)
-        assert build_column_mark_commands(ifc) == [
+    def test_section_mark_per_span_layer(self) -> None:
+        # 実在する span レイヤごとに 1 つの断面記号(先頭にまとめて並ぶ)。
+        columns = [
+            _column('2to3-柱'), _column('1to2-柱'),
+            _column('2to2.5-柱', '5'), _column('2to3-柱'),
+            _column('3to3.5-柱', '5'),
+        ]
+        commands = build_column_mark_commands(columns)
+        section = [c for c in commands if c['style'] == MARK_STYLE_SECTION]
+        assert section == [
             {
-                'layer': 'R-小屋束', 'class': MARK_CLASS, 'target_layer': 'R-柱',
-                'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'layer': '1to2-柱', 'class': SECTION_MARK_CLASS,
+                'target_layer': '1to2-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_SECTION,
+                'symbol': '', 'position': [0.0, 0.0],
+            },
+            {
+                'layer': '2to2.5-柱', 'class': SECTION_MARK_CLASS,
+                'target_layer': '2to2.5-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_SECTION,
+                'symbol': '', 'position': [0.0, 0.0],
+            },
+            {
+                'layer': '2to3-柱', 'class': SECTION_MARK_CLASS,
+                'target_layer': '2to3-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_SECTION,
+                'symbol': '', 'position': [0.0, 0.0],
+            },
+            {
+                'layer': '3to3.5-柱', 'class': SECTION_MARK_CLASS,
+                'target_layer': '3to3.5-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_SECTION,
+                'symbol': '', 'position': [0.0, 0.0],
             },
         ]
 
-    def test_three_stories_skip_lowest_plus_koyazuka(self) -> None:
-        ifc = ifcopenshell.file()
-        make_storey(ifc, '1FL', 473.0)
-        make_storey(ifc, '2FL', 3273.0)
-        make_storey(ifc, 'RFL', 5973.0)
-
-        commands = build_column_mark_commands(ifc)
-
-        # 最下階 (1階) の下階柱記号は作らない。2階・屋根の各階に管柱(×)と小屋束(○)の
-        # 2 つずつ (計 4 つ)、加えて屋根の小屋束記号 1 つ
-        assert commands == [
+    def test_plan_mark_per_span_layer_with_kind_symbol(self) -> None:
+        # 伏図記号は span の to をプレフィックスにした {to}-柱伏図記号 レイヤに置く。
+        # シンボルはその span の種別で決める(柱=柱伏図記号・小屋束=束伏図記号)。
+        # 同じ to の span(1to2.5・2to2.5)はともに 2.5-柱伏図記号 レイヤに載る。
+        columns = [
+            _column('1to2-柱', '4'),      # 管柱 → 柱伏図記号
+            _column('1to2.5-柱', '4'),    # 柱(半整数 to だが構造用途 4)→ 柱伏図記号
+            _column('2to2.5-柱', '5'),    # 小屋束 → 束伏図記号
+        ]
+        commands = build_column_mark_commands(columns)
+        plan = [c for c in commands if c['style'] == MARK_STYLE_PLAN]
+        assert plan == [
             {
-                'layer': '2-下階柱', 'class': MARK_CLASS, 'target_layer': '1-柱',
-                'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'layer': '2-柱伏図記号', 'class': PLAN_MARK_CLASS,
+                'target_layer': '1to2-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_PLAN,
+                'symbol': SYMBOL_COLUMN, 'position': [0.0, 0.0],
             },
             {
-                'layer': '2-下階柱', 'class': MARK_CLASS, 'target_layer': '1-柱',
-                'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'layer': '2.5-柱伏図記号', 'class': PLAN_MARK_CLASS,
+                'target_layer': '1to2.5-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_PLAN,
+                'symbol': SYMBOL_COLUMN, 'position': [0.0, 0.0],
             },
             {
-                'layer': 'R-下階柱', 'class': MARK_CLASS, 'target_layer': '2-柱',
-                'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
-            },
-            {
-                'layer': 'R-下階柱', 'class': MARK_CLASS, 'target_layer': '2-柱',
-                'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
-            },
-            {
-                'layer': 'R-小屋束', 'class': MARK_CLASS, 'target_layer': 'R-柱',
-                'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'layer': '2.5-柱伏図記号', 'class': PLAN_MARK_CLASS,
+                'target_layer': '2to2.5-柱', 'target_class': '',
+                'size': DEFAULT_MARK_SIZE, 'style': MARK_STYLE_PLAN,
+                'symbol': SYMBOL_KOYAZUKA, 'position': [0.0, 0.0],
             },
         ]
 
-    def test_targets_directly_lower_story_columns(self) -> None:
-        # 3 階建て: 各階の下階柱記号が直下階の柱レイヤを指し、末尾に屋根の小屋束記号
-        ifc = ifcopenshell.file()
-        make_storey(ifc, '1FL', 500.0)
-        make_storey(ifc, '2FL', 3300.0)
-        make_storey(ifc, '3FL', 6100.0)
-        make_storey(ifc, 'RFL', 8900.0)
-
-        commands = build_column_mark_commands(ifc)
-
-        # 各下階柱記号は管柱(×)と小屋束(○)の 2 クラスに分かれる。末尾に屋根の小屋束記号。
-        assert [
-            (c['layer'], c['target_layer'], c['target_class']) for c in commands
-        ] == [
-            ('2-下階柱', '1-柱', CLASS_KUDABASHIRA),
-            ('2-下階柱', '1-柱', CLASS_KOYAZUKA),
-            ('3-下階柱', '2-柱', CLASS_KUDABASHIRA),
-            ('3-下階柱', '2-柱', CLASS_KOYAZUKA),
-            ('R-下階柱', '3-柱', CLASS_KUDABASHIRA),
-            ('R-下階柱', '3-柱', CLASS_KOYAZUKA),
-            ('R-小屋束', 'R-柱', CLASS_KOYAZUKA),
-        ]
+    def test_section_marks_precede_plan_marks(self) -> None:
+        # 断面記号をすべて先に、続けて伏図記号をすべて並べる
+        commands = build_column_mark_commands([_column('1to2-柱')])
+        assert [c['style'] for c in commands] == [
+            MARK_STYLE_SECTION, MARK_STYLE_PLAN]
+        assert commands[0]['class'] == SECTION_MARK_CLASS
+        assert commands[1]['class'] == PLAN_MARK_CLASS
 
     def test_commands_are_json_serializable(self) -> None:
-        ifc = ifcopenshell.file()
-        make_storey(ifc, '1FL', 473.0)
-        make_storey(ifc, 'RFL', 5973.0)
-
-        commands = build_column_mark_commands(ifc)
+        commands = build_column_mark_commands(
+            [_column('1to2-柱'), _column('2to2.5-柱', '5')])
         assert json.loads(json.dumps(commands)) == commands

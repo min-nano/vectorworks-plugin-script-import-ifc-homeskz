@@ -11,7 +11,8 @@ requires-python = ">=3.9"
 dependencies = ["ifcopenshell", "certifi"]
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-cov>=4", "mypy>=1.8"]
+# pytest-xdist: テストをワーカープロセスに分散して並列実行し CI 時間を短縮する
+test = ["pytest>=7", "pytest-cov>=4", "pytest-xdist>=3", "mypy>=1.8"]
 
 [tool.setuptools.package-dir]
 "" = "src"

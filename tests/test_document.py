@@ -50,6 +50,26 @@ def make_valid_document() -> dict[str, Any]:
                 'end_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
             },
         ],
+        'rafters': [
+            {
+                'layer': 'R-垂木', 'class': '04構造-02木造-05小屋組-05垂木',
+                'width': 45.0, 'height': 45.0,
+                'start': [0.0, 0.0], 'end': [0.0, 2730.0],
+                'elevation': 6060.0, 'end_elevation': 7000.0,
+                'overhang': 600.0, 'embedment': 52.5, 'label': '45×45@455',
+            },
+        ],
+        'roofs': [
+            {
+                'layer': 'R-野地板', 'class': '04構造-02木造-06耐力面材-03屋根',
+                'boundary': [[0.0, 0.0], [4000.0, 0.0], [4000.0, 3000.0],
+                             [0.0, 3000.0]],
+                'axis_start': [0.0, 0.0], 'axis_end': [4000.0, 0.0],
+                'upslope': [0.0, 3000.0],
+                'rise': 400.0, 'run': 1000.0,
+                'thickness': 12.0, 'elevation': 6060.0,
+            },
+        ],
         'columns': [
             {
                 'layer': '1-柱',
@@ -58,6 +78,8 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [0.0, 0.0],
                 'width': 105.0, 'depth': 105.0, 'height': 2844.0, 'elevation': 426.0,
                 'top_hardware': '柱頭金物:(ろ)', 'bottom_hardware': '柱脚金物:(ろ)',
+                'bottom_bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+                'top_bound': {'story_offset': 1, 'level': '横架材天端', 'offset': -56.0},
             },
         ],
         'walls': [
@@ -88,10 +110,25 @@ def make_valid_document() -> dict[str, Any]:
                 'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0},
             },
         ],
+        'floors': [
+            {
+                'layer': '1-FL', 'class': '04構造-02木造-06耐力面材-02床',
+                'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0],
+                             [0.0, 2000.0]],
+                'thickness': 24.0, 'elevation': 425.0,
+                'bound': {'story_offset': 0, 'level': '横架材天端', 'offset': 0.0},
+            },
+        ],
         'anchor_bolts': [
             {
                 'layer': 'F-アンカーボルト', 'symbol': 'アンカーボルト_M12',
                 'position': [0.0, 0.0],
+            },
+        ],
+        'floor_posts': [
+            {
+                'layer': 'F-床束', 'symbol': '床束',
+                'position': [910.0, 0.0],
             },
         ],
         'fire_braces': [
@@ -100,12 +137,19 @@ def make_valid_document() -> dict[str, Any]:
                 'position': [1200.0, -800.0], 'angle': -45.0,
             },
         ],
+        'joints': [
+            {
+                'layer': '1-横架材天端', 'symbol': '仕口',
+                'position': [1500.0, 60.0], 'angle': 90.0,
+            },
+        ],
         'sheets': [
             {
                 'number': '1', 'title': '基礎伏図',
                 'viewport': {
                     'drawing_title': '基礎伏図', 'drawing_number': '1',
-                    'layers': ['F-底盤', 'F-立上り', 'F-アンカーボルト', '共通'],
+                    'layers': ['F-底盤', 'F-立上り', 'F-床束', 'F-アンカーボルト',
+                               '共通'],
                 },
             },
         ],
@@ -117,9 +161,40 @@ def make_valid_document() -> dict[str, Any]:
         ],
         'column_marks': [
             {
-                'layer': '2-下階柱', 'class': '01作図-04記号-04構造-一般',
-                'target_layer': '1-柱',
-                'target_class': '', 'size': 300.0, 'position': [0.0, 0.0],
+                'layer': '2-柱伏図記号', 'class': '01作図-04記号-04構造-一般',
+                'target_layer': '1to2-柱',
+                'target_class': '', 'size': 300.0, 'style': '平面',
+                'symbol': '柱伏図記号',
+                'position': [0.0, 0.0],
+            },
+        ],
+        'legends': [
+            {
+                'number': '1', 'style': '基礎伏図凡例', 'position': [0.0, 0.0],
+                'items': [
+                    {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
+                    {'symbol': 'アンカーボルト_M16',
+                     'label': 'ホールダウン用アンカーボルトM16'},
+                ],
+            },
+        ],
+        'rebars': [
+            {
+                'layer': 'F-立上り', 'class': '04構造-01基礎-09鉄筋',
+                'mode': 'beam', 'closed': False,
+                'path': [[0.0, 0.0, 400.0], [3000.0, 0.0, 400.0]],
+                'section_size': '120×500', 'top_bars': '1-D13',
+                'bottom_bars': '1-D13', 'stirrup': 'D10@250',
+                'main_bar': '', 'dist_bar': '', 'slab_thickness': 0.0,
+            },
+            {
+                'layer': 'F-底盤', 'class': '04構造-01基礎-09鉄筋',
+                'mode': 'slab', 'closed': True,
+                'path': [[0.0, 0.0, 50.0], [3000.0, 0.0, 50.0],
+                         [3000.0, 2000.0, 50.0], [0.0, 2000.0, 50.0]],
+                'section_size': '', 'top_bars': '', 'bottom_bars': '',
+                'stirrup': '', 'main_bar': 'D13@150', 'dist_bar': 'D13@150',
+                'slab_thickness': 150.0,
             },
         ],
     }
@@ -136,9 +211,12 @@ class TestValidateDocument:
 
     def test_empty_command_lists_pass(self) -> None:
         document = {'version': DOCUMENT_VERSION, 'stories': [], 'grids': [],
-                    'members': [], 'columns': [], 'walls': [], 'wall_joins': [],
-                    'slabs': [], 'anchor_bolts': [], 'fire_braces': [],
-                    'sheets': [], 'tags': [], 'column_marks': []}
+                    'members': [], 'rafters': [], 'roofs': [], 'columns': [],
+                    'walls': [],
+                    'wall_joins': [], 'slabs': [], 'floors': [],
+                    'anchor_bolts': [], 'floor_posts': [], 'fire_braces': [],
+                    'joints': [], 'sheets': [], 'tags': [], 'column_marks': [],
+                    'legends': [], 'rebars': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -157,10 +235,14 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError):
             validate_document(document)
 
-    @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'columns',
-                                     'walls', 'wall_joins', 'slabs',
-                                     'anchor_bolts', 'fire_braces', 'sheets',
-                                     'tags', 'column_marks'])
+    @pytest.mark.parametrize('key', ['stories', 'grids', 'members', 'rafters',
+                                     'roofs',
+                                     'columns', 'walls', 'wall_joins', 'slabs',
+                                     'floors',
+                                     'anchor_bolts', 'floor_posts',
+                                     'fire_braces', 'joints', 'sheets',
+                                     'tags', 'column_marks', 'legends',
+                                     'rebars'])
     def test_rejects_missing_command_list(self, key: str) -> None:
         document = make_valid_document()
         del document[key]
@@ -208,6 +290,66 @@ class TestValidateDocument:
         document = make_valid_document()
         del document['members'][0]['end_elevation']
         with pytest.raises(DocumentValidationError, match='end_elevation'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_class(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_dimension(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['width']
+        with pytest.raises(DocumentValidationError, match='width'):
+            validate_document(document)
+
+    def test_rejects_rafter_with_bad_start(self) -> None:
+        document = make_valid_document()
+        document['rafters'][0]['start'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='start'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_overhang(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['overhang']
+        with pytest.raises(DocumentValidationError, match='overhang'):
+            validate_document(document)
+
+    def test_rejects_rafter_without_embedment(self) -> None:
+        document = make_valid_document()
+        del document['rafters'][0]['embedment']
+        with pytest.raises(DocumentValidationError, match='embedment'):
+            validate_document(document)
+
+    def test_rejects_rafter_with_non_string_label(self) -> None:
+        document = make_valid_document()
+        document['rafters'][0]['label'] = 123
+        with pytest.raises(DocumentValidationError, match='label'):
+            validate_document(document)
+
+    def test_rejects_roof_without_class(self) -> None:
+        document = make_valid_document()
+        del document['roofs'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_roof_with_short_boundary(self) -> None:
+        document = make_valid_document()
+        document['roofs'][0]['boundary'] = [[0.0, 0.0], [1.0, 1.0]]
+        with pytest.raises(DocumentValidationError, match='boundary'):
+            validate_document(document)
+
+    def test_rejects_roof_with_bad_axis(self) -> None:
+        document = make_valid_document()
+        document['roofs'][0]['axis_start'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='axis_start'):
+            validate_document(document)
+
+    def test_rejects_roof_without_thickness(self) -> None:
+        document = make_valid_document()
+        del document['roofs'][0]['thickness']
+        with pytest.raises(DocumentValidationError, match='thickness'):
             validate_document(document)
 
     def test_rejects_member_with_non_string_id(self) -> None:
@@ -408,6 +550,48 @@ class TestValidateDocument:
         with pytest.raises(DocumentValidationError, match='thickness'):
             validate_document(document)
 
+    def test_rejects_floor_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['floors'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_floor_without_class(self) -> None:
+        document = make_valid_document()
+        del document['floors'][0]['class']
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_floor_with_too_few_boundary_points(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['boundary'] = [[0.0, 0.0], [1.0, 0.0]]
+        with pytest.raises(DocumentValidationError, match='boundary'):
+            validate_document(document)
+
+    def test_rejects_floor_with_bad_boundary_point(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['boundary'] = [[0.0, 0.0], [1.0, 0.0], [0.0]]
+        with pytest.raises(DocumentValidationError, match='boundary'):
+            validate_document(document)
+
+    def test_rejects_floor_without_thickness(self) -> None:
+        document = make_valid_document()
+        del document['floors'][0]['thickness']
+        with pytest.raises(DocumentValidationError, match='thickness'):
+            validate_document(document)
+
+    def test_rejects_floor_with_non_numeric_elevation(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['elevation'] = 'high'
+        with pytest.raises(DocumentValidationError, match='elevation'):
+            validate_document(document)
+
+    def test_rejects_floor_with_bad_bound_level(self) -> None:
+        document = make_valid_document()
+        document['floors'][0]['bound']['level'] = ''
+        with pytest.raises(DocumentValidationError, match='bound.level'):
+            validate_document(document)
+
     def test_rejects_anchor_bolt_without_symbol(self) -> None:
         document = make_valid_document()
         del document['anchor_bolts'][0]['symbol']
@@ -429,6 +613,30 @@ class TestValidateDocument:
     def test_rejects_anchor_bolt_with_bad_position(self) -> None:
         document = make_valid_document()
         document['anchor_bolts'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_floor_post_without_symbol(self) -> None:
+        document = make_valid_document()
+        del document['floor_posts'][0]['symbol']
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_floor_post_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['floor_posts'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_floor_post_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['floor_posts'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_floor_post_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['floor_posts'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
 
@@ -459,6 +667,36 @@ class TestValidateDocument:
     def test_rejects_fire_brace_with_non_number_angle(self) -> None:
         document = make_valid_document()
         document['fire_braces'][0]['angle'] = 'x'
+        with pytest.raises(DocumentValidationError, match='angle'):
+            validate_document(document)
+
+    def test_rejects_joint_without_symbol(self) -> None:
+        document = make_valid_document()
+        del document['joints'][0]['symbol']
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_joint_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['joints'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_joint_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['joints'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_joint_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['joints'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_joint_with_non_number_angle(self) -> None:
+        document = make_valid_document()
+        document['joints'][0]['angle'] = 'x'
         with pytest.raises(DocumentValidationError, match='angle'):
             validate_document(document)
 
@@ -575,6 +813,133 @@ class TestValidateDocument:
         document['column_marks'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
             validate_document(document)
+
+    def test_rejects_column_mark_with_empty_style(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['style'] = ''
+        with pytest.raises(DocumentValidationError, match='style'):
+            validate_document(document)
+
+    def test_rejects_column_mark_with_non_string_symbol(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['symbol'] = 1
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_accepts_column_mark_with_empty_symbol(self) -> None:
+        # 断面記号はシンボルを持たない(空文字)ため許容する
+        document = make_valid_document()
+        document['column_marks'][0]['symbol'] = ''
+        validate_document(document)
+
+    def test_rejects_legend_without_number(self) -> None:
+        document = make_valid_document()
+        del document['legends'][0]['number']
+        with pytest.raises(DocumentValidationError, match='number'):
+            validate_document(document)
+
+    def test_rejects_legend_with_empty_number(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['number'] = ''
+        with pytest.raises(DocumentValidationError, match='number'):
+            validate_document(document)
+
+    def test_rejects_legend_without_style(self) -> None:
+        document = make_valid_document()
+        del document['legends'][0]['style']
+        with pytest.raises(DocumentValidationError, match='style'):
+            validate_document(document)
+
+    def test_rejects_legend_with_empty_style(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['style'] = ''
+        with pytest.raises(DocumentValidationError, match='style'):
+            validate_document(document)
+
+    def test_rejects_legend_with_bad_position(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['position'] = [0.0]
+        with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_legend_with_non_list_items(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['items'] = 'x'
+        with pytest.raises(DocumentValidationError, match='items'):
+            validate_document(document)
+
+    def test_rejects_legend_item_with_empty_symbol(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['items'][0]['symbol'] = ''
+        with pytest.raises(DocumentValidationError, match='symbol'):
+            validate_document(document)
+
+    def test_rejects_legend_item_with_empty_label(self) -> None:
+        document = make_valid_document()
+        document['legends'][0]['items'][0]['label'] = ''
+        with pytest.raises(DocumentValidationError, match='label'):
+            validate_document(document)
+
+    def test_accepts_legend_with_empty_items(self) -> None:
+        # items が空(載せるシンボルが無い)場合も凡例命令自体は許容する
+        document = make_valid_document()
+        document['legends'][0]['items'] = []
+        validate_document(document)
+
+    def test_rejects_rebar_without_layer(self) -> None:
+        document = make_valid_document()
+        del document['rebars'][0]['layer']
+        with pytest.raises(DocumentValidationError, match='layer'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_empty_class(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['class'] = ''
+        with pytest.raises(DocumentValidationError, match='class'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_bad_mode(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['mode'] = 'column'
+        with pytest.raises(DocumentValidationError, match='mode'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_non_bool_closed(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['closed'] = 'yes'
+        with pytest.raises(DocumentValidationError, match='closed'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_short_path(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['path'] = [[0.0, 0.0, 0.0]]
+        with pytest.raises(DocumentValidationError, match='path'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_2d_path_vertex(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['path'] = [[0.0, 0.0], [1.0, 1.0]]
+        with pytest.raises(DocumentValidationError, match='path'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_non_string_section_size(self) -> None:
+        document = make_valid_document()
+        document['rebars'][0]['section_size'] = 120
+        with pytest.raises(DocumentValidationError, match='section_size'):
+            validate_document(document)
+
+    def test_rejects_rebar_with_non_number_slab_thickness(self) -> None:
+        document = make_valid_document()
+        document['rebars'][1]['slab_thickness'] = '150'
+        with pytest.raises(DocumentValidationError, match='slab_thickness'):
+            validate_document(document)
+
+    def test_accepts_rebar_with_empty_spec_fields(self) -> None:
+        # 使わないモードの仕様フィールドは空文字を許容する
+        document = make_valid_document()
+        document['rebars'][0]['main_bar'] = ''
+        document['rebars'][0]['dist_bar'] = ''
+        validate_document(document)
 
     def test_rejects_non_json_serializable_value(self) -> None:
         """スキーマ検証を通る位置 (未知キー) に非直列化オブジェクトが混入しても拒否する。"""

@@ -210,28 +210,33 @@ class TestBuildColumnCommands:
 
         commands = build_column_commands(ifc)
         assert len(commands) == 2
-        assert all(c['layer'] == '1-柱' for c in commands)
+        # 柱は span レイヤ ``{from}to{to}-柱`` に配置する。base(1 階=1 始まりレベル 1)
+        # 起点なので from=1(``1to...``)。
+        assert all(c['layer'].startswith('1to') and c['layer'].endswith('-柱')
+                   for c in commands)
         # 構造材 ID は "{幅}×{成} - {種別}"(金物なし)
         assert all(c['member_id'] == '105×105 - 管柱' for c in commands)
 
     def test_top_story_uses_column_layer(self) -> None:
-        """最上階 (RFL) の柱(小屋束等)は R-柱 レイヤに配置する。"""
+        """最上階の柱(小屋束等)も span レイヤに配置する(base = その階のレベル)。"""
         ifc = ifcopenshell.file()
         storey = make_storey(ifc, 'RFL', 6300.0)
         make_column(ifc, storey, 0.0, 0.0, oz=-100.0)
 
         commands = build_column_commands(ifc)
         assert len(commands) == 1
-        assert commands[0]['layer'] == 'R-柱'
+        # 単一ストーリ=レベル 1(1 始まり)。上に階が無いため屋根束扱いで 1to1.5。
+        assert commands[0]['layer'] == '1to1.5-柱'
         # 下端高さ = ストーリ高さ + ローカル Z
         assert commands[0]['elevation'] == pytest.approx(6200.0)
 
-    def test_height_comes_from_geometry_not_story_bounds(self) -> None:
-        """柱の上端はパスのジオメトリ(elevation + height)で決まる。
+    def test_column_binds_bottom_current_top_upper_floor(self) -> None:
+        """柱(管柱・通し柱)は下端を当階、上端を上階の横架材天端にバインドする。
 
-        構造材ツールの高さバインドは鉛直材では部材長に加算され上端が二重に
-        なるため使わない。よって命令は start_bound / end_bound を持たず、
-        elevation(下端の絶対 Z)と height(柱高さ)だけで上端が決まる。
+        offset はバインド先レベルの絶対 Z から実際の下端/上端 Z までの距離。
+        当階(1FL)の横架材天端 = 600 + resolve_beam_top_offset、上階(2FL)の
+        横架材天端 = 3500 + resolve_beam_top_offset。この IFC では柱以外に
+        負の配置 Z を持つ要素が無いため beam_top_offset は 0(横架材天端 = FL 高さ)。
         """
         ifc = ifcopenshell.file()
         s1 = make_storey(ifc, '1FL', 600.0)
@@ -240,12 +245,46 @@ class TestBuildColumnCommands:
         make_column(ifc, s1, 0.0, 0.0, height=2718.0)
 
         command = build_column_commands(ifc)[0]
-        # 高さ基準(ストーリバインド)は持たない
-        assert 'start_bound' not in command
-        assert 'end_bound' not in command
-        # 下端=自階高さ+ローカル Z(600+0)、上端は elevation + height で決まる
+        # 下端=自階高さ+ローカル Z(600+0)、上端は elevation + height
         assert command['elevation'] == pytest.approx(600.0)
         assert command['height'] == pytest.approx(2718.0)
+        # 下端は当階(story_offset=0)の横架材天端、offset = 600 - 600 = 0
+        bottom = command['bottom_bound']
+        assert bottom['story_offset'] == 0
+        assert bottom['level'] == '横架材天端'
+        assert bottom['offset'] == pytest.approx(0.0)
+        # 上端は上階(story_offset=1)の横架材天端、offset = (600+2718) - 3500
+        top = command['top_bound']
+        assert top['story_offset'] == 1
+        assert top['level'] == '横架材天端'
+        assert top['offset'] == pytest.approx(600.0 + 2718.0 - 3500.0)
+
+    def test_koyazuka_binds_both_ends_to_current_eaves(self) -> None:
+        """小屋束は下端・上端とも当階の横架材天端(最上階は軒高)にバインドする。
+
+        VW の構造材ツールは上下端 story bound の offset 差をパス由来の部材長に
+        加算するため、パスが既に柱高さを持つ小屋束では上端 offset を下端と同値に
+        して加算分を 0 にする(異なると柱高さが二重加算され上端が約 2 倍になる)。
+        上端の実高さはパス(下端 + height)が担う。
+        """
+        ifc = ifcopenshell.file()
+        make_storey(ifc, '1FL', 600.0)
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, oz=-100.0, height=800.0,
+                    object_type='STANDCOLUMN')
+
+        command = build_column_commands(ifc)[0]
+        # 最上階の柱(小屋束)は軒高(offset 0)を横架材天端の高さとする。
+        # 下端 = 6300 - 100 = 6200、上端はパスの下端 + height = 7000。
+        bottom = command['bottom_bound']
+        top = command['top_bound']
+        assert bottom['story_offset'] == 0
+        assert bottom['level'] == '軒高'
+        assert bottom['offset'] == pytest.approx(-100.0)
+        # 上端 offset は下端と同値(offset 差 0 で二重加算を避ける)
+        assert top['story_offset'] == 0
+        assert top['level'] == '軒高'
+        assert top['offset'] == pytest.approx(-100.0)
 
     def test_assigns_layer_per_story(self) -> None:
         ifc = ifcopenshell.file()
@@ -256,8 +295,10 @@ class TestBuildColumnCommands:
         make_column(ifc, s2, 0.0, 0.0)
 
         layers = [c['layer'] for c in build_column_commands(ifc)]
-        assert '1-柱' in layers
-        assert '2-柱' in layers
+        # 柱は span レイヤに配置する。1 階起点の柱は from=1(``1to...``)、2 階起点は
+        # from=2(``2to...``)。
+        assert any(lyr.startswith('1to') for lyr in layers)
+        assert any(lyr.startswith('2to') for lyr in layers)
 
     def test_elevation_is_story_plus_local_z(self) -> None:
         ifc = ifcopenshell.file()

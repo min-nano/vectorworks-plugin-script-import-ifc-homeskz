@@ -35,7 +35,7 @@ MODULE_NAME = "vectorworks_plugin_import_ifc_homeskz"
 # pip でインストールする依存ライブラリ (pyproject.toml の dependencies と
 # 同期させること)
 DEPENDENCIES = ("ifcopenshell", "certifi")
-REPOSITORY = "h-ikeda/vectorworks_plugin_import_ifc_homeskz"
+REPOSITORY = "min-nano/vectorworks-plugin-import-ifc-homeskz"
 # GitHub REST API は匿名アクセスのレートリミットが厳しいため、制限のない
 # git smart HTTP プロトコルの参照広告エンドポイントから SHA を取得する
 REFS_URL = f"https://github.com/{REPOSITORY}.git/info/refs?service=git-upload-pack"
