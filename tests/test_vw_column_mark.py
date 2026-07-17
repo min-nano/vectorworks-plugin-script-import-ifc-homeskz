@@ -15,6 +15,7 @@ def make_command() -> ColumnMarkCommand:
         'target_layer': '1-柱',
         'target_class': '',
         'size': 300.0,
+        'style': '平面',
         'position': [0.0, 0.0],
     }
 
@@ -75,6 +76,8 @@ class TestExecuteColumnMarks:
         assert set_fields['TargetLayer'] == '1-柱'
         assert set_fields['TargetClass'] == ''
         assert set_fields['MarkSize'] == '300'
+        # 記号スタイル(平面/断面)を MarkStyle パラメータに設定する
+        assert set_fields['MarkStyle'] == '平面'
         # レコード名は PIO プラグイン名
         for c in vs_mock.SetRField.call_args_list:
             assert c.args[0] == 'PIO_HANDLE'
@@ -114,6 +117,27 @@ class TestExecuteColumnMarks:
 
         assert count == 0
         vs_mock.ResetObject.assert_not_called()
+
+    def test_passes_section_style(self) -> None:
+        # 断面記号は柱レイヤ自身に配置し、MarkStyle=断面 を設定する
+        vs_mock = _make_vs_mock({'1-柱'})
+        vw_cm = _load(vs_mock)
+
+        command = make_command()
+        command['layer'] = '1-柱'
+        command['class'] = '01作図-01線-02実線-01極細線'
+        command['target_layer'] = '1-柱'
+        command['style'] = '断面'
+        count = vw_cm.execute_column_marks([command])
+
+        assert count == 1
+        vs_mock.SetClass.assert_called_once_with(
+            'PIO_HANDLE', '01作図-01線-02実線-01極細線')
+        set_fields = {
+            c.args[2]: c.args[3] for c in vs_mock.SetRField.call_args_list
+        }
+        assert set_fields['TargetLayer'] == '1-柱'
+        assert set_fields['MarkStyle'] == '断面'
 
     def test_passes_target_class_when_specified(self) -> None:
         vs_mock = _make_vs_mock({'2-下階柱'})

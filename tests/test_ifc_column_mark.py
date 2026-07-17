@@ -14,6 +14,9 @@ import ifcopenshell
 from vectorworks_plugin_import_ifc_homeskz.ifc.column_mark import (
     DEFAULT_MARK_SIZE,
     MARK_CLASS,
+    MARK_STYLE_PLAN,
+    MARK_STYLE_SECTION,
+    SECTION_MARK_CLASS,
     build_column_mark_commands,
 )
 from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import (
@@ -34,14 +37,19 @@ class TestBuildColumnMarkCommands:
 
     def test_single_story_only_koyazuka_mark(self) -> None:
         # ストーリが 1 つだけ (=最上階=最下階) なら下階柱記号は作らないが、
-        # 屋根の小屋束を母屋伏図に記号化する小屋束記号は作る
+        # 屋根の小屋束を母屋伏図に記号化する小屋束記号と、屋根の柱レイヤの断面記号は作る
         ifc = ifcopenshell.file()
         make_storey(ifc, 'RFL', 0.0)
         assert build_column_mark_commands(ifc) == [
             {
                 'layer': 'R-小屋束', 'class': MARK_CLASS, 'target_layer': 'R-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'style': MARK_STYLE_PLAN, 'position': [0.0, 0.0],
+            },
+            {
+                'layer': 'R-柱', 'class': SECTION_MARK_CLASS, 'target_layer': 'R-柱',
+                'target_class': '', 'size': DEFAULT_MARK_SIZE,
+                'style': MARK_STYLE_SECTION, 'position': [0.0, 0.0],
             },
         ]
 
@@ -54,32 +62,48 @@ class TestBuildColumnMarkCommands:
         commands = build_column_mark_commands(ifc)
 
         # 最下階 (1階) の下階柱記号は作らない。2階・屋根の各階に管柱(×)と小屋束(○)の
-        # 2 つずつ (計 4 つ)、加えて屋根の小屋束記号 1 つ
+        # 2 つずつ (計 4 つ)、加えて屋根の小屋束記号 1 つ、さらに各階(1階・2階・屋根)の
+        # 柱レイヤに断面記号 1 つずつ (計 3 つ)
         assert commands == [
             {
                 'layer': '2-下階柱', 'class': MARK_CLASS, 'target_layer': '1-柱',
                 'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'style': MARK_STYLE_PLAN, 'position': [0.0, 0.0],
             },
             {
                 'layer': '2-下階柱', 'class': MARK_CLASS, 'target_layer': '1-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'style': MARK_STYLE_PLAN, 'position': [0.0, 0.0],
             },
             {
                 'layer': 'R-下階柱', 'class': MARK_CLASS, 'target_layer': '2-柱',
                 'target_class': CLASS_KUDABASHIRA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'style': MARK_STYLE_PLAN, 'position': [0.0, 0.0],
             },
             {
                 'layer': 'R-下階柱', 'class': MARK_CLASS, 'target_layer': '2-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'style': MARK_STYLE_PLAN, 'position': [0.0, 0.0],
             },
             {
                 'layer': 'R-小屋束', 'class': MARK_CLASS, 'target_layer': 'R-柱',
                 'target_class': CLASS_KOYAZUKA, 'size': DEFAULT_MARK_SIZE,
-                'position': [0.0, 0.0],
+                'style': MARK_STYLE_PLAN, 'position': [0.0, 0.0],
+            },
+            {
+                'layer': '1-柱', 'class': SECTION_MARK_CLASS, 'target_layer': '1-柱',
+                'target_class': '', 'size': DEFAULT_MARK_SIZE,
+                'style': MARK_STYLE_SECTION, 'position': [0.0, 0.0],
+            },
+            {
+                'layer': '2-柱', 'class': SECTION_MARK_CLASS, 'target_layer': '2-柱',
+                'target_class': '', 'size': DEFAULT_MARK_SIZE,
+                'style': MARK_STYLE_SECTION, 'position': [0.0, 0.0],
+            },
+            {
+                'layer': 'R-柱', 'class': SECTION_MARK_CLASS, 'target_layer': 'R-柱',
+                'target_class': '', 'size': DEFAULT_MARK_SIZE,
+                'style': MARK_STYLE_SECTION, 'position': [0.0, 0.0],
             },
         ]
 
@@ -93,7 +117,8 @@ class TestBuildColumnMarkCommands:
 
         commands = build_column_mark_commands(ifc)
 
-        # 各下階柱記号は管柱(×)と小屋束(○)の 2 クラスに分かれる。末尾に屋根の小屋束記号。
+        # 各下階柱記号は管柱(×)と小屋束(○)の 2 クラスに分かれる。次に屋根の小屋束記号、
+        # 末尾に各階の柱レイヤ自身を対象にする断面記号。
         assert [
             (c['layer'], c['target_layer'], c['target_class']) for c in commands
         ] == [
@@ -104,6 +129,10 @@ class TestBuildColumnMarkCommands:
             ('R-下階柱', '3-柱', CLASS_KUDABASHIRA),
             ('R-下階柱', '3-柱', CLASS_KOYAZUKA),
             ('R-小屋束', 'R-柱', CLASS_KOYAZUKA),
+            ('1-柱', '1-柱', ''),
+            ('2-柱', '2-柱', ''),
+            ('3-柱', '3-柱', ''),
+            ('R-柱', 'R-柱', ''),
         ]
 
     def test_commands_are_json_serializable(self) -> None:

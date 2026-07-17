@@ -163,7 +163,8 @@ def make_valid_document() -> dict[str, Any]:
             {
                 'layer': '2-下階柱', 'class': '01作図-04記号-04構造-一般',
                 'target_layer': '1-柱',
-                'target_class': '', 'size': 300.0, 'position': [0.0, 0.0],
+                'target_class': '', 'size': 300.0, 'style': '平面',
+                'position': [0.0, 0.0],
             },
         ],
         'legends': [
@@ -810,6 +811,12 @@ class TestValidateDocument:
         document = make_valid_document()
         document['column_marks'][0]['position'] = [0.0]
         with pytest.raises(DocumentValidationError, match='position'):
+            validate_document(document)
+
+    def test_rejects_column_mark_with_empty_style(self) -> None:
+        document = make_valid_document()
+        document['column_marks'][0]['style'] = ''
+        with pytest.raises(DocumentValidationError, match='style'):
             validate_document(document)
 
     def test_rejects_legend_without_number(self) -> None:

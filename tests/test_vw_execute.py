@@ -227,7 +227,7 @@ def make_document() -> dict[str, Any]:
         'column_marks': [
             {'layer': 'R-下階柱', 'class': '01作図-04記号-04構造-一般',
              'target_layer': '1-柱', 'target_class': '',
-             'size': 300.0, 'position': [0.0, 0.0]},
+             'size': 300.0, 'style': '平面', 'position': [0.0, 0.0]},
         ],
         'legends': [
             {'number': '1', 'position': [0.0, 0.0],
