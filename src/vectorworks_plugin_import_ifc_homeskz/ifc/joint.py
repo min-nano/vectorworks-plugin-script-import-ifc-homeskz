@@ -76,11 +76,12 @@ def _member_geom(command: MemberCommand) -> _Geom | None:
     return sx, sy, ex, ey, ux, uy, length, hw, z_bottom, z_top
 
 
-def _column_geom(command: ColumnCommand) -> _ColGeom | None:
+def _column_geom(command: ColumnCommand) -> _ColGeom:
     """column 命令から受ける柱判定用のジオメトリを返す。
 
     配置中心・断面の半幅/半成・Z 範囲([下端, 上端])を計算する。柱は
     ``elevation``(下端の絶対 Z)から ``height``(柱高さ)分の鉛直材。
+    横架材と違い柱は退化(平面投影長 0)しないため常にジオメトリを返す。
     """
     cx, cy = command['position']
     return (
@@ -131,7 +132,7 @@ def _point_in_column(px: float, py: float, col: _ColGeom) -> bool:
 def _end_has_receiver(
     index: int, px: float, py: float,
     geoms: list[_Geom | None], members: list[MemberCommand],
-    col_geoms: list[_ColGeom | None],
+    col_geoms: list[_ColGeom],
 ) -> bool:
     """端点 (px, py) に取り付く受ける材(別の横架材または柱)があれば True。
 
@@ -161,8 +162,6 @@ def _end_has_receiver(
             return True
     # 柱の側面に取り付く端部も受ける材のある端部とする
     for col in col_geoms:
-        if col is None:
-            continue
         if not _z_ranges_overlap(izb, izt, col[4], col[5]):
             continue
         if _point_in_column(px, py, col):
@@ -183,8 +182,7 @@ def build_joint_commands(
     判定するため、命令の並び順に依存しない決定的な結果になる。
     """
     geoms: list[_Geom | None] = [_member_geom(m) for m in members]
-    col_geoms: list[_ColGeom | None] = [
-        _column_geom(c) for c in (columns or [])]
+    col_geoms: list[_ColGeom] = [_column_geom(c) for c in (columns or [])]
 
     commands: list[JointCommand] = []
     for i, member in enumerate(members):

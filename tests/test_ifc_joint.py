@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 
 import ifcopenshell
 
 from vectorworks_plugin_import_ifc_homeskz.document import (
     ColumnCommand,
+    JointCommand,
     MemberCommand,
 )
 from vectorworks_plugin_import_ifc_homeskz.ifc import joint
@@ -307,3 +309,89 @@ class TestBuildFromFixture:
             assert joints
             for j in joints:
                 assert j['symbol'] == '仕口'
+
+
+class TestBuildFromFixtureWithColumns:
+    """柱を渡したときの仕口判定(柱に受けられる梁端)を実 IFC で検証する。"""
+
+    FILENAMES = (
+        'サンプル1 (住木邸新築工事).ifc',
+        '伏図次郎【2階】.ifc',
+        'スキップフロア_サンプル.ifc',
+        'グレー本モデルプラン1【3階】.ifc',
+        'グレー本モデルプラン2【3階】.ifc',
+    )
+
+    @staticmethod
+    def _position_in_any_column(
+        px: float, py: float,
+        col_geoms: list[joint._ColGeom],
+    ) -> bool:
+        return any(joint._point_in_column(px, py, c) for c in col_geoms)
+
+    @staticmethod
+    def _joint_counts(
+        commands: list[JointCommand],
+    ) -> Counter[tuple[str, tuple[float, ...]]]:
+        return Counter(
+            (c['layer'], tuple(c['position'])) for c in commands)
+
+    def test_columns_only_add_joints(self) -> None:
+        # 柱を渡しても横架材同士の仕口は消えない(受ける材判定は柱の有無に
+        # 依らないため、柱ありの仕口集合は柱なしの上位集合になる)。かつ実データで
+        # 柱に受けられる梁端の仕口が少なくとも 1 件は増える。
+        from vectorworks_plugin_import_ifc_homeskz.ifc import (
+            build_column_commands,
+            build_member_commands,
+        )
+        total_added = 0
+        for filename in self.FILENAMES:
+            ifc = _open(filename)
+            members = build_member_commands(ifc)
+            columns = build_column_commands(ifc)
+            without = joint.build_joint_commands(members)
+            with_cols = joint.build_joint_commands(members, columns)
+            base_counts = self._joint_counts(without)
+            ext_counts = self._joint_counts(with_cols)
+            # 柱なしの各仕口は柱ありにも必ず同数以上含まれる(上位集合)
+            for k, n in base_counts.items():
+                assert ext_counts[k] >= n
+            total_added += len(with_cols) - len(without)
+        assert total_added > 0
+
+    def test_added_joints_land_on_columns(self) -> None:
+        # 柱ありでのみ現れる仕口(=柱に受けられた梁端)は、いずれかの柱の
+        # 断面 footprint に載っている(実データでの幾何的な妥当性)。
+        from vectorworks_plugin_import_ifc_homeskz.ifc import (
+            build_column_commands,
+            build_member_commands,
+        )
+        for filename in self.FILENAMES:
+            ifc = _open(filename)
+            members = build_member_commands(ifc)
+            columns = build_column_commands(ifc)
+            col_geoms = [joint._column_geom(c) for c in columns]
+            without = {(c['layer'], tuple(c['position']))
+                       for c in joint.build_joint_commands(members)}
+            with_cols = joint.build_joint_commands(members, columns)
+            added = [c for c in with_cols
+                     if (c['layer'], tuple(c['position'])) not in without]
+            for c in added:
+                px, py = c['position']
+                assert self._position_in_any_column(px, py, col_geoms)
+
+    def test_result_is_order_independent_with_columns(self) -> None:
+        from vectorworks_plugin_import_ifc_homeskz.ifc import (
+            build_column_commands,
+            build_member_commands,
+        )
+        ifc = _open('伏図次郎【2階】.ifc')
+        members = build_member_commands(ifc)
+        columns = build_column_commands(ifc)
+        s1 = sorted((j['layer'], tuple(j['position']))
+                    for j in joint.build_joint_commands(members, columns))
+        s2 = sorted(
+            (j['layer'], tuple(j['position']))
+            for j in joint.build_joint_commands(
+                list(reversed(members)), list(reversed(columns))))
+        assert s1 == s2
