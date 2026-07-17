@@ -35,7 +35,9 @@
 
 **確定後の屋根オブジェクトへの後付け操作は、取得系(``GetRoofFaceCoords``/
 ``GetRoofFaceAttrib``)・高さ自己補正の差分 ``Move3D``(床ツールで実績のある
-確定後 Move3D と同じ規約)・``SetClass`` に限る**。以前は確定後に
+確定後 Move3D と同じ規約)・``SetClass`` + 描画属性の by-class 設定
+(``_set_all_attributes_by_class``。太さ・色・パターン・透明度等をすべてクラス属性に
+従わせる)に限る**。以前は確定後に
 ``SetRoofAttributes``(本来 ``CreateRoof`` が返す屋根コンテナ用の関数)で厚みを
 設定していたが、``BeginRoof`` が作る屋根への呼び出しはエクスポートに現れず、
 未定義動作で VectorWorks 本体がクラッシュする原因と考えられるため呼ばない(#113)。
@@ -51,6 +53,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import vs
 
@@ -71,6 +74,22 @@ _POLYGON_TYPE = 5
 _SLOPE_RUN_UNIT = 25.4
 # 高さの自己補正で「補正不要」とみなす軸 Z の差 (mm)。
 _Z_TOL = 0.5
+
+
+def _set_all_attributes_by_class(obj: Any) -> None:
+    """屋根オブジェクトの描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+
+    ``SetClass`` はクラスを割り当てるだけで各描画属性は by-instance の既定値のまま残る
+    ため、属性ごとの by-class 設定関数を個別に呼ぶ(``vw/rebar.py`` ・ ``vw/column_mark.py``
+    と同じ規約)。
+    """
+    vs.SetPenColorByClass(obj)
+    vs.SetFillColorByClass(obj)
+    vs.SetLWByClass(obj)
+    vs.SetLSByClass(obj)
+    vs.SetFPatByClass(obj)
+    vs.SetMarkerByClass(obj)
+    vs.SetOpacityByClass(obj)
 
 
 def _roof_face_axis_z(coords: object) -> float | None:
@@ -125,6 +144,7 @@ def draw_roof(command: RoofCommand) -> None:
         poly_h = vs.LNewObj()
         if poly_h != vs.Handle(0):
             vs.SetClass(poly_h, command['class'])
+            _set_all_attributes_by_class(poly_h)
         return
     # 比を保ったまま run=25.4(1 インチ)基準へ正規化する(エクスポートの規約)。
     rise = command['rise'] * _SLOPE_RUN_UNIT / run
@@ -184,6 +204,7 @@ def draw_roof(command: RoofCommand) -> None:
         poly_h = vs.LNewObj()
         if poly_h != vs.Handle(0) and poly_h != before:
             vs.SetClass(poly_h, command['class'])
+            _set_all_attributes_by_class(poly_h)
         return
 
     obj_type = vs.GetTypeN(roof)
@@ -192,6 +213,7 @@ def draw_roof(command: RoofCommand) -> None:
         # BeginRoof が屋根を作れず、テンプレートの外形ポリゴンだけが残った:
         # そのポリゴンをフォールバック外形として扱う。屋根専用の設定は呼ばない。
         vs.SetClass(roof, command['class'])
+        _set_all_attributes_by_class(roof)
         return
 
     # 高さの自己補正: 屋根はレイヤ平面(バインドされたレイヤではストーリレベルの
@@ -212,6 +234,7 @@ def draw_roof(command: RoofCommand) -> None:
 
     trace('draw_roof: SetClass')
     vs.SetClass(roof, command['class'])
+    _set_all_attributes_by_class(roof)
     trace('draw_roof: done')
 
 

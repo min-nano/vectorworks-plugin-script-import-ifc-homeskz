@@ -190,6 +190,22 @@ class TestExecuteRoofs:
         vs_mock.SetClass.assert_called_once()
         assert vs_mock.SetClass.call_args.args[1] == '04構造-02木造-06耐力面材-03屋根'
 
+    def test_sets_all_attributes_by_class(self) -> None:
+        # 屋根の描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+        roof_handle = object()
+        vs_mock = _make_vs_mock({'R-野地板'}, created=roof_handle)
+        vw_roof = _load(vs_mock)
+
+        vw_roof.execute_roofs([make_command()])
+
+        vs_mock.SetPenColorByClass.assert_called_once_with(roof_handle)
+        vs_mock.SetFillColorByClass.assert_called_once_with(roof_handle)
+        vs_mock.SetLWByClass.assert_called_once_with(roof_handle)
+        vs_mock.SetLSByClass.assert_called_once_with(roof_handle)
+        vs_mock.SetFPatByClass.assert_called_once_with(roof_handle)
+        vs_mock.SetMarkerByClass.assert_called_once_with(roof_handle)
+        vs_mock.SetOpacityByClass.assert_called_once_with(roof_handle)
+
     def test_does_not_touch_finished_roof_except_class(self) -> None:
         # 確定後の屋根への後付け操作は SetClass のみ(SetRoofAttributes・
         # Move3DObj・ResetObject は未定義動作でクラッシュの一因になるため
