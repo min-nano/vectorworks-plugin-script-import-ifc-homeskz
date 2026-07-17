@@ -34,9 +34,12 @@
   最後に続けて Elevation 昇順に振る。タイトルは屋根が架かる階番号を付けた
   ``{index}階母屋伏図``(例 2 階建てなら主屋根=``2階母屋伏図``、下屋根=``1階母屋伏図``)。
   表示レイヤは母屋(``n-母屋``、母屋がある階のみ)・垂木(``n-垂木``)・野地板
-  (``n-野地板``)・通り芯(``共通``)。母屋伏図は母屋の上からの見下げ図なので小屋束の
-  断面は出ず、母屋を支える小屋束の位置は平面の伏図記号で示す(小屋束伏図記号は span
-  方式への移行後に別途対応するため、現状は表示レイヤに小屋束記号レイヤを含めない)。
+  (``n-野地板``)・通り芯(``共通``)に加え、**その伏図の切断レベル(その階の床レベル
+  +0.75=``MOYA_PLAN_CUT_OFFSET``)を span が含む柱レイヤ**(``{from}to{to}-柱``)。
+  これにより屋根を貫いて立ち上がる主屋の柱(管柱・通し柱、例 ``2to3``)が表示される。
+  母屋伏図は母屋の上からの見下げ図なので小屋束の断面は出ず(切断が小屋束 span の
+  to=半整数より高いため小屋束レイヤは含まれない)、母屋を支える小屋束の位置は平面の
+  伏図記号で示す(小屋束伏図記号は span 方式への移行後に別途対応する)。
 
 さらに ``build_legend_commands`` は基礎伏図に **グラフィック凡例**(VW 標準の
 「グラフィック凡例」PIO)を配置する legend 命令を組み立てる。基礎伏図ビューポートに
@@ -83,6 +86,17 @@ from .story import (
 # (from ≤ 切断 ≤ to)柱レイヤだけを載せることで、下屋の小屋束(例 ``2to2.5``、to=2.5)が
 # 上階の小屋伏図(切断 3.25)に写り込まなくなる。
 FLOOR_PLAN_CUT_OFFSET = 1.25
+
+# 母屋伏図の柱の切断レベル。母屋伏図(story index ``i``、タイトル ``{i}階母屋伏図``)は
+# 屋根(母屋)を見下げる図で、母屋を支える小屋束の断面は出さず、代わりに屋根を貫いて
+# 立ち上がる主屋の柱(管柱・通し柱)を表示する。切断レベルは ``i + 1.75``=その階の
+# 床レベル(``i + 1``)より 0.75 上=**その階の小屋束(span [i+1, i+1.5])を超え、
+# 上階の床(``i + 2``)には届かない高さ**をサンプルする。これにより span [from, to] が
+# この切断を含む(from ≤ 切断 ≤ to)柱レイヤ、すなわち下から貫いてこの高さに達する
+# 主屋の柱(例 ``2to3``・``1to3``)だけが載り、母屋を支える下屋の小屋束
+# (例 ``2to2.5``、to=2.5<2.75)は載らない(小屋束の断面は母屋伏図に出さない要件)。
+# 例: 1階母屋伏図(i=1)=2.75、2階母屋伏図(i=2)=3.75。
+MOYA_PLAN_CUT_OFFSET = 1.75
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -248,6 +262,7 @@ def build_floor_framing_sheet_commands(
 
 def build_moya_sheet_commands(
     ifc_file: ifcopenshell.file,
+    columns: list[ColumnCommand] | None = None,
 ) -> list[SheetCommand]:
     """母屋伏図シートの sheet 命令を組み立てて返す。
 
@@ -259,14 +274,25 @@ def build_moya_sheet_commands(
     ``moya_plan_title``(``{index}階母屋伏図``)。
 
     表示レイヤは 母屋(``n-母屋``、母屋がある階のみ)・垂木(``n-垂木``)・野地板
-    (``n-野地板``)・小屋束記号(``n-小屋束``)・通り芯(``共通``)。母屋を支える小屋束の
-    位置を小屋束記号(柱束伏図記号 PIO)で示す。下屋根は母屋を持たない(単純な片流れ等)
-    こともあるため、母屋レイヤは母屋がある階(``moya_flags``)にだけ加え、垂木・野地板・
-    小屋束記号は屋根版がある階(``roof_flags``)に加える。ストーリが無ければ空リストを返す。
+    (``n-野地板``)・通り芯(``共通``)に加え、**その伏図の切断レベルを span が含む柱レイヤ**
+    (``{from}to{to}-柱``)。切断レベルは ``MOYA_PLAN_CUT_OFFSET`` によりその階の床レベル
+    (1 始まり=index+1)+0.75。これにより、屋根を貫いて立ち上がる主屋の柱(管柱・通し柱、
+    例 ``2to3``・``1to3``)が表示され、母屋を支える小屋束(span の to が半整数で切断より
+    低い、例 ``2to2.5``)は表示されない(母屋伏図は母屋の上からの見下げ図なので小屋束の
+    断面は出さず、小屋束の位置は平面の伏図記号で示す=span 方式への移行後に別途対応)。
+
+    下屋根は母屋を持たない(単純な片流れ等)こともあるため、母屋レイヤは母屋がある階
+    (``moya_flags``)にだけ加え、垂木・野地板は屋根版がある階(``roof_flags``)に加える。
+    柱の span レイヤを切断レベルで絞るため column 命令(``columns``)を渡す(未指定なら
+    内部で組み立てる)。ストーリが無ければ空リストを返す。
     """
     stories = collect_stories(ifc_file)
     if not stories:
         return []
+    if columns is None:
+        from .column import build_column_commands
+        columns = build_column_commands(ifc_file)
+    spans = collect_column_spans(columns)
     moya_flags = collect_story_moya_flags(ifc_file)
     roof_flags = collect_story_roof_flags(ifc_file)
     n = len(stories)
@@ -286,6 +312,9 @@ def build_moya_sheet_commands(
             layers.append(f'{prefix}-{LEVEL_MOYA}')
         layers.append(f'{prefix}-{LEVEL_TARUKI}')
         layers.append(f'{prefix}-{LEVEL_NOJIITA}')
+        # この伏図の切断レベル(その階の床レベル + 0.75)を span が含む柱レイヤを載せる。
+        cut = i + MOYA_PLAN_CUT_OFFSET
+        layers.extend(_span_layers_at_cut(spans, cut))
         layers.append(TARGET_LAYER)
         title = moya_plan_title(i)
         number = str(base_number + seq)
@@ -339,11 +368,11 @@ def build_sheet_commands(
     """sheet 命令のリストを組み立てて返す。
 
     基礎伏図(基礎がある場合のみ)に続けて、各階の柱梁伏図、最後に母屋伏図を
-    組み立てる。柱梁伏図は柱の span レイヤを切断レベルで絞るため columns を渡す
-    (未指定なら内部で組み立てる)。
+    組み立てる。柱梁伏図・母屋伏図はともに柱の span レイヤを切断レベルで絞るため
+    columns を渡す(未指定なら内部で組み立てる)。
     """
     return [
         *build_foundation_sheet_commands(ifc_file),
         *build_floor_framing_sheet_commands(ifc_file, columns),
-        *build_moya_sheet_commands(ifc_file),
+        *build_moya_sheet_commands(ifc_file, columns),
     ]

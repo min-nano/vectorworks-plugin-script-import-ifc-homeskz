@@ -151,24 +151,46 @@ class TestBuildMoyaSheetCommands:
         sheets = sheet.build_moya_sheet_commands(ifc)
         assert [s['title'] for s in sheets] == ['1階母屋伏図', '2階母屋伏図']
         assert [s['number'] for s in sheets] == ['5', '6']
-        # 下屋根(2階)の母屋伏図: 母屋・垂木・野地板・通り芯(小屋束の伏図記号は後回し)
+        # 下屋根(2階)の母屋伏図: 母屋・垂木・野地板・柱・通り芯。切断レベル(1+1.75=2.75)を
+        # span が含む柱レイヤ=屋根を貫いて立ち上がる主屋の柱(2to3)。下屋の小屋束
+        # (2to2.5、to=2.5<2.75)は載らない(小屋束の断面は母屋伏図に出さない)。
         assert sheets[0]['viewport']['drawing_title'] == '1階母屋伏図'
         assert sheets[0]['viewport']['drawing_number'] == '5'
         assert sheets[0]['viewport']['layers'] == [
-            '2-母屋', '2-垂木', '2-野地板', '共通']
-        # 主屋根(屋根)の母屋伏図
+            '2-母屋', '2-垂木', '2-野地板', '2to3-柱', '共通']
+        # 主屋根(屋根)の母屋伏図: 切断レベル(2+1.75=3.75)を span が含む柱は無い
+        # (最上の柱 3to3.5 は to=3.5<3.75)ため柱レイヤは載らない。
         assert sheets[1]['viewport']['layers'] == [
             'R-母屋', 'R-垂木', 'R-野地板', '共通']
 
     def test_roof_only_shed_dormer_has_no_moya_layer(self) -> None:
         # 母屋の無い下屋根(片流れ等)の母屋伏図は母屋レイヤを含まず、垂木・野地板・
-        # 小屋束記号・通り芯だけを表示する(屋根版はあるため伏図自体は作る)。
+        # 柱・通り芯を表示する(屋根版はあるため伏図自体は作る)。切断レベル
+        # (1+1.75=2.75)を span が含む主屋の柱(1to3・2to3)を載せる。
         ifc = _open('スキップフロア_サンプル.ifc')
         sheets = sheet.build_moya_sheet_commands(ifc)
         # 2階の下屋根(母屋なし)と屋根の主屋根の 2 枚
         assert [s['title'] for s in sheets] == ['1階母屋伏図', '2階母屋伏図']
         assert sheets[0]['viewport']['layers'] == [
-            '2-垂木', '2-野地板', '共通']
+            '2-垂木', '2-野地板', '1to3-柱', '2to3-柱', '共通']
+
+    def test_moya_sheet_column_cut_levels(self) -> None:
+        # 母屋伏図の柱の切断レベルは「その階の床レベル + 0.75」。1階母屋伏図(i=1)は
+        # 2.75、2階母屋伏図(i=2)は 3.75 を含む柱レイヤを表示する。3 階建てフィクスチャで
+        # 各母屋伏図が想定の span 柱レイヤ(屋根を貫く主屋の柱)を載せることを確認する。
+        ifc = _open('グレー本モデルプラン1【3階】.ifc')
+        sheets = {s['title']: s for s in sheet.build_moya_sheet_commands(ifc)}
+
+        def column_layers(title: str) -> list[str]:
+            return [
+                layer for layer in sheets[title]['viewport']['layers']
+                if layer.endswith('-柱')
+            ]
+
+        # 1階母屋伏図: 2.75 を span が含む柱(2to3・2to3.5)。
+        assert column_layers('1階母屋伏図') == ['2to3-柱', '2to3.5-柱']
+        # 2階母屋伏図: 3.75 を span が含む柱(3to4)。
+        assert column_layers('2階母屋伏図') == ['3to4-柱']
 
 
 def _anchor_bolt(symbol: str) -> AnchorBoltCommand:
