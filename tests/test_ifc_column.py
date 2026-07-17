@@ -256,7 +256,13 @@ class TestBuildColumnCommands:
         assert top['offset'] == pytest.approx(600.0 + 2718.0 - 3500.0)
 
     def test_koyazuka_binds_both_ends_to_current_eaves(self) -> None:
-        """小屋束は下端・上端とも当階の横架材天端(最上階は軒高)にバインドする。"""
+        """小屋束は下端・上端とも当階の横架材天端(最上階は軒高)にバインドする。
+
+        VW の構造材ツールは上下端 story bound の offset 差をパス由来の部材長に
+        加算するため、パスが既に柱高さを持つ小屋束では上端 offset を下端と同値に
+        して加算分を 0 にする(異なると柱高さが二重加算され上端が約 2 倍になる)。
+        上端の実高さはパス(下端 + height)が担う。
+        """
         ifc = ifcopenshell.file()
         make_storey(ifc, '1FL', 600.0)
         storey = make_storey(ifc, 'RFL', 6300.0)
@@ -265,15 +271,16 @@ class TestBuildColumnCommands:
 
         command = build_column_commands(ifc)[0]
         # 最上階の柱(小屋束)は軒高(offset 0)を横架材天端の高さとする。
-        # 下端 = 6300 - 100 = 6200、上端 = 6200 + 800 = 7000。
+        # 下端 = 6300 - 100 = 6200、上端はパスの下端 + height = 7000。
         bottom = command['bottom_bound']
         top = command['top_bound']
         assert bottom['story_offset'] == 0
         assert bottom['level'] == '軒高'
         assert bottom['offset'] == pytest.approx(-100.0)
+        # 上端 offset は下端と同値(offset 差 0 で二重加算を避ける)
         assert top['story_offset'] == 0
         assert top['level'] == '軒高'
-        assert top['offset'] == pytest.approx(700.0)
+        assert top['offset'] == pytest.approx(-100.0)
 
     def test_assigns_layer_per_story(self) -> None:
         ifc = ifcopenshell.file()

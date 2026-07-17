@@ -9,13 +9,18 @@ IFC の IfcColumn を走査し、各階の柱レイヤ(``n-柱``)に配置する
 **柱・小屋束の上下端高さは横架材天端(最上階は軒高)のストーリレベルにバインド
 する**(梁と同じ仕組み)。柱(管柱・通し柱)は下端を当階の横架材天端、上端を上階
 (次階)の横架材天端にバインドし、小屋束は下端・上端とも当階の横架材天端に
-バインドする(小屋束には上階が無いため当階の横架材天端からのオフセットで上端を
-表す)。``offset`` はバインド先レベルの絶対 Z から実際の下端/上端の絶対 Z までの
-距離で、下端 Z(``elevation`` = ストーリ高さ + ローカル配置 Z の絶対値)と柱高さ
-(``height``)から算出する。描画フェーズはパスを絶対 Z に配置してから
-``SetObjectStoryBound`` で上下端をこのレベル・オフセットにバインドし、実ジオメトリ
-と一致させる(バインドはパスの絶対 Z と一致するため二重加算にならず、かつ編集時に
-高さがレイヤ基準へリセットされるのを防ぐ)。
+バインドする。``offset`` はバインド先レベルの絶対 Z から実際の下端/上端の絶対 Z
+までの距離で、下端 Z(``elevation`` = ストーリ高さ + ローカル配置 Z の絶対値)と
+柱高さ(``height``)から算出する。
+
+**VW の構造材ツールは上下端 story bound の offset 差(top − bottom)をパス由来の
+部材長に加算する。** 柱は上端を上階にバインドし offset 差が ≈0 になるため二重加算は
+生じないが、小屋束(上階が無く上下端とも当階の横架材天端にバインドする)で上端 offset
+を天端相当(bottom + height)にすると柱高さが二重加算され上端が約 2 倍になる。そこで
+**小屋束は上端 offset を下端と同値にして加算分を 0 にし**、上端高さはパス(下端 +
+height)に委ねる。描画フェーズはパスを絶対 Z に配置してから ``SetObjectStoryBound``
+で上下端をこのレベル・オフセットにバインドし、編集時に高さがレイヤ基準へリセットされる
+のを防ぐ。
 
 構造材 ID (member_id) は ``{幅}×{成} - {種別}`` に柱頭・柱脚金物の仕様を連結
 した文字列にする。構造材ツールには金物専用フィールドが無いため、金物仕様は
@@ -305,15 +310,22 @@ def build_column_commands(ifc_file: ifcopenshell.file) -> list[ColumnCommand]:
                 # offset はバインド先レベルの絶対 Z から実際の下端/上端 Z までの距離。
                 current_level = LEVEL_EAVES if is_top else LEVEL_BEAM_TOP
                 current_top_abs = beam_top_abs[i]
+                bottom_offset = bottom_abs - current_top_abs
                 bottom_bound: StoryBoundCommand = {
                     'story_offset': 0, 'level': current_level,
-                    'offset': bottom_abs - current_top_abs}
+                    'offset': bottom_offset}
                 if is_koyazuka or is_top:
-                    # 小屋束(および上階の無い最上階の柱)は当階の横架材天端に上端も
-                    # バインドし、柱高さぶんを offset で表す。
+                    # 小屋束(および上階の無い最上階の柱)は上下端とも当階の横架材天端に
+                    # バインドする。**上端の offset は下端と同値にする**: VW の構造材ツールは
+                    # 上下端 story bound の offset 差(top − bottom)をパス由来の部材長に
+                    # 加算するため、パスが既に柱高さ(height)を持つ小屋束で上端 offset を
+                    # 天端相当(bottom + height)にすると柱高さが二重に加算され上端が約 2 倍に
+                    # なる。offset 差を 0 にすれば加算分が消え、上端高さはパス(下端 + height)
+                    # が担う。柱(管柱・通し柱)は上端を上階にバインドし offset 差が ≈0 に
+                    # なるため二重加算が生じない。
                     top_bound: StoryBoundCommand = {
                         'story_offset': 0, 'level': current_level,
-                        'offset': top_abs - current_top_abs}
+                        'offset': bottom_offset}
                 else:
                     # 柱(管柱・通し柱)は上端を上階(次階)の横架材天端にバインドする。
                     next_is_top = (i + 1 == top_idx)
