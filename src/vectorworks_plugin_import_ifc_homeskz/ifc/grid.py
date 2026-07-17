@@ -61,26 +61,6 @@ def resolve_lines(ifc_file: ifcopenshell.file) -> tuple[list[Line], float, float
     return lines_to_draw, center_x, center_y
 
 
-def resolve_centered_bounds(
-    ifc_file: ifcopenshell.file,
-) -> tuple[float, float, float, float] | None:
-    """通り芯のセンタリング済みバウンディングボックス ``(min_x, min_y, max_x, max_y)`` を返す。
-
-    座標は grid 命令と同じくバウンディングボックス中心でセンタリングした値(中心が原点)。
-    通り芯が 1 本も無ければ範囲を決められないため None を返す。断面ビューポート(建物中心を
-    通る YZ 平面での切断)の切断線・奥行きの算出に使う。
-    """
-    lines, center_x, center_y = resolve_lines(ifc_file)
-    if not lines:
-        return None
-    xs: list[float] = []
-    ys: list[float] = []
-    for x1, y1, x2, y2, _ in lines:
-        xs.extend((x1 - center_x, x2 - center_x))
-        ys.extend((y1 - center_y, y2 - center_y))
-    return min(xs), min(ys), max(xs), max(ys)
-
-
 def determine_class(name: str, cx1: float, cy1: float, cx2: float, cy2: float) -> str:
     """グリッド線のクラス名(X通り or Y通り)を返す。"""
     if name.upper().startswith('X'):
