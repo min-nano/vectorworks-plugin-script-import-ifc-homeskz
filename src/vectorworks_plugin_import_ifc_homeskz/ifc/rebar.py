@@ -21,9 +21,11 @@
 配筋仕様は IFC の ``Pset_Reinforcement`` プロパティセット(``TopReinforce`` /
 ``BottomReinforce`` / ``ShearReinforce``、例 ``SD295_1-D13`` / ``SD295_1-D10@300`` /
 底盤は ``SD295_D13@300_D13@300``)から取得し、鋼種(``SD295_`` / ``SD295-``)の接頭辞を
-除いて PIO の配筋仕様文字列にする。プロパティが無い(IFC に配筋情報が出力されていない)
-要素には既定値(立上り・地中梁=上下 1-D13・せん断 D10@250、底盤=D13@150 シングル
-両方向)を使う。
+除いて PIO の配筋仕様文字列にする。せん断補強筋は鉄筋 PIO が脚数の接頭辞
+(``1-`` 等)で配置を切り替えるため、脚数を常に ``1-``(中央縦筋 1 本)に固定した
+``1-D10@200`` 形式にする(ホームズ君の出力は全て縦筋 1 本の前提)。プロパティが無い
+(IFC に配筋情報が出力されていない)要素には既定値(立上り・地中梁=上下 1-D13・
+せん断 1-D10@250、底盤=D13@150 シングル両方向)を使う。
 
 座標は通り芯・基礎と同じグリッド中心オフセットで補正する。押し出しソリッドの
 ワールド変換・断面外形の取得は ``footing.py`` の低レベルヘルパーを再利用する。
@@ -65,7 +67,7 @@ _PROP_SHEAR = 'ShearReinforce'
 # IFC に配筋情報が無い場合の既定値(ユーザー指定)。
 DEFAULT_BEAM_TOP = '1-D13'
 DEFAULT_BEAM_BOTTOM = '1-D13'
-DEFAULT_BEAM_STIRRUP = 'D10@250'
+DEFAULT_BEAM_STIRRUP = '1-D10@250'
 DEFAULT_SLAB_MAIN = 'D13@150'
 DEFAULT_SLAB_DIST = 'D13@150'
 
@@ -73,9 +75,11 @@ DEFAULT_SLAB_DIST = 'D13@150'
 # 先頭が「英字 1〜4 + 数字 + 区切り(``_`` か ``-``)」なら鋼種とみなす。``2-D13`` の
 # ように数字始まりは鋼種でないため対象外(先頭が英字でないとマッチしない)。
 _GRADE_RE = re.compile(r'^[A-Za-z]{1,4}\d+[_-](.+)$')
-# 本数の接頭辞(``1-`` 等)。せん断補強筋は PIO の Stirrup が ``D10@300`` 形式
-# (本数なし)を期待するため、``1-D10@300`` の先頭の本数を取り除く。
+# 脚数の接頭辞(``1-`` 等)。鉄筋 PIO の Stirrup はこの脚数で配置を切り替えるが、
+# ホームズ君の出力は全て縦筋 1 本のため、脚数を常に ``1-`` に固定する。
 _COUNT_PREFIX_RE = re.compile(r'^\d+\s*-\s*')
+# せん断補強筋に固定する脚数の接頭辞(縦筋 1 本)。
+_SINGLE_LEG_PREFIX = '1-'
 
 
 def _strip_grade(text: str) -> str:
@@ -87,6 +91,16 @@ def _strip_grade(text: str) -> str:
 def _strip_count_prefix(text: str) -> str:
     """本数の接頭辞(``1-`` 等)を取り除く(``1-D10@300`` → ``D10@300``)。"""
     return _COUNT_PREFIX_RE.sub('', text)
+
+
+def _force_single_leg(text: str) -> str:
+    """せん断補強筋の脚数の接頭辞を ``1-``(縦筋 1 本)に固定する。
+
+    ``1-D10@300`` / ``2-D10@300`` / ``D10@300`` はいずれも ``1-D10@300`` になる
+    (ホームズ君の出力は全て縦筋 1 本の前提)。空文字は空のまま返す(既定値に委ねる)。
+    """
+    spec = _strip_count_prefix(text)
+    return f'{_SINGLE_LEG_PREFIX}{spec}' if spec else ''
 
 
 def _reinforcement_pset(element: ifcopenshell.entity_instance) -> dict[str, str]:
@@ -115,12 +129,14 @@ def _reinforcement_pset(element: ifcopenshell.entity_instance) -> dict[str, str]
 def _beam_bars(reinf: dict[str, str]) -> tuple[str, str, str]:
     """梁の配筋仕様 dict から (上端筋, 下端筋, せん断補強筋) を返す。
 
-    ``Pset_Reinforcement`` の値から鋼種・本数の接頭辞を除いて PIO 仕様文字列にする。
-    プロパティが無い(空)場合は既定値(上下 1-D13・せん断 D10@250)を使う。
+    上下端筋は ``Pset_Reinforcement`` の値から鋼種の接頭辞を除いて PIO 仕様文字列に
+    する。せん断補強筋は鋼種を除いたうえで脚数の接頭辞を ``1-``(縦筋 1 本)に固定した
+    ``1-D10@200`` 形式にする(ホームズ君の出力は全て縦筋 1 本の前提)。プロパティが無い
+    (空)場合は既定値(上下 1-D13・せん断 1-D10@250)を使う。
     """
     top = _strip_grade(reinf.get(_PROP_TOP, '')) or DEFAULT_BEAM_TOP
     bottom = _strip_grade(reinf.get(_PROP_BOTTOM, '')) or DEFAULT_BEAM_BOTTOM
-    stirrup = (_strip_count_prefix(_strip_grade(reinf.get(_PROP_SHEAR, '')))
+    stirrup = (_force_single_leg(_strip_grade(reinf.get(_PROP_SHEAR, '')))
                or DEFAULT_BEAM_STIRRUP)
     return top, bottom, stirrup
 

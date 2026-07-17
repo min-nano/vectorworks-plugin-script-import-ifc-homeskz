@@ -42,6 +42,20 @@ class TestStripCountPrefix:
         assert rebar._strip_count_prefix('D10@300') == 'D10@300'
 
 
+class TestForceSingleLeg:
+    def test_keeps_single_leg(self) -> None:
+        assert rebar._force_single_leg('1-D10@300') == '1-D10@300'
+
+    def test_forces_single_leg_from_other_count(self) -> None:
+        assert rebar._force_single_leg('2-D10@300') == '1-D10@300'
+
+    def test_adds_single_leg_to_bare_spec(self) -> None:
+        assert rebar._force_single_leg('D10@300') == '1-D10@300'
+
+    def test_empty_stays_empty(self) -> None:
+        assert rebar._force_single_leg('') == ''
+
+
 class TestSlabDirs:
     def test_two_directions(self) -> None:
         assert rebar._slab_dirs('SD295_D13@175_D13@200') == ('D13@175', 'D13@200')
@@ -57,11 +71,12 @@ class TestBeamBars:
     def test_uses_ifc_values(self) -> None:
         reinf = {'TopReinforce': 'SD295_1-D13', 'BottomReinforce': 'SD295_2-D13',
                  'ShearReinforce': 'SD295_1-D10@300'}
-        assert rebar._beam_bars(reinf) == ('1-D13', '2-D13', 'D10@300')
+        # せん断補強筋は脚数を 1-(縦筋 1 本)に固定した 1-D10@200 形式
+        assert rebar._beam_bars(reinf) == ('1-D13', '2-D13', '1-D10@300')
 
     def test_falls_back_to_defaults_when_absent(self) -> None:
         # IFC に配筋情報が無い場合はユーザー指定の既定値
-        assert rebar._beam_bars({}) == ('1-D13', '1-D13', 'D10@250')
+        assert rebar._beam_bars({}) == ('1-D13', '1-D13', '1-D10@250')
 
 
 class TestSlabBars:
@@ -137,7 +152,8 @@ class TestBuildRebarCommands:
             assert len(command['path']) == 2
             assert command['section_size']
             assert command['top_bars'] and command['bottom_bars']
-            assert command['stirrup']
+            # せん断補強筋は脚数 1-(縦筋 1 本)固定
+            assert command['stirrup'].startswith('1-')
 
     def test_slabs_are_closed_slab_mode(self) -> None:
         commands = self._document()
