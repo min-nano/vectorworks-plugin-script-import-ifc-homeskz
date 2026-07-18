@@ -232,8 +232,7 @@ def make_document() -> dict[str, Any]:
              'position': [0.0, 0.0]},
         ],
         'legends': [
-            {'number': '1', 'style': '基礎伏図凡例',
-             'class': '01作図-01線-07枠線-02図中枠', 'position': [0.0, 0.0],
+            {'number': '1', 'style': '基礎伏図凡例', 'position': [0.0, 0.0],
              'items': [{'symbol': 'アンカーボルト_M12',
                         'label': '土台用アンカーボルトM12'}]},
         ],

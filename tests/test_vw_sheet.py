@@ -53,7 +53,6 @@ def make_legend(number: str = '1', style: str = '基礎伏図凡例') -> dict[st
     return {
         'number': number,
         'style': style,
-        'class': '01作図-01線-07枠線-02図中枠',
         'position': [0.0, 0.0],
         'items': [
             {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
@@ -385,12 +384,6 @@ class TestExecuteSheetsWithLegends:
         vs_mock.Layer.assert_any_call('1')
         vs_mock.CreateCustomObjectN.assert_called_once_with(
             vw_sheet._GRAPHIC_LEGEND_PLUGIN, (0.0, 0.0), 0, False)
-        # グラフィック凡例 PIO は内部の枠線・セルをカレントクラスで作図するため、
-        # 作図クラス(図中枠)を NameClass でカレントクラスに切り替えてから作図し、
-        # 本体も SetClass で同じクラスに揃える
-        vs_mock.NameClass.assert_any_call('01作図-01線-07枠線-02図中枠')
-        vs_mock.SetClass.assert_any_call(
-            'LEGEND_HANDLE', '01作図-01線-07枠線-02図中枠')
         # ソース定義(シンボル + 基礎伏図ビューポートフィルタ)を持つプラグイン
         # スタイルを関連付ける
         vs_mock.SetPluginStyle.assert_any_call(
@@ -401,6 +394,12 @@ class TestExecuteSheetsWithLegends:
             'LEGEND_HANDLE', vw_sheet._GRAPHIC_LEGEND_PLUGIN,
             vw_sheet._LEGEND_WIDTH_FIELD, vw_sheet._LEGEND_BOX_WIDTH)
         vs_mock.ResetObject.assert_any_call('LEGEND_HANDLE')
+        # クラスでは見た目を制御できないため、線の太さ(0.13mm)・塗り(なし)を
+        # オブジェクトの属性として直接設定する
+        vs_mock.SetLW.assert_any_call(
+            'LEGEND_HANDLE', vw_sheet._LEGEND_LINE_WEIGHT_MILS)
+        vs_mock.SetFPat.assert_any_call(
+            'LEGEND_HANDLE', vw_sheet._LEGEND_FILL_NONE)
         # 全配置後にスタイルからセル(シンボル)を再計算してインスタンスへ反映する
         vs_mock.UpdateStyledObjects.assert_called_once_with(
             vw_sheet._GRAPHIC_LEGEND_STYLE)
@@ -431,23 +430,16 @@ class TestExecuteSheetsWithLegends:
         assert vs_mock.UpdateStyledObjects.call_count == 2
         assert counters['legends'] == 2
 
-    def test_activates_legend_class_around_update_styled_objects(self) -> None:
-        # UpdateStyledObjects でのセル再計算でも枠線・セルはカレントクラスで作図
-        # されるため、各スタイルの作図クラス(図中枠)を NameClass でカレントクラスに
-        # 切り替えた**後**に UpdateStyledObjects を呼ぶ
+    def test_sets_line_weight_and_no_fill_attributes(self) -> None:
+        # クラスでは見た目を制御できないため、線の太さ(0.13mm=5 ミル)・塗り(なし=0)を
+        # オブジェクトの属性として直接設定する
         vs_mock = _make_vs_mock(_TARGET_LAYERS)
         vw_sheet = _load(vs_mock)
 
         vw_sheet.execute_sheets([make_command()], legends=[make_legend()])
 
-        # mock_calls の並びで、図中枠クラスへの NameClass が UpdateStyledObjects より
-        # 前に来ることを確認する(切り替えてから再計算する)
-        names = [c[0] for c in vs_mock.mock_calls]
-        update_index = names.index('UpdateStyledObjects')
-        name_class_before = [
-            c for c in vs_mock.mock_calls[:update_index]
-            if c[0] == 'NameClass' and c.args == ('01作図-01線-07枠線-02図中枠',)]
-        assert name_class_before
+        vs_mock.SetLW.assert_any_call('LEGEND_HANDLE', 5)
+        vs_mock.SetFPat.assert_any_call('LEGEND_HANDLE', 0)
 
     def test_legend_not_placed_on_non_matching_sheet(self) -> None:
         # シートレイヤ番号が一致しない凡例は載せない
