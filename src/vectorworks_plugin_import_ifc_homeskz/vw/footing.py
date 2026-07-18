@@ -8,13 +8,17 @@
 
 **地中梁**は台形断面のため単一スラブでは描けず、底盤コンクリートに噛み合う
 モディファイア(台形プリズム=3D ソリッド)にする。モディファイアを持つ底盤は、
-**外形ポリゴン(パス)とモディファイア群(プロファイル群)を一緒に
-``CreateCustomObjectPath('Slab', 外形, 群)`` に渡して作る**(``_draw_modifier`` /
-``_draw_modifier_group``)。**噛み合わせ(足す=add)はモディファイア群を作成時に
-一緒に渡した場合にだけ起きる**ことを、VW 上で「箱をスラブに噛み合わせた」実オブジェクトの
-VectorScript エクスポートで確認した。``CreateSlab`` で先に底盤を作ってから
-``SetCustomObjectProfileGroup`` で後付けする・``ModifySlab`` で足す方法は削り取り
-(clip)になったり「選択が間違っています」で失敗して噛み合わない。作成直後に
+**``CreateCustomObjectN('Slab', 原点, 0, showPref=False)`` で作成時ダイアログを抑止して
+Slab PIO を作り、``SetCustomObjectPath``(外形=パス)・``SetCustomObjectProfileGroup``
+(モディファイア群=プロファイル群)を後付けする**(``_draw_modifier`` /
+``_draw_modifier_group``)。Slab PIO のプロファイル群は底盤に**足す(add=噛み合わせる)**
+＝VW 上で「箱をスラブに噛み合わせた」実オブジェクトの VectorScript エクスポート
+(``CreateCustomObjectPath('Slab', 外形, 群)``)に一致する。``CreateCustomObjectPath``
+でも噛み合うが Slab プラグインは作成時にダイアログを開いてインポートを中断させる
+(showPref 相当の引数が無い)ため、抑止できる ``CreateCustomObjectN`` を使う(NIL の
+環境では ``CreateCustomObjectPath`` にフォールバック)。**``CreateSlab``(通常スラブ)への
+``SetCustomObjectProfileGroup`` 後付けや ``ModifySlab`` は削り取り(clip)/「選択が
+間違っています」で失敗して噛み合わない**(Slab PIO ではなく通常スラブのため)。作成直後に
 ``SetObjectVariableBoolean(slab, 1167, True)`` を立てる(エクスポートに一致)。
 モディファイアの無い底盤は従来どおり ``CreateSlab`` で作る。
 
@@ -67,17 +71,21 @@ _CONCRETE_COMPONENT_INDEX = 1
 _JOIN_SHOW_ALERTS = False
 
 # --- 地中梁モディファイア(底盤に噛み合う台形プリズム)の描画 ---
-# モディファイアを持つ底盤は、**``CreateCustomObjectPath('Slab', 外形ポリゴン,
-# モディファイア群)`` で外形(パス)とモディファイア群(プロファイル群)を一緒に渡して
-# 作る**。**噛み合わせ(add)はモディファイア群を作成時に一緒に渡した場合にだけ起きる**
-# ことが、VW 上で「箱をスラブに噛み合わせた」実オブジェクトの VectorScript エクスポート
-# で確認された(エクスポートは外形ポリゴン→モディファイア群→``CreateCustomObjectPath
-# ('Slab', 外形, 群)`` の順で、その直後に ``SetObjectVariableBoolean(slab, 1167, True)``
-# を呼ぶ)。``CreateSlab`` で先に底盤を作ってから ``SetCustomObjectProfileGroup`` で
-# 後付けする・``ModifySlab`` で足す方法は**削り取り(clip)になったり「選択が間違って
-# います」で失敗**して噛み合わない(後付けのプロファイル群は clip として働く)。手動でも
-# 貫入なしで噛み合うため、断面天端を底盤へ貫入させる必要はない(モディファイアは実形状
-# =絶対 Z のまま描く)。
+# モディファイアを持つ底盤は、**``CreateCustomObjectN('Slab', 原点, 0, showPref=False)``
+# で作成時ダイアログを抑止して Slab PIO を作り**、``SetCustomObjectPath`` で外形ポリゴン
+# (パス)を、``SetCustomObjectProfileGroup`` でモディファイア群(プロファイル群)を
+# 後付けする。**``CreateCustomObjectPath('Slab', 外形, 群)`` はモディファイアを底盤に
+# 足す(噛み合わせる=add)ことが VW 上のエクスポートで確認されたが、Slab プラグインは
+# 作成時に「オブジェクトの設定」ダイアログを開いてインポートを中断させる**(showPref 相当
+# の引数が無い)。``CreateCustomObjectN``(showPref=False)+ ``SetCustomObjectPath`` +
+# ``SetCustomObjectProfileGroup`` は同じ Slab PIO のパス・プロファイル群を後付けする
+# ダイアログ抑止パターン(鉄筋 PIO と同じ)で、CreateCustomObjectPath と等価にプロファイル
+# 群を足す(噛み合わせる)。**``CreateSlab``(通常スラブ)に ``SetCustomObjectProfileGroup``
+# する・``ModifySlab`` で足す方法は削り取り(clip)/「選択が間違っています」で失敗して
+# 噛み合わない**(Slab PIO ではなく通常スラブのため)。各モディファイアは、実オブジェクトの
+# エクスポートに合わせて作成後にオブジェクト変数 1160=False(レイヤ平面のワールド 3D)を
+# 立てる。手動でも貫入なしで噛み合うため、断面天端を底盤へ貫入させる必要はない
+# (モディファイアは実形状=絶対 Z のまま描く)。
 # 台形断面(u=水平幅・v=鉛直)を XY 平面に描いて鉛直(+Z)に push し、断面を起こして
 # 鉛直軸 v を +Z に向ける傾き(度)。続けて押し出し方向(+Z→水平)を方位角へ向ける
 # 追加回転(azimuth + このオフセット、度)。幅軸 u が走る向き +90 度に一致する。
@@ -85,11 +93,20 @@ _JOIN_SHOW_ALERTS = False
 # 最終的な向き・高さは VectorWorks 上で確認する方針(他要素と同じ)。
 _MODIFIER_TILT_DEG = 90.0
 _MODIFIER_AZIMUTH_OFFSET_DEG = 90.0
-# 底盤(Slab)PIO の内部プラグイン名。CreateCustomObjectPath に渡す。
+# 底盤(Slab)PIO の内部プラグイン名。
 _SLAB_PIO = 'Slab'
-# CreateCustomObjectPath で作った Slab PIO の直後に立てるオブジェクト変数(実オブジェクト
-# のエクスポートに一致。パス図形の底盤で True にする)。VW 上のエクスポートで確認済み。
+# CreateCustomObjectN の showPref 引数(作成時のオブジェクト設定ダイアログの表示)。
+# 常に非表示にしてインポート中の手動操作を防ぐ。挿入点は原点(パス・プロファイルは
+# 後付けするためオブジェクト配置は原点でよい)。
+_SHOW_PREF_DIALOG = False
+_INSERT_POINT = (0.0, 0.0)
+# Slab PIO(パス図形)の直後に立てるオブジェクト変数(実オブジェクトのエクスポートに
+# 一致)。VW 上のエクスポートで確認済み。
 _SLAB_PATH_OBJECT_VAR = 1167
+# 各モディファイアソリッドに立てるオブジェクト変数(実オブジェクトのエクスポートで
+# 底盤モディファイアに False が立つ。レイヤ平面のワールド 3D として扱わせる)。
+_MODIFIER_PLANE_VAR = 1160
+_MODIFIER_PLANE_VALUE = False
 
 
 def _draw_modifier(modifier: Any) -> None:
@@ -98,11 +115,12 @@ def _draw_modifier(modifier: Any) -> None:
     台形断面(``profile``、u=幅・v=鉛直)を XY 平面に描いて ``BeginXtrd`` で鉛直
     (0→depth)に押し出し、断面を起こして(``Rotate3D(90,0,0)``)方位角へ回し
     (``Rotate3D(0,0,azimuth+90)``)、断面原点の**絶対位置**(``origin`` の z=梁下端の
-    ワールド Z)へ移動する。**Z は絶対値そのまま**にする=モディファイア群は
-    ``CreateCustomObjectPath`` で底盤(パスは作図レイヤ平面=絶対 Z の基礎ストーリ)に
-    渡され、モディファイア側もワールド絶対 Z で描けばそのまま正しい高さで噛み合う。
-    実オブジェクトのエクスポートでもモディファイアは絶対 Z(``Move3D(x, y, 梁下端 Z)``)で
-    描かれている。手動でも貫入なしで噛み合うため、断面天端の引き上げ(貫入)は行わない。
+    ワールド Z)へ移動する。**Z は絶対値そのまま**にする=モディファイア群は底盤(パスは
+    作図レイヤ平面=絶対 Z の基礎ストーリ)に渡され、モディファイア側もワールド絶対 Z で
+    描けばそのまま正しい高さで噛み合う。実オブジェクトのエクスポートでもモディファイアは
+    絶対 Z(``Move3D(x, y, 梁下端 Z)``)で描かれ、押し出しソリッドにオブジェクト変数
+    1160=False を立てている(それに合わせる)。手動でも貫入なしで噛み合うため、断面天端の
+    引き上げ(貫入)は行わない。
     """
     profile = modifier['profile']
     ox, oy, oz = modifier['origin']
@@ -114,6 +132,8 @@ def _draw_modifier(modifier: Any) -> None:
         vs.LineTo(u, v)
     vs.EndPoly()
     vs.EndXtrd()
+    solid = vs.LNewObj()
+    vs.SetObjectVariableBoolean(solid, _MODIFIER_PLANE_VAR, _MODIFIER_PLANE_VALUE)
     vs.ResetOrientation3D()
     vs.Rotate3D(_MODIFIER_TILT_DEG, 0.0, 0.0)
     vs.Rotate3D(0.0, 0.0, modifier['azimuth'] + _MODIFIER_AZIMUTH_OFFSET_DEG)
@@ -123,9 +143,9 @@ def _draw_modifier(modifier: Any) -> None:
 def _draw_modifier_group(modifiers: list[Any]) -> Any:
     """モディファイア群を 1 つのグループにまとめてハンドルを返す。
 
-    ``CreateCustomObjectPath('Slab', 外形ポリゴン, グループ)`` の profile 引数に渡す。
-    作成時に一緒に渡すことで底盤に**足す(噛み合わせる=add)**(後付けの
-    ``SetCustomObjectProfileGroup`` では clip=削り取りになる)。
+    ``SetCustomObjectProfileGroup(slab, グループ)`` で Slab PIO のプロファイル群として
+    渡す(Slab PIO のプロファイル群は底盤に**足す=噛み合わせる=add**。通常スラブ
+    ``CreateSlab`` への後付けは clip=削り取りになる)。
     """
     vs.BeginGroup()
     for modifier in modifiers:
@@ -313,13 +333,17 @@ def draw_slab(
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
     外形ポリゴンを閉じた多角形として作成する。**地中梁モディファイアを持つ底盤は、
-    その外形ポリゴン(パス)とモディファイア群(プロファイル群)を一緒に
-    ``CreateCustomObjectPath('Slab', 外形, 群)`` に渡して作る**(台形断面の地中梁を
-    底盤コンクリートに**足して噛み合わせる**。実オブジェクトの「箱をスラブに噛み合わせた」
-    VectorScript エクスポートに一致)。**噛み合わせ(add)はモディファイア群を作成時に
-    一緒に渡した場合にだけ起きる**: ``CreateSlab`` で先に底盤を作ってから
-    ``SetCustomObjectProfileGroup`` で後付けする・``ModifySlab`` で足す方法は削り取り
-    (clip)になったり「選択が間違っています」で失敗して噛み合わない。作成直後に
+    ``CreateCustomObjectN('Slab', 原点, 0, showPref=False)`` で作成時ダイアログを抑止して
+    Slab PIO を作り、``SetCustomObjectPath`` で外形ポリゴン(パス)を、
+    ``SetCustomObjectProfileGroup`` でモディファイア群(プロファイル群)を後付けする**
+    (台形断面の地中梁を底盤コンクリートに**足して噛み合わせる**)。Slab PIO のプロファイル群は
+    底盤に足す(add)＝実オブジェクトの「箱をスラブに噛み合わせた」エクスポートに一致する。
+    ``CreateCustomObjectPath('Slab', 外形, 群)`` でも同じ噛み合わせになるが、Slab プラグイン
+    は作成時に「オブジェクトの設定」ダイアログを開いてインポートを中断させる(showPref 相当の
+    引数が無い)ため、ダイアログを抑止できる ``CreateCustomObjectN`` を使う(NIL を返す環境
+    では ``CreateCustomObjectPath`` にフォールバック)。**``CreateSlab``(通常スラブ)への
+    ``SetCustomObjectProfileGroup`` 後付けや ``ModifySlab`` は削り取り(clip)/「選択が
+    間違っています」で失敗して噛み合わない**(Slab PIO ではなく通常スラブのため)。作成直後に
     ``SetObjectVariableBoolean(slab, 1167, True)`` を立てる(エクスポートに一致)。
     モディファイアの無い底盤は従来どおり ``CreateSlab`` で作る。底盤にはコンクリート厚に
     応じたスラブスタイルを適用する(``_apply_slab_style``)。スラブ天端の絶対 Z を
@@ -344,12 +368,20 @@ def draw_slab(
     poly_h = vs.LNewObj()
 
     if modifiers:
-        # 地中梁モディファイア群を、外形ポリゴン(パス)と一緒に CreateCustomObjectPath
-        # に渡して底盤を作る。作成時に一緒に渡すことでモディファイアが底盤に足される
-        # (噛み合わせ=add)。CreateSlab + SetCustomObjectProfileGroup/ModifySlab の
-        # 後付けは削り取り(clip)/失敗になり噛み合わないため使わない。
+        # 地中梁モディファイア群を Slab PIO のプロファイル群として噛み合わせる。作成時
+        # ダイアログを抑止するため CreateCustomObjectN(showPref=False)で Slab PIO を作り、
+        # SetCustomObjectPath(外形)・SetCustomObjectProfileGroup(モディファイア群)を
+        # 後付けする(鉄筋 PIO と同じダイアログ抑止パターン)。Slab PIO のプロファイル群は
+        # 底盤に足す(add=噛み合わせる)。NIL を返す環境では CreateCustomObjectPath に
+        # フォールバックする(作成時ダイアログが出る場合があるが噛み合わせは行う)。
         group_h = _draw_modifier_group(modifiers)
-        slab = vs.CreateCustomObjectPath(_SLAB_PIO, poly_h, group_h)
+        slab = vs.CreateCustomObjectN(
+            _SLAB_PIO, _INSERT_POINT, 0.0, _SHOW_PREF_DIALOG)
+        if slab != vs.Handle(0):
+            vs.SetCustomObjectPath(slab, poly_h)
+            vs.SetCustomObjectProfileGroup(slab, group_h)
+        else:
+            slab = vs.CreateCustomObjectPath(_SLAB_PIO, poly_h, group_h)
         if slab != vs.Handle(0):
             vs.SetObjectVariableBoolean(slab, _SLAB_PATH_OBJECT_VAR, True)
     else:
