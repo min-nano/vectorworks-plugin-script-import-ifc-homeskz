@@ -20,7 +20,11 @@
 受ける横架材の判定は横架材どうし(同一レイヤ)の食い込み調整
 (``ifc/member.py`` の ``resolve_member_interferences``)と同じ方針にそろえる。
 すなわち、平行(同一直線上の継ぎ手・側並びの平行材)は受ける材とみなさず、
-軸が交差する材だけを対象にする。**柱**は横架材とは別レイヤ(``n-柱``)に置かれ
+軸が交差する材だけを対象にする。**ただし登り梁(傾斜梁)は専用レイヤ
+(``n-登り梁``)に分離され、端部が軒桁(横架材天端/軒高)・母屋・棟木といった
+別レイヤの材に取り付く**ため、登り梁を対象材とするときだけ同一レイヤの制約を外し、
+別レイヤの材でも(Z 範囲が重なり軸が交差すれば)受ける材とみなして端部に仕口を
+置く。**柱**は横架材とは別レイヤ(``n-柱``)に置かれ
 方向を持たないため、レイヤ一致・平行判定はせず、Z 範囲が重なり端点が柱の断面矩形に
 入るかどうかだけで判定する(柱の Z 範囲は下端〜上端で、梁の天端が柱の高さに掛かる
 場合に取り付きとみなす)。判定は member 命令・column 命令のジオメトリ(食い込み
@@ -35,6 +39,7 @@ from __future__ import annotations
 import math
 
 from ..document import ColumnCommand, JointCommand, MemberCommand
+from .structural_class import CLASS_NOBORIBARI
 
 # 置換するハイブリッドシンボル名
 SYMBOL_JOINT = '仕口'
@@ -141,16 +146,24 @@ def _end_has_receiver(
     (同一直線上の継ぎ手・側並びの平行材)は受ける材にしない。
     柱: Z 範囲が重なる柱の断面矩形に端点が入れば受ける柱ありとみなす(柱は横架材
     とは別レイヤ・方向を持たないためレイヤ一致・平行判定はしない)。
+
+    **登り梁(``CLASS_NOBORIBARI``)は別レイヤ(``n-登り梁``)に分離して配置され、
+    端部が軒桁(横架材天端/軒高)・母屋・棟木(``n-母屋``)といった別レイヤの材に
+    取り付く**。そのため登り梁を対象材とするときはレイヤ一致の制約を外し、Z 範囲が
+    重なり軸が交差する材を別レイヤでも受ける材とみなす(平行・Z 分離の判定は保つ)。
+    通常の横架材どうしは従来どおり同一レイヤの相手だけを対象にする。
     """
     gi = geoms[index]
     if gi is None:
         return False
     _isx, _isy, _iex, _iey, iux, iuy, _ilen, _ihw, izb, izt = gi
     layer = members[index]['layer']
+    # 登り梁は別レイヤの軒桁・母屋・棟木に取り付くためレイヤ一致の制約を外す。
+    cross_layer = members[index]['class'] == CLASS_NOBORIBARI
     for j, gj in enumerate(geoms):
         if j == index or gj is None:
             continue
-        if members[j]['layer'] != layer:
+        if not cross_layer and members[j]['layer'] != layer:
             continue
         _jsx, _jsy, _jex, _jey, jux, juy, _jlen, _jhw, _jzb, _jzt = gj
         # 平行(継ぎ手・側並び)は受ける材とみなさない
