@@ -7,17 +7,16 @@
 (オフセットは 0/0 で壁芯に揃える)。
 
 **地中梁**は台形断面のため単一スラブでは描けず、底盤コンクリートに噛み合う
-モディファイア(台形プリズム=3D ソリッド)にする。モディファイアを持つ底盤も、
-**確実に描画される標準の ``CreateSlab``(外形ポリゴン)で底盤を作ってから**、
-各モディファイア(台形プリズム)を ``ModifySlab`` で底盤に**足す(噛み合わせる)**
-(``_draw_modifier`` / ``_apply_modifiers``)。``ModifySlab`` の ``isClipObject`` を
-**False(=足す)** にすることで噛み合わせる。True にすると削り取る(clip)ため、
-噛み合わせには False を渡す(要件で示された「箱をスラブに噛み合わせた」動作)。
-以前は ``SetCustomObjectProfileGroup`` でプロファイル群として噛み合わせていたが、
-プロファイル群のモディファイアは削り取り(clip)として働いてしまう。
-``CreateCustomObjectPath``(作成ダイアログでインポート中断)や
-``CreateCustomObjectN``(点モード作成では底盤が不可視になる)で Slab PIO を直接作る
-方法は使わない。
+モディファイア(台形プリズム=3D ソリッド)にする。モディファイアを持つ底盤は、
+**外形ポリゴン(パス)とモディファイア群(プロファイル群)を一緒に
+``CreateCustomObjectPath('Slab', 外形, 群)`` に渡して作る**(``_draw_modifier`` /
+``_draw_modifier_group``)。**噛み合わせ(足す=add)はモディファイア群を作成時に
+一緒に渡した場合にだけ起きる**ことを、VW 上で「箱をスラブに噛み合わせた」実オブジェクトの
+VectorScript エクスポートで確認した。``CreateSlab`` で先に底盤を作ってから
+``SetCustomObjectProfileGroup`` で後付けする・``ModifySlab`` で足す方法は削り取り
+(clip)になったり「選択が間違っています」で失敗して噛み合わない。作成直後に
+``SetObjectVariableBoolean(slab, 1167, True)`` を立てる(エクスポートに一致)。
+モディファイアの無い底盤は従来どおり ``CreateSlab`` で作る。
 
 底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
 捨てコン …mm / 砕石 …mm``)を適用する。既定=150mm はその既存スタイルをそのまま、
@@ -68,13 +67,17 @@ _CONCRETE_COMPONENT_INDEX = 1
 _JOIN_SHOW_ALERTS = False
 
 # --- 地中梁モディファイア(底盤に噛み合う台形プリズム)の描画 ---
-# モディファイアを持つ底盤も、**確実に描画される標準の ``CreateSlab``(外形ポリゴン)で
-# 底盤を作ってから**、各モディファイア(3D ソリッド)を ``ModifySlab`` で底盤に足す
-# (噛み合わせる)。CreateSlab で作った有効な底盤に後付けするため、モディファイアが
-# 付かなくても底盤自体は必ず描かれる。**``CreateCustomObjectPath``/``CreateCustomObjectN``
-# で Slab PIO を直接作る方法は使わない**: 前者は作成時に「オブジェクトの設定」ダイアログを
-# 開いてインポートを中断させ(showPref 相当の引数が無い)、後者(点モード作成 + パス
-# 後付け)は底盤がジオメトリを持たず**存在はするが描画されない**(選択はできるが不可視)ため。
+# モディファイアを持つ底盤は、**``CreateCustomObjectPath('Slab', 外形ポリゴン,
+# モディファイア群)`` で外形(パス)とモディファイア群(プロファイル群)を一緒に渡して
+# 作る**。**噛み合わせ(add)はモディファイア群を作成時に一緒に渡した場合にだけ起きる**
+# ことが、VW 上で「箱をスラブに噛み合わせた」実オブジェクトの VectorScript エクスポート
+# で確認された(エクスポートは外形ポリゴン→モディファイア群→``CreateCustomObjectPath
+# ('Slab', 外形, 群)`` の順で、その直後に ``SetObjectVariableBoolean(slab, 1167, True)``
+# を呼ぶ)。``CreateSlab`` で先に底盤を作ってから ``SetCustomObjectProfileGroup`` で
+# 後付けする・``ModifySlab`` で足す方法は**削り取り(clip)になったり「選択が間違って
+# います」で失敗**して噛み合わない(後付けのプロファイル群は clip として働く)。手動でも
+# 貫入なしで噛み合うため、断面天端を底盤へ貫入させる必要はない(モディファイアは実形状
+# =絶対 Z のまま描く)。
 # 台形断面(u=水平幅・v=鉛直)を XY 平面に描いて鉛直(+Z)に push し、断面を起こして
 # 鉛直軸 v を +Z に向ける傾き(度)。続けて押し出し方向(+Z→水平)を方位角へ向ける
 # 追加回転(azimuth + このオフセット、度)。幅軸 u が走る向き +90 度に一致する。
@@ -82,67 +85,27 @@ _JOIN_SHOW_ALERTS = False
 # 最終的な向き・高さは VectorWorks 上で確認する方針(他要素と同じ)。
 _MODIFIER_TILT_DEG = 90.0
 _MODIFIER_AZIMUTH_OFFSET_DEG = 90.0
-# ``ModifySlab`` の引数。isClipObject=False で底盤に**足す(噛み合わせる=add)**、
-# True で**削り取る(clip)**。地中梁は底盤コンクリートに噛み合わせる(足す)ため
-# False にする(プロファイル群のモディファイアは削り取りとして働くため、噛み合わせには
-# ``ModifySlab`` の add を使う)。componentFlags は影響するスラブコンポーネントの
-# ビットフラグで、全コンポーネント(-1=全ビット)を対象にして add が確実に効くように
-# する(add/clip・componentFlags の最終挙動は他要素と同じく VectorWorks 上で確認する)。
-_MODIFIER_IS_CLIP = False
-_MODIFIER_COMPONENT_FLAGS = -1
-# **噛み合わせ(add)には底盤への重なりが必要**。``ModifySlab`` は modifier が slab に
-# 重なっていないと「選択が間違っています」で失敗し(足せず)、モディファイアが別図形の
-# まま残る。地中梁(下り梁)の天端は IFC では底盤下端に一致=**面で接するだけで重なりが
-# 無い**ため、断面の天端頂点を底盤天端の直下(底盤天端 - ``_MODIFIER_SLAB_INSET``)まで
-# 引き上げて底盤を貫かせ、噛み合わせが起きるようにする。天端は底盤天端より内側に留めて
-# 底盤上面から突き出さない(_MODIFIER_SLAB_INSET だけ下に置く)。重なり量は他要素と
-# 同じく VectorWorks 上で最終調整する方針。
-_MODIFIER_SLAB_INSET = 1.0
-# 断面の天端頂点(最大 v)を同一の天端とみなす許容値 (mm)。
-_MODIFIER_TOP_MATCH_TOL = 1.0
+# 底盤(Slab)PIO の内部プラグイン名。CreateCustomObjectPath に渡す。
+_SLAB_PIO = 'Slab'
+# CreateCustomObjectPath で作った Slab PIO の直後に立てるオブジェクト変数(実オブジェクト
+# のエクスポートに一致。パス図形の底盤で True にする)。VW 上のエクスポートで確認済み。
+_SLAB_PATH_OBJECT_VAR = 1167
 
 
-def _penetrate_profile_top(
-    profile: list[Any], oz: float, slab_top: float,
-) -> list[list[float]]:
-    """モディファイア断面の天端頂点を底盤天端の直下まで引き上げて重なりを作る。
-
-    ``profile`` は u=幅・v=鉛直の 2D 頂点列で、v=0 が梁下端(絶対 Z=``oz``)、
-    最大 v が梁天端。梁天端の絶対 Z(``oz + max_v``)は IFC では底盤下端に一致し、
-    ``ModifySlab`` の add には重なりが足りない(面で接するだけ)。天端頂点(最大 v の
-    頂点)を **底盤天端の直下**(絶対 Z=``slab_top - _MODIFIER_SLAB_INSET``、
-    v=``slab_top - _MODIFIER_SLAB_INSET - oz``)まで引き上げて底盤を貫かせる
-    (底盤天端より内側なので上面から突き出さない)。既に天端が十分高い(引き上げると
-    かえって縮む)場合はそのまま返す。
-    """
-    max_v = max(v for _u, v in profile)
-    target_v = slab_top - _MODIFIER_SLAB_INSET - oz
-    if target_v <= max_v:
-        return [[u, v] for u, v in profile]
-    return [[u, target_v if abs(v - max_v) <= _MODIFIER_TOP_MATCH_TOL else v]
-            for u, v in profile]
-
-
-def _draw_modifier(modifier: Any, slab_top: float) -> Any:
-    """地中梁モディファイア 1 件を台形プリズム(押し出しソリッド)として描き、
-    そのソリッドのハンドルを返す。
+def _draw_modifier(modifier: Any) -> None:
+    """地中梁モディファイア 1 件を台形プリズム(押し出しソリッド)として描く。
 
     台形断面(``profile``、u=幅・v=鉛直)を XY 平面に描いて ``BeginXtrd`` で鉛直
     (0→depth)に押し出し、断面を起こして(``Rotate3D(90,0,0)``)方位角へ回し
     (``Rotate3D(0,0,azimuth+90)``)、断面原点の**絶対位置**(``origin`` の z=梁下端の
-    ワールド Z)へ移動する。``ModifySlab`` で既に天端の絶対 Z に配置済みの底盤へ足す
-    (噛み合わせる)ため、Z はスラブ天端フレームへ寄せず**絶対 Z そのまま**にする。
-    以前は ``SetSlabHeight`` が外形ポリゴンとモディファイアを一体で持ち上げる前提で
-    ``elevation`` を引いていたが、実際にはモディファイアは持ち上がらず、地中梁が
-    ``elevation``(=底盤天端の絶対 Z)ぶんだけ低く描画されていた(本修正)。
-
-    さらに、``ModifySlab`` の add は modifier が底盤に重なっていないと「選択が
-    間違っています」で失敗する。地中梁天端は IFC では底盤下端に一致(面で接するだけで
-    重なりが無い)ため、``_penetrate_profile_top`` で断面天端を底盤天端(``slab_top``)の
-    直下まで引き上げて底盤を貫かせ、噛み合わせが起きるようにする。
+    ワールド Z)へ移動する。**Z は絶対値そのまま**にする=モディファイア群は
+    ``CreateCustomObjectPath`` で底盤(パスは作図レイヤ平面=絶対 Z の基礎ストーリ)に
+    渡され、モディファイア側もワールド絶対 Z で描けばそのまま正しい高さで噛み合う。
+    実オブジェクトのエクスポートでもモディファイアは絶対 Z(``Move3D(x, y, 梁下端 Z)``)で
+    描かれている。手動でも貫入なしで噛み合うため、断面天端の引き上げ(貫入)は行わない。
     """
+    profile = modifier['profile']
     ox, oy, oz = modifier['origin']
-    profile = _penetrate_profile_top(modifier['profile'], oz, slab_top)
     vs.BeginXtrd(0.0, modifier['depth'])
     vs.ClosePoly()
     vs.BeginPoly()
@@ -155,23 +118,20 @@ def _draw_modifier(modifier: Any, slab_top: float) -> Any:
     vs.Rotate3D(_MODIFIER_TILT_DEG, 0.0, 0.0)
     vs.Rotate3D(0.0, 0.0, modifier['azimuth'] + _MODIFIER_AZIMUTH_OFFSET_DEG)
     vs.Move3D(ox, oy, oz)
-    return vs.LNewObj()
 
 
-def _apply_modifiers(slab: Any, modifiers: list[Any], slab_top: float) -> None:
-    """地中梁モディファイア群を底盤スラブに ``ModifySlab`` で足す(噛み合わせる)。
+def _draw_modifier_group(modifiers: list[Any]) -> Any:
+    """モディファイア群を 1 つのグループにまとめてハンドルを返す。
 
-    各台形プリズムを絶対位置に描いて(``_draw_modifier``。天端は底盤天端
-    ``slab_top`` の直下まで引き上げて底盤に貫入させる)、
-    ``ModifySlab(slab, solid, isClipObject=False, componentFlags)`` で底盤に足す。
-    ``isClipObject=True`` にすると削り取る(clip)ため、噛み合わせるには
-    ``_MODIFIER_IS_CLIP``=False を渡す。底盤は ``SetSlabHeight`` で既に天端の絶対 Z に
-    配置済みのため、絶対 Z に描いたモディファイアがそのまま正しい高さで噛み合う。
+    ``CreateCustomObjectPath('Slab', 外形ポリゴン, グループ)`` の profile 引数に渡す。
+    作成時に一緒に渡すことで底盤に**足す(噛み合わせる=add)**(後付けの
+    ``SetCustomObjectProfileGroup`` では clip=削り取りになる)。
     """
+    vs.BeginGroup()
     for modifier in modifiers:
-        solid = _draw_modifier(modifier, slab_top)
-        vs.ModifySlab(
-            slab, solid, _MODIFIER_IS_CLIP, _MODIFIER_COMPONENT_FLAGS)
+        _draw_modifier(modifier)
+    vs.EndGroup()
+    return vs.LNewObj()
 
 
 def draw_wall(command: WallCommand) -> Any:
@@ -352,19 +312,19 @@ def draw_slab(
 ) -> None:
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
-    外形ポリゴンを閉じた多角形として作成し、標準の ``CreateSlab`` でスラブにする
-    (底盤の有無に関わらず確実に描画される)。**地中梁モディファイアを持つ底盤は、
-    その ``CreateSlab`` で作った底盤に ``ModifySlab``(isClipObject=False=足す)で
-    各モディファイア(台形プリズムの 3D ソリッド)を噛み合わせる**(台形断面の地中梁を
-    底盤コンクリートに足す。参考スクリプトの「箱をスラブに噛み合わせた」動作に一致。
-    プロファイル群=``SetCustomObjectProfileGroup`` は削り取りとして働くため使わない)。
-    ``CreateCustomObjectPath``(作成ダイアログでインポート中断)や
-    ``CreateCustomObjectN``(点モード作成では底盤が不可視)で Slab PIO を直接作る方法は
-    使わない。底盤にはコンクリート厚に応じたスラブスタイルを適用する
-    (``_apply_slab_style``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の
-    高さ基準を底盤天端レベルにバインドしてから、絶対 Z のモディファイアを ``ModifySlab``
-    で足す(スラブを先に天端へ配置してから噛み合わせる)。スラブが生成できない場合は
-    外形ポリゴンにフォールバックする。
+    外形ポリゴンを閉じた多角形として作成する。**地中梁モディファイアを持つ底盤は、
+    その外形ポリゴン(パス)とモディファイア群(プロファイル群)を一緒に
+    ``CreateCustomObjectPath('Slab', 外形, 群)`` に渡して作る**(台形断面の地中梁を
+    底盤コンクリートに**足して噛み合わせる**。実オブジェクトの「箱をスラブに噛み合わせた」
+    VectorScript エクスポートに一致)。**噛み合わせ(add)はモディファイア群を作成時に
+    一緒に渡した場合にだけ起きる**: ``CreateSlab`` で先に底盤を作ってから
+    ``SetCustomObjectProfileGroup`` で後付けする・``ModifySlab`` で足す方法は削り取り
+    (clip)になったり「選択が間違っています」で失敗して噛み合わない。作成直後に
+    ``SetObjectVariableBoolean(slab, 1167, True)`` を立てる(エクスポートに一致)。
+    モディファイアの無い底盤は従来どおり ``CreateSlab`` で作る。底盤にはコンクリート厚に
+    応じたスラブスタイルを適用する(``_apply_slab_style``)。スラブ天端の絶対 Z を
+    ``SetSlabHeight`` で設定し、天端の高さ基準を底盤天端レベルにバインドする。スラブが
+    生成できない場合は外形ポリゴンにフォールバックする。
 
     **``SetSlabHeight`` はスラブ厚ではなく天端高さ(Coordinate)を設定する**。
     以前はここに厚みを渡していたため天端が厚み分だけ高く描画されていた
@@ -383,7 +343,18 @@ def draw_slab(
     vs.EndPoly()
     poly_h = vs.LNewObj()
 
-    slab = vs.CreateSlab(poly_h)
+    if modifiers:
+        # 地中梁モディファイア群を、外形ポリゴン(パス)と一緒に CreateCustomObjectPath
+        # に渡して底盤を作る。作成時に一緒に渡すことでモディファイアが底盤に足される
+        # (噛み合わせ=add)。CreateSlab + SetCustomObjectProfileGroup/ModifySlab の
+        # 後付けは削り取り(clip)/失敗になり噛み合わないため使わない。
+        group_h = _draw_modifier_group(modifiers)
+        slab = vs.CreateCustomObjectPath(_SLAB_PIO, poly_h, group_h)
+        if slab != vs.Handle(0):
+            vs.SetObjectVariableBoolean(slab, _SLAB_PATH_OBJECT_VAR, True)
+    else:
+        slab = vs.CreateSlab(poly_h)
+
     if slab != vs.Handle(0):
         vs.SetClass(slab, command['class'])
         _apply_slab_style(slab, command, base_style, styles)
@@ -391,12 +362,6 @@ def draw_slab(
         bound = command['bound']
         vs.SetObjectStoryBound(
             slab, 0, 2, bound['story_offset'], bound['level'], bound['offset'])
-        if modifiers:
-            # 底盤を SetSlabHeight で天端の絶対 Z に配置してから、絶対 Z のモディファイア
-            # (台形プリズム群)を ModifySlab(isClipObject=False=足す)で噛み合わせる。
-            # 天端は底盤天端(elevation)の直下まで引き上げて底盤へ貫入させ、add が
-            # 成立する(重なりが無いと「選択が間違っています」で足せず別図形が残る)。
-            _apply_modifiers(slab, modifiers, command['elevation'])
         vs.ResetObject(slab)
     else:
         # フォールバック: 外形ポリゴン
