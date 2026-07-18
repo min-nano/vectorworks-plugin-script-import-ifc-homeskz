@@ -125,6 +125,34 @@ class TestExecuteRebars:
         # 梁用フィールドは設定しない
         assert 'SectionSize' not in fields
 
+    def test_slab_path_z_is_layer_relative(self) -> None:
+        # ストーリレベルにバインドされた F-底盤 レイヤは Z(標高)を持つ。3D パス図形は
+        # レイヤ相対で座標を扱うため、絶対 Z のパスからレイヤ標高を引いてレイヤ相対 Z で
+        # 与える(絶対 Z のままだとレイヤ標高ぶん浮き、配筋がコンクリート底盤の上に
+        # 浮いて描画される)。底盤天端 Z=50 のレイヤでは path Z=50 → レイヤ相対 0。
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vs_mock.GetZVals.return_value = (50.0, 0.0)
+        vw_rebar = _load(vs_mock)
+
+        vw_rebar.execute_rebars([make_slab_command()])
+
+        # X・Y はそのまま、Z は 50(絶対) − 50(レイヤ標高) = 0(レイヤ相対)
+        assert vs_mock.Poly3D.call_args.args == (
+            0.0, 0.0, 0.0, 3000.0, 0.0, 0.0,
+            3000.0, 2000.0, 0.0, 0.0, 2000.0, 0.0)
+
+    def test_path_z_unchanged_when_layer_z_unavailable(self) -> None:
+        # GetZVals がタプルを返さない環境(VW 2018 以前等)ではレイヤ標高 0 相当=補正なし。
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vs_mock.GetZVals.return_value = None
+        vw_rebar = _load(vs_mock)
+
+        vw_rebar.execute_rebars([make_slab_command()])
+
+        assert vs_mock.Poly3D.call_args.args == (
+            0.0, 0.0, 50.0, 3000.0, 0.0, 50.0,
+            3000.0, 2000.0, 50.0, 0.0, 2000.0, 50.0)
+
     def test_skips_when_layer_missing(self) -> None:
         vs_mock = _make_vs_mock(set())
         vw_rebar = _load(vs_mock)
