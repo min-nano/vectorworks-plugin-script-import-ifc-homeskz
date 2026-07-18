@@ -67,9 +67,6 @@ def _make_vs_mock(premade_numbers: list[str]) -> MagicMock:
         return ''
 
     def get_obj(name: str) -> Any:
-        # 軸組図ビューポートスタイルのリソースハンドル。
-        if name == '軸組図':
-            return ('STYLE', '軸組図')
         if isinstance(name, str) and name.endswith('/A'):
             return ('VP', name)
         return null_handle
@@ -149,40 +146,25 @@ class TestExecuteSections:
         # 使用した X1 は削除しない
         assert ('LINE', 'X1') not in deleted
 
-    def test_edits_viewport_style_to_show_all_layers(self) -> None:
+    def test_shows_all_design_layers_on_kept_viewports(self) -> None:
         vs_mock = _make_vs_mock(['X1', 'Y1'])
         vw_section = _load(vs_mock)
         vw_section.execute_sections([
             make_command('X', 'X1', 'X1', [-4000.0, -4000.0], [-4000.0, 4000.0]),
             make_command('Y', 'Y1', 'い', [-5000.0, -3000.0], [5000.0, -3000.0]),
         ])
-        # 個々のビューポートではなく '軸組図' ビューポートスタイルそのものを編集し、
-        # 全デザインレイヤ(モックは 'LAYER' 1 枚)を表示に設定する。
-        vs_mock.GetObject.assert_any_call('軸組図')
+        # 流用して残す各ビューポート(インスタンス)で全デザインレイヤ(モックは
+        # 'LAYER' 1 枚)を表示に設定する(作成ダイアログの「ビューポートでの新規レイヤの
+        # 表示設定=表示」と同じ効果)。
         vis_calls = {c.args for c in vs_mock.SetVPLayerVisibility.call_args_list}
-        assert (('STYLE', '軸組図'), 'LAYER', vw_section._VP_LAYER_VISIBLE) in vis_calls
-        # スタイル編集はビューポートインスタンスには行わない(スタイルに反映されるため)。
-        assert (('VP', 'X1/A'), 'LAYER', vw_section._VP_LAYER_VISIBLE) not in vis_calls
+        assert (('VP', 'X1/A'), 'LAYER', vw_section._VP_LAYER_VISIBLE) in vis_calls
+        assert (('VP', 'Y1/A'), 'LAYER', vw_section._VP_LAYER_VISIBLE) in vis_calls
 
-    def test_edits_style_even_when_no_commands(self) -> None:
+    def test_no_visibility_change_without_commands(self) -> None:
         vs_mock = _make_vs_mock(['X1'])
         vw_section = _load(vs_mock)
-        # 命令が無くても(通り芯なし等)スタイルは編集する。
+        # 命令が無ければ流用するビューポートも無いので表示設定はしない。
         assert vw_section.execute_sections([]) == 0
-        vs_mock.GetObject.assert_any_call('軸組図')
-        vis_calls = {c.args for c in vs_mock.SetVPLayerVisibility.call_args_list}
-        assert (('STYLE', '軸組図'), 'LAYER', vw_section._VP_LAYER_VISIBLE) in vis_calls
-        # 断面指示線のスキャン(FInLayer)は行わない。
-        vs_mock.FInLayer.assert_not_called()
-
-    def test_missing_style_is_noop(self) -> None:
-        vs_mock = _make_vs_mock(['X1'])
-        # '軸組図' スタイルが未用意 → GetObject が null を返す。
-        vs_mock.GetObject.side_effect = lambda name: (
-            ('VP', name) if isinstance(name, str) and name.endswith('/A')
-            else vs_mock.Handle.return_value)
-        vw_section = _load(vs_mock)
-        assert vw_section.apply_all_layers_to_section_style() is False
         vs_mock.SetVPLayerVisibility.assert_not_called()
 
     def test_skips_missing_source(self) -> None:
