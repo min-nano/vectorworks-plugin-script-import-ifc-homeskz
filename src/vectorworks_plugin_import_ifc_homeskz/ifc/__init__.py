@@ -25,6 +25,7 @@ from .grid import build_grid_commands
 from .joint import build_joint_commands
 from .loader import open_ifc
 from .member import build_member_commands
+from .noboribari import correct_noboribari
 from .rafter import build_rafter_commands
 from .rebar import build_rebar_commands
 from .roof import build_roof_commands
@@ -47,7 +48,8 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_floor_legend_commands',
            'build_grid_commands', 'build_joint_commands',
            'build_legend_commands',
-           'build_member_commands', 'build_rafter_commands',
+           'build_member_commands', 'correct_noboribari',
+           'build_rafter_commands',
            'build_rebar_commands', 'build_roof_commands',
            'build_sheet_commands', 'build_slab_commands',
            'build_story_commands', 'build_tag_commands', 'build_wall_commands',
@@ -67,6 +69,11 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
     # 表示レイヤ絞り込み(sheet)・断面記号(column_mark)にも使うため一度だけ組み立てる。
     # span の to レベル判定に上階梁下端が要るため members を渡す。
     columns = build_column_commands(ifc_file, members)
+    # 登り梁は位置が不正確なため、屋根版(垂木下面)と受ける材/柱を参照して後補正する。
+    # 端部の食い込みを詰め、天端を屋根面へスナップして勾配・高さを垂木下面に合わせる。
+    # 柱は幅(小屋束の断面合わせ)だけを使い登り梁の Z/XY 変化に影響されないため、
+    # 柱を組み立てた後に補正してよい。以降(垂木・仕口・タグ・シート)は補正後の members を使う。
+    members = correct_noboribari(ifc_file, members, columns)
     # 柱の span レイヤ(``{from}to{to}-柱``)を base ストーリごとにまとめて story に渡す
     column_layers_by_story = collect_column_layers_by_story(columns)
     stories = build_story_commands(ifc_file, column_layers_by_story)
