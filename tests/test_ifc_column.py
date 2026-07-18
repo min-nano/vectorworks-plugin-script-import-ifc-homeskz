@@ -9,10 +9,40 @@ import pytest
 from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
     _get_position_2d,
     _hardware_spec,
+    _member_width_on_top,
     build_column_commands,
     make_column_member_id,
     resolve_column_type,
 )
+from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import (
+    CLASS_MOYA,
+    CLASS_NOKIGETA,
+)
+
+
+def _top_member(
+    width: float, start: tuple[float, float], end: tuple[float, float],
+    top_z: float, height: float = 90.0, member_class: str = CLASS_MOYA,
+    layer: str = 'R-母屋',
+) -> dict:
+    """テスト用の横架材命令(母屋等)を組み立てる。
+
+    ``top_z`` は天端の絶対 Z、断面下端は ``top_z - height``。
+    """
+    bound = {'story_offset': 0, 'level': '母屋', 'offset': 0.0}
+    return {
+        'layer': layer,
+        'member_id': f'{int(width)}×{int(height)}',
+        'class': member_class,
+        'start': [float(start[0]), float(start[1])],
+        'end': [float(end[0]), float(end[1])],
+        'width': float(width),
+        'height': float(height),
+        'elevation': float(top_z),
+        'end_elevation': float(top_z),
+        'start_bound': bound,
+        'end_bound': bound,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +221,66 @@ class TestMakeColumnMemberId:
         assert make_column_member_id(
             105, 105, '小屋束', '柱頭金物:(ろ)', ''
         ) == '105×105 - 小屋束 / 柱頭金物:(ろ)'
+
+
+# ---------------------------------------------------------------------------
+# _member_width_on_top
+# ---------------------------------------------------------------------------
+
+class TestMemberWidthOnTop:
+    def test_returns_width_of_member_resting_on_top(self) -> None:
+        """小屋束上端に下端が接する母屋の幅を返す。"""
+        moya = _top_member(90.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=7090.0)
+        assert _member_width_on_top(0.0, 0.0, 7000.0, [moya]) == pytest.approx(90.0)
+
+    def test_returns_none_when_no_member(self) -> None:
+        assert _member_width_on_top(0.0, 0.0, 7000.0, []) is None
+
+    def test_ignores_non_roof_top_member(self) -> None:
+        """母屋・棟木・登り梁以外(軒桁等)は対象にしない。"""
+        girder = _top_member(105.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=7090.0,
+                             member_class=CLASS_NOKIGETA, layer='R-軒高')
+        assert _member_width_on_top(0.0, 0.0, 7000.0, [girder]) is None
+
+    def test_matches_member_pierced_by_post(self) -> None:
+        """小屋束が母屋を貫いて天端付近まで伸びる(棟束等)場合も拾う。
+
+        母屋の Z 範囲 [6754, 6859] に小屋束上端 6861(天端 +2mm)が収まる。
+        """
+        moya = _top_member(105.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=6859.0,
+                           height=105.0)
+        assert _member_width_on_top(0.0, 0.0, 6861.0, [moya]) == pytest.approx(105.0)
+
+    def test_ignores_member_far_below(self) -> None:
+        """Z 範囲が大きく離れた(下方の)材は対象にしない。"""
+        low = _top_member(90.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=5000.0)
+        assert _member_width_on_top(0.0, 0.0, 7000.0, [low]) is None
+
+    def test_ignores_member_off_to_the_side(self) -> None:
+        """平面上、小屋束が footprint の外(幅の外)にある材は対象にしない。"""
+        moya = _top_member(90.0, (0.0, 500.0), (0.0, 1500.0), top_z=7090.0)
+        # 小屋束 (0,0) は母屋の軸(y=500〜1500)から大きく外れる
+        assert _member_width_on_top(0.0, 0.0, 7000.0, [moya]) is None
+
+    def test_prefers_member_closest_to_top(self) -> None:
+        """複数候補があれば下端が小屋束上端に最も近い材を選ぶ。"""
+        near = _top_member(90.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=7090.0)
+        far = _top_member(120.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=7110.0,
+                          height=120.0)  # 下端 6990、小屋束上端 7000 から 10mm 下
+        assert _member_width_on_top(0.0, 0.0, 7000.0, [far, near]) \
+            == pytest.approx(90.0)
+
+    def test_matches_sloped_noboribari_interpolated_z(self) -> None:
+        """登り梁は小屋束位置で天端 Z を補間して Z 範囲を判定する。"""
+        from vectorworks_plugin_import_ifc_homeskz.ifc.structural_class import (
+            CLASS_NOBORIBARI,
+        )
+        # 始端 (−1000,0) 天端 6000 → 終端 (1000,0) 天端 8000 の傾斜梁(高さ 90)
+        nb = _top_member(120.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=6000.0,
+                         member_class=CLASS_NOBORIBARI, layer='R-登り梁')
+        nb['end_elevation'] = 8000.0
+        # 中央 (0,0) の天端は補間で 7000、下端 6910。小屋束上端 6950 は範囲内。
+        assert _member_width_on_top(0.0, 0.0, 6950.0, [nb]) == pytest.approx(120.0)
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +551,64 @@ class TestBuildColumnCommands:
         command = build_column_commands(ifc)[0]
         assert command['top_hardware'] == ''
         assert command['bottom_hardware'] == ''
+
+    def test_koyazuka_width_matches_moya_on_top(self) -> None:
+        """小屋束の断面は直上に乗る母屋の幅に合わせた正方形になる。
+
+        90mm 幅の母屋が乗る 105×105 の小屋束は 90×90 に置き換わる。
+        """
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        # 小屋束: 下端 6200・高さ 800 → 上端 7000、断面は IFC では 105×105(適当な値)
+        make_column(ifc, storey, 0.0, 0.0, oz=-100.0, height=800.0,
+                    width=105.0, depth=105.0, object_type='STANDCOLUMN')
+        # 母屋(幅 90): 小屋束の真上に架かり、断面下端 = 7000(小屋束上端)に乗る
+        moya = _top_member(90.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=7090.0)
+
+        command = build_column_commands(ifc, [moya])[0]
+        assert command['width'] == pytest.approx(90.0)
+        assert command['depth'] == pytest.approx(90.0)
+        # member_id も補正後の寸法で作られる
+        assert command['member_id'] == '90×90 - 小屋束'
+
+    def test_koyazuka_width_matches_105_moya(self) -> None:
+        """105mm 幅の母屋が乗る小屋束は 105mm 角になる。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, oz=-100.0, height=800.0,
+                    width=90.0, depth=120.0, object_type='STANDCOLUMN')
+        moya = _top_member(105.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=7105.0,
+                           height=105.0)
+
+        command = build_column_commands(ifc, [moya])[0]
+        assert command['width'] == pytest.approx(105.0)
+        assert command['depth'] == pytest.approx(105.0)
+
+    def test_koyazuka_keeps_ifc_size_without_member_on_top(self) -> None:
+        """上に乗る材が見つからない小屋束は IFC の断面をそのまま使う。"""
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, 'RFL', 6300.0)
+        make_column(ifc, storey, 0.0, 0.0, oz=-100.0, height=800.0,
+                    width=105.0, depth=105.0, object_type='STANDCOLUMN')
+
+        # 母屋を渡さない(上に乗る材が無い)
+        command = build_column_commands(ifc, [])[0]
+        assert command['width'] == pytest.approx(105.0)
+        assert command['depth'] == pytest.approx(105.0)
+
+    def test_general_column_not_resized_by_member(self) -> None:
+        """管柱(小屋束でない柱)は上に材があっても断面を変えない。"""
+        ifc = ifcopenshell.file()
+        s1 = make_storey(ifc, '1FL', 600.0)
+        make_storey(ifc, '2FL', 3500.0)
+        make_storey(ifc, 'RFL', 6300.0)
+        # 管柱: 105×120。仮に真上を通る母屋(幅 90)があっても影響しない
+        make_column(ifc, s1, 0.0, 0.0, width=105.0, depth=120.0, height=2718.0)
+        moya = _top_member(90.0, (-1000.0, 0.0), (1000.0, 0.0), top_z=3400.0)
+
+        command = build_column_commands(ifc, [moya])[0]
+        assert command['width'] == pytest.approx(105.0)
+        assert command['depth'] == pytest.approx(120.0)
 
     def test_commands_are_json_serializable(self) -> None:
         ifc = ifcopenshell.file()
