@@ -175,9 +175,10 @@ class TestBuildFromFixture:
         offsets = [round(s['bound']['offset'], 1) for s in slabs]
         assert 0.0 in offsets
         # 地中梁は単独スラブではなく、底盤スラブのモディファイアとして持つ。
-        # 台形プリズムの総数はフィクスチャの地中梁数(伏図次郎=23)と一致する。
+        # 台形プリズムの総数は、同一直線上・同一断面の地中梁を統合した後の本数
+        # (伏図次郎=23 本 → 統合後 13 本)と一致する。
         total_modifiers = sum(len(s['modifiers']) for s in slabs)
-        assert total_modifiers == 23
+        assert total_modifiers == 13
         # モディファイアを持つ底盤が少なくとも 1 枚ある。
         assert any(s['modifiers'] for s in slabs)
 
@@ -326,14 +327,97 @@ class TestAttachGroundBeamModifiers:
         assert slabs == []
 
     def test_build_slab_commands_attaches_all_ground_beams(self) -> None:
+        from vectorworks_plugin_import_ifc_homeskz.ifc.grid import resolve_lines
         ifc = _open('伏図次郎【2階】.ifc')
+        _lines, cx, cy = resolve_lines(ifc)
         slabs = footing.build_slab_commands(ifc)
-        beams = [e for e in ifc.by_type('IfcFooting')
-                 if '地中梁' in (e.Name or '')]
-        # 全地中梁がいずれかの底盤のモディファイアに収まる(取りこぼさない)。
-        assert sum(len(s['modifiers']) for s in slabs) == len(beams)
+        # 統合後の全地中梁モディファイアがいずれかの底盤に収まる(取りこぼさない)。
+        merged = footing._build_ground_beam_modifiers(ifc, cx, cy)
+        assert sum(len(s['modifiers']) for s in slabs) == len(merged)
         # スラブは底盤のみ(地中梁の単独スラブは無い)。
         assert all(s['thickness'] is not None for s in slabs)
+
+
+class TestMergeGroundBeamModifiers:
+    """同一直線上に並ぶ同一断面形状の地中梁モディファイアの統合。"""
+
+    @staticmethod
+    def _entry(
+        origin: list[float], azimuth: float = 0.0, depth: float = 1000.0,
+        profile: list[list[float]] | None = None,
+    ) -> tuple[footing.ModifierCommand, list[tuple[float, float]]]:
+        mod: footing.ModifierCommand = {
+            'profile': profile or [[0.0, 0.0], [-150.0, 0.0],
+                                   [-290.0, 140.0], [0.0, 140.0]],
+            'depth': depth,
+            'origin': origin,
+            'azimuth': azimuth,
+        }
+        return mod, [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+
+    def test_collinear_contiguous_merge_into_one(self) -> None:
+        entries = [self._entry([0.0, 0.0, -240.0]),
+                   self._entry([1000.0, 0.0, -240.0])]
+        merged = footing._merge_ground_beam_modifiers(entries)
+        assert len(merged) == 1
+        mod = merged[0][0]
+        assert math.isclose(mod['depth'], 2000.0)
+        assert mod['origin'] == [0.0, 0.0, -240.0]
+        # 統合後の平面外形は掃引矩形(4 頂点)
+        assert len(merged[0][1]) == 4
+
+    def test_collinear_overlapping_merge(self) -> None:
+        # 区間が重なる(継目の削り分で長め)地中梁も 1 本になる。
+        entries = [self._entry([0.0, 0.0, -240.0], depth=1200.0),
+                   self._entry([1000.0, 0.0, -240.0], depth=1000.0)]
+        merged = footing._merge_ground_beam_modifiers(entries)
+        assert len(merged) == 1
+        assert math.isclose(merged[0][0]['depth'], 2000.0)
+
+    def test_gap_not_merged(self) -> None:
+        # 同一直線上でも隙間(> 許容値)がある地中梁は統合しない。
+        entries = [self._entry([0.0, 0.0, -240.0]),
+                   self._entry([1100.0, 0.0, -240.0])]
+        assert len(footing._merge_ground_beam_modifiers(entries)) == 2
+
+    def test_parallel_different_line_not_merged(self) -> None:
+        # 平行だが別の線上(直交距離あり)の地中梁は統合しない。
+        entries = [self._entry([0.0, 0.0, -240.0]),
+                   self._entry([1000.0, 500.0, -240.0])]
+        assert len(footing._merge_ground_beam_modifiers(entries)) == 2
+
+    def test_different_height_not_merged(self) -> None:
+        # 高さ(下端 z)の異なる地中梁は統合しない。
+        entries = [self._entry([0.0, 0.0, -240.0]),
+                   self._entry([1000.0, 0.0, -300.0])]
+        assert len(footing._merge_ground_beam_modifiers(entries)) == 2
+
+    def test_different_section_not_merged(self) -> None:
+        # 断面形状の異なる地中梁は統合しない。
+        entries = [self._entry([0.0, 0.0, -240.0]),
+                   self._entry([1000.0, 0.0, -240.0],
+                               profile=[[0.0, 0.0], [-100.0, 0.0],
+                                        [-100.0, 200.0], [0.0, 200.0]])]
+        assert len(footing._merge_ground_beam_modifiers(entries)) == 2
+
+    def test_different_direction_not_merged(self) -> None:
+        # 直交する向き(方位角の違う)地中梁は統合しない。
+        entries = [self._entry([0.0, 0.0, -240.0], azimuth=0.0),
+                   self._entry([1000.0, 0.0, -240.0], azimuth=90.0)]
+        assert len(footing._merge_ground_beam_modifiers(entries)) == 2
+
+    def test_chain_of_three_merges_into_one(self) -> None:
+        entries = [self._entry([0.0, 0.0, -240.0]),
+                   self._entry([1000.0, 0.0, -240.0]),
+                   self._entry([2000.0, 0.0, -240.0])]
+        merged = footing._merge_ground_beam_modifiers(entries)
+        assert len(merged) == 1
+        assert math.isclose(merged[0][0]['depth'], 3000.0)
+
+    def test_single_modifier_passthrough(self) -> None:
+        entries = [self._entry([0.0, 0.0, -240.0])]
+        merged = footing._merge_ground_beam_modifiers(entries)
+        assert merged == entries
 
 
 def _slab(
