@@ -86,6 +86,8 @@ def _make_stateful_vs_mock() -> MagicMock:
     vs_mock.BuildResourceList.return_value = (0, 0)
     # ビューポートの全クラス表示ループ用(クラス無し扱いで空ループにする)
     vs_mock.ClassNum.return_value = 0
+    # 断面ビューポートの配置(GetBBox + HMove)用に BBox を 2 点で返す
+    vs_mock.GetBBox.return_value = ((0.0, 0.0), (0.0, 0.0))
     return vs_mock
 
 
@@ -100,6 +102,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
+        import vectorworks_plugin_import_ifc_homeskz.vw.section as vw_section
         import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
@@ -111,6 +114,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         importlib.reload(vw_anchor)
         importlib.reload(vw_fire)
         importlib.reload(vw_joint)
+        importlib.reload(vw_section)
         importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
@@ -224,6 +228,14 @@ def make_document() -> dict[str, Any]:
                           'layers': ['F-底盤', 'F-立上り', 'F-床束',
                                      'F-アンカーボルト', '共通']}},
         ],
+        'sections': [
+            {'number': '3', 'title': '断面図',
+             'drawing_title': '断面図', 'drawing_number': '3', 'scale': 100.0,
+             'line_start': [0.0, -9000.0], 'line_end': [0.0, 9000.0],
+             'look': [-1000.0, 0.0], 'depth': 20000.0,
+             'start_height': -1000.0, 'end_height': 9000.0,
+             'position': [0.0, 0.0]},
+        ],
         'tags': [],
         'column_marks': [
             {'layer': '2-柱伏図記号', 'class': '01作図-04記号-04構造-一般',
@@ -258,7 +270,7 @@ class TestExecuteDocument:
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
                           'joints': 1,
                           'column_marks': 1, 'sheets': 1, 'tags': 0,
-                          'legends': 1}
+                          'legends': 1, 'sections': 1}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
@@ -267,7 +279,8 @@ class TestExecuteDocument:
                     'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [],
-                    'fire_braces': [], 'joints': [], 'sheets': [], 'tags': [],
+                    'fire_braces': [], 'joints': [], 'sheets': [],
+                    'sections': [], 'tags': [],
                     'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
@@ -277,7 +290,7 @@ class TestExecuteDocument:
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
                           'joints': 0,
                           'column_marks': 0, 'sheets': 0, 'tags': 0,
-                          'legends': 0}
+                          'legends': 0, 'sections': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

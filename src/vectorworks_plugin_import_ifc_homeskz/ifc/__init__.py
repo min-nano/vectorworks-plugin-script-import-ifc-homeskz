@@ -29,6 +29,7 @@ from .noboribari import correct_noboribari
 from .rafter import build_rafter_commands
 from .rebar import build_rebar_commands
 from .roof import build_roof_commands
+from .section import build_section_commands
 from .sheet import (
     build_floor_legend_commands,
     build_legend_commands,
@@ -51,6 +52,7 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_member_commands', 'correct_noboribari',
            'build_rafter_commands',
            'build_rebar_commands', 'build_roof_commands',
+           'build_section_commands',
            'build_sheet_commands', 'build_slab_commands',
            'build_story_commands', 'build_tag_commands', 'build_wall_commands',
            'build_wall_join_commands', 'open_ifc']
@@ -88,6 +90,10 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
     # 使うため一度だけ組み立てる
     anchor_bolts = build_anchor_bolt_commands(ifc_file)
 
+    # 伏図(sheets)は断面図のシートレイヤ番号を伏図の後に続けて振るためにも参照する
+    # ので一度だけ組み立てる
+    sheets = build_sheet_commands(ifc_file, columns)
+
     return {
         'version': DOCUMENT_VERSION,
         'stories': stories,
@@ -110,7 +116,11 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         # columns も渡す
         'joints': build_joint_commands(members, columns),
         # 伏図は各柱 span レイヤを切断レベルで絞って表示するため columns を渡す
-        'sheets': build_sheet_commands(ifc_file, columns),
+        'sheets': sheets,
+        # 断面図(建物中心を切る断面ビューポート)。平面の広がりは通り芯、鉛直の
+        # 広がりはストーリから導出する。シートレイヤ番号は伏図の後に続けて振るため
+        # sheets を渡す
+        'sections': build_section_commands(ifc_file, stories, sheets),
         'tags': build_tag_commands(members),
         # 断面記号は span 柱レイヤごとに置くため columns を渡す
         'column_marks': build_column_mark_commands(columns),

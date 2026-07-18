@@ -153,6 +153,17 @@ def make_valid_document() -> dict[str, Any]:
                 },
             },
         ],
+        'sections': [
+            {
+                'number': '6', 'title': '断面図',
+                'drawing_title': '断面図', 'drawing_number': '6',
+                'scale': 100.0,
+                'line_start': [0.0, -9000.0], 'line_end': [0.0, 9000.0],
+                'look': [-1000.0, 0.0], 'depth': 20000.0,
+                'start_height': -1000.0, 'end_height': 9000.0,
+                'position': [0.0, 0.0],
+            },
+        ],
         'tags': [
             {
                 'style': '断面寸法', 'layer': '1-横架材天端', 'member_index': 0,
@@ -215,8 +226,8 @@ class TestValidateDocument:
                     'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [], 'fire_braces': [],
-                    'joints': [], 'sheets': [], 'tags': [], 'column_marks': [],
-                    'legends': [], 'rebars': []}
+                    'joints': [], 'sheets': [], 'sections': [], 'tags': [],
+                    'column_marks': [], 'legends': [], 'rebars': []}
         validate_document(document)
 
     def test_rejects_non_dict(self) -> None:
@@ -241,6 +252,7 @@ class TestValidateDocument:
                                      'floors',
                                      'anchor_bolts', 'floor_posts',
                                      'fire_braces', 'joints', 'sheets',
+                                     'sections',
                                      'tags', 'column_marks', 'legends',
                                      'rebars'])
     def test_rejects_missing_command_list(self, key: str) -> None:
