@@ -1026,6 +1026,43 @@ class TestBuildNoboribariCommands:
         assert command['start_bound']['level'] == '登り梁'
         assert command['end_bound']['level'] == '登り梁'
 
+    def test_noboribari_uses_vertical_cut_top_no_xy_shift(self) -> None:
+        """登り梁は直切りの幾何(XY ずらし無し・鉛直持ち上げ)で天端を求める。
+
+        端部が直切り(鉛直面)なので、天端中央線の端点は断面中心軸の**直上**
+        (XY は同じ)= 鉛直な端面の上端にあり、高さは 断面中心 + せい/(2·cosθ)。
+        矩形前提の軸直交持ち上げ(cosθ×せい/2 の鉛直成分 + 軸直交ぶんの XY ずらし)
+        より高くなる(勾配分だけ上げる=垂木下面に合わせる)。
+        """
+        ifc = ifcopenshell.file()
+        storey = make_storey(ifc, '1FL', 473.0)
+        make_storey(ifc, 'RFL', 5973.0)
+        theta = math.atan2(0.8, 0.6)
+        beam = make_sloped_beam(
+            ifc, storey, 100.0, 200.0, 10.0, theta,
+            length=1000.0, height=120.0, width=90.0, shear=30.0,
+            name='木梁:登り梁:1_1')
+        geom = _sloped_member_geometry(beam)
+        assert geom is not None
+        ox, oy, oz, ax, ay, az, _w, h, length = geom
+        horiz = math.hypot(ax, ay)
+
+        command = build_member_commands(ifc)[0]
+        # XY ずらし無し: 端点は断面中心軸の平面投影(グリッド中心オフセットのみ)
+        assert command['start'] == [pytest.approx(ox), pytest.approx(oy)]
+        assert command['end'] == [
+            pytest.approx(ox + ax * length), pytest.approx(oy + ay * length)]
+        # 高さ = 断面中心 + せい/(2·cosθ)(鉛直な端面の上端)
+        assert command['elevation'] == pytest.approx(473.0 + oz + h / (2.0 * horiz))
+        assert command['end_elevation'] == pytest.approx(
+            command['elevation'] + az * length)
+        # 矩形前提の軸直交持ち上げ(473 + oz + cosθ·せい/2)より (せい/2)(secθ − cosθ)
+        # だけ高い(勾配分だけ上げる)。
+        perp_top = 473.0 + oz + horiz * h / 2.0
+        assert command['elevation'] > perp_top
+        assert command['elevation'] - perp_top == pytest.approx(
+            (h / 2.0) * (1.0 / horiz - horiz))
+
     def test_vertical_axis_beam_skipped(self) -> None:
         """押し出し軸が鉛直な材(火打等)は横架材から除外する(登り梁経路も通さない)。"""
         ifc = ifcopenshell.file()
