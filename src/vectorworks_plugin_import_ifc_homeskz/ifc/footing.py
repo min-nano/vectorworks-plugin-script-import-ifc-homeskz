@@ -12,7 +12,9 @@
   台形断面のため単一のスラブオブジェクトでは描けない。底盤(基礎底盤)の
   コンクリートに 3D ソリッド(モディファイア=``ModifierCommand``)として
   噛み合わせて実形状を表す。各地中梁の台形プリズムを、平面で重なる底盤スラブ
-  命令の ``modifiers`` に持たせる(単独のスラブ命令にはしない)。
+  命令の ``modifiers`` に持たせる(単独のスラブ命令にはしない)。**同一直線上に
+  並ぶ同一断面形状の地中梁は 1 本の台形プリズムに統合する**
+  (``_merge_ground_beam_modifiers``。立上り・底盤のマージと同じ方針)。
 
 底盤天端レベルの高さは、底盤(基礎底盤系)の天端 Z ごとに平面面積を合計し、
 合計面積が最大の天端 Z を採用する(エンティティ列挙順に依存しない決定的な高さ)。
@@ -65,6 +67,15 @@ CLASS_FOUNDATION_SLAB = '04構造-01基礎-02基礎スラブ'
 
 # 押し出し方向が鉛直とみなす Z 成分の閾値(|z| > これ)
 _VERTICAL_EXTRUDE_TOL = 0.9
+
+# 地中梁(台形プリズムのモディファイア)のマージ許容値。同一直線判定の直交距離・
+# 高さ(z)一致・区間の重なり/接触の隙間に使う(mm)。壁マージと同じ 1mm。
+_GROUND_BEAM_MERGE_TOL = 1.0
+# 平行判定に使う単位方向ベクトルの外積(sin 角)の許容値。
+_GROUND_BEAM_MERGE_ANGLE_TOL = 1e-3
+# 断面形状キー・方位角の丸め。同一断面/同一向きの地中梁だけを統合対象にする。
+_GROUND_BEAM_PROFILE_TOL = 1.0   # mm
+_GROUND_BEAM_AZIMUTH_TOL = 0.1   # 度
 
 # 立上り(壁)のマージ許容値(mm)。同一直線判定の直交距離・接続判定の隙間、
 # および断面キーの丸め桁に使う。単位系は mm。
@@ -1114,9 +1125,12 @@ def _build_ground_beam_modifiers(
 
     各地中梁は水平押し出しの台形断面ソリッド。断面(``profile``)を幅軸 u・鉛直軸 v
     の 2D 頂点列に取り直し、押し出し方向の方位角(``azimuth``)と断面原点のワールド
-    座標(``origin``、XY はセンタリング済み)を求める。返り値は
-    ``(モディファイア命令, 平面外形)`` のリストで、平面外形は底盤への振り分け判定
-    (``_attach_ground_beam_modifiers``)に使う(グリッド中心オフセット済み)。
+    座標(``origin``、XY はセンタリング済み)を求める。**同一直線上に並ぶ同一断面
+    形状の地中梁は 1 本の台形プリズムに統合する**(``_merge_ground_beam_modifiers``。
+    ホームズ君 IFC では 1 本の地中梁が通り芯の交点等で細かく分断されているため)。
+    返り値は ``(モディファイア命令, 平面外形)`` のリストで、平面外形は底盤への
+    振り分け判定(``_attach_ground_beam_modifiers``)に使う(グリッド中心オフセット
+    済み)。
     """
     result: list[tuple[ModifierCommand, list[_Pt2]]] = []
     for element in ifc_file.by_type('IfcFooting'):
@@ -1130,7 +1144,204 @@ def _build_ground_beam_modifiers(
             continue
         footprint = [(x - center_x, y - center_y) for x, y in _footprint(solid)]
         result.append((modifier, footprint))
+    return _merge_ground_beam_modifiers(result)
+
+
+def _ground_beam_axis_dir(modifier: ModifierCommand) -> _Pt2:
+    """地中梁の押し出し方向(方位角)の水平単位ベクトルを返す。"""
+    phi = math.radians(modifier['azimuth'])
+    return math.cos(phi), math.sin(phi)
+
+
+def _ground_beam_profile_key(
+    modifier: ModifierCommand,
+) -> tuple[tuple[float, float], ...]:
+    """断面形状(統合可否)を表す正規化キー。
+
+    頂点座標を許容値で丸め、巻き(CW/CCW)を CCW に揃えたうえで辞書順最小の頂点から
+    始まる回転に正規化する。頂点の絶対 (u, v) 位置は保持するため、断面形状が同じでも
+    軸に対する横位置(u オフセット)が違う地中梁は別キーになり統合されない。方位角は
+    別途キーに含めるため、向き(進行方向)が異なる地中梁も統合されない。
+    """
+    q = 1.0 / _GROUND_BEAM_PROFILE_TOL
+    pts = [(round(u * q) / q + 0.0, round(v * q) / q + 0.0)
+           for u, v in modifier['profile']]
+    area = 0.0
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    if area < 0.0:
+        pts = pts[::-1]
+    start = min(range(len(pts)), key=lambda i: pts[i])
+    return tuple(pts[start:] + pts[:start])
+
+
+def _ground_beam_group_key(
+    modifier: ModifierCommand,
+) -> tuple[object, ...]:
+    """統合対象を粗くまとめるグループキー(高さ z・方位角・断面形状)。
+
+    同じ高さ(下端 z)・同じ向き(方位角)・同じ断面形状の地中梁だけを同じグループに
+    まとめ、グループ内で同一直線上・区間が連続するものを 1 本に統合する。z・方位角は
+    浮動小数のため許容値で丸める。実際に同一直線上かは ``_modifiers_collinear`` が判定
+    する(粗いグループキーだけでは平行な別線上の地中梁も同じグループに入りうる)。
+    """
+    return (
+        round(modifier['origin'][2] / _GROUND_BEAM_MERGE_TOL),
+        round(modifier['azimuth'] / _GROUND_BEAM_AZIMUTH_TOL),
+        _ground_beam_profile_key(modifier),
+    )
+
+
+def _modifiers_collinear(a: ModifierCommand, b: ModifierCommand) -> bool:
+    """地中梁 a・b が同一直線上(同一軸線・同一高さ)にあり区間が連続するか。
+
+    a の軸線(``origin`` から方位角方向)を基準に、(1) b の方向が平行、(2) b の
+    ``origin`` が a の軸線上(直交距離 ≈ 0)かつ高さ(z)が一致、(3) a の区間
+    ``[0, depth]`` と b の射影区間が重なる/接触する、を満たすとき True(いずれも
+    ``_GROUND_BEAM_MERGE_*`` の許容内)。グループキーで同一断面・同一向きに絞った
+    うえで、平行だが別の線上にある地中梁や、隙間のある地中梁を統合しないための判定。
+    """
+    ax, ay, az = a['origin']
+    bx, by, bz = b['origin']
+    if abs(az - bz) > _GROUND_BEAM_MERGE_TOL:
+        return False
+    dax, day = _ground_beam_axis_dir(a)
+    dbx, dby = _ground_beam_axis_dir(b)
+    # (1) 単位方向ベクトルの外積(= sin 角)で平行判定
+    if abs(dax * dby - day * dbx) > _GROUND_BEAM_MERGE_ANGLE_TOL:
+        return False
+    # (2) b の原点の a 軸線からの直交距離(平行なら b の全点が同距離)
+    if abs(dax * (by - ay) - day * (bx - ax)) > _GROUND_BEAM_MERGE_TOL:
+        return False
+    # (3) b を a 方向に射影した区間が [0, a.depth] と重なる/接触するか
+    tb0 = dax * (bx - ax) + day * (by - ay)
+    tb1 = tb0 + b['depth'] * (dax * dbx + day * dby)
+    b_lo, b_hi = min(tb0, tb1), max(tb0, tb1)
+    if b_hi < -_GROUND_BEAM_MERGE_TOL or b_lo > a['depth'] + _GROUND_BEAM_MERGE_TOL:
+        return False
+    return True
+
+
+def _modifier_footprint(modifier: ModifierCommand) -> list[_Pt2]:
+    """モディファイア(台形プリズム)の平面外形(掃引した矩形)を返す。
+
+    断面の u 範囲(横方向の広がり)を軸に直交する幅、``depth`` を軸方向の長さとして
+    掃引した矩形。座標は ``origin`` の XY(センタリング済み)基準。底盤への振り分け
+    (``_attach_ground_beam_modifiers``)に使う統合後モディファイアの平面外形。
+    """
+    ox, oy, _oz = modifier['origin']
+    dx, dy = _ground_beam_axis_dir(modifier)
+    wx, wy = -dy, dx  # 幅軸(_ground_beam_modifier の w に一致)
+    depth = modifier['depth']
+    us = [u for u, _v in modifier['profile']]
+    u_lo, u_hi = min(us), max(us)
+    ex, ey = ox + dx * depth, oy + dy * depth
+    return [
+        (ox + u_lo * wx, oy + u_lo * wy),
+        (ox + u_hi * wx, oy + u_hi * wy),
+        (ex + u_hi * wx, ey + u_hi * wy),
+        (ex + u_lo * wx, ey + u_lo * wy),
+    ]
+
+
+def _merge_ground_beam_modifiers(
+    modifiers: list[tuple[ModifierCommand, list[_Pt2]]],
+) -> list[tuple[ModifierCommand, list[_Pt2]]]:
+    """同一直線上に並ぶ同一断面形状の地中梁モディファイアを 1 本に統合する。
+
+    グループキー(``_ground_beam_group_key`` = 高さ・方位角・断面形状)ごとにまとめ、
+    グループ内で同一直線上・区間が連続する地中梁(``_modifiers_collinear``)を
+    Union-Find で連結成分にし、成分ごとに先頭の軸方向へ全端点を射影した最小〜最大区間
+    の 1 本の台形プリズムに統合する(断面・向きは先頭を引き継ぐ)。統合後の平面外形は
+    ``_modifier_footprint`` で掃引矩形として作り直す。単独の地中梁・別線上/隙間のある
+    地中梁は統合せずそのまま残す。統合はグループ化・成分処理とも入力順に対して決定的。
+    """
+    groups: dict[tuple[object, ...], list[tuple[ModifierCommand, list[_Pt2]]]] = {}
+    order: list[tuple[object, ...]] = []
+    for entry in modifiers:
+        key = _ground_beam_group_key(entry[0])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(entry)
+
+    result: list[tuple[ModifierCommand, list[_Pt2]]] = []
+    for key in order:
+        result.extend(_merge_ground_beam_group(groups[key]))
     return result
+
+
+def _merge_ground_beam_group(
+    entries: list[tuple[ModifierCommand, list[_Pt2]]],
+) -> list[tuple[ModifierCommand, list[_Pt2]]]:
+    """同一断面・同一向きの地中梁群のうち、同一直線上で連続するものを 1 本に統合する。
+
+    Union-Find で連結成分(同一直線上で重なる/接触する地中梁の連鎖)にまとめ、各成分を
+    ``_merge_ground_beam_component`` で 1 本の台形プリズムに統合する。成分の代表は最小
+    インデックス、出力は代表インデックス昇順で入力順に準ずる。
+    """
+    members = [mod for mod, _fp in entries]
+    n = len(members)
+    parent = list(range(n))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for a in range(n):
+        for b in range(a + 1, n):
+            if _modifiers_collinear(members[a], members[b]):
+                ra, rb = find(a), find(b)
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+
+    components: dict[int, list[int]] = {}
+    for a in range(n):
+        components.setdefault(find(a), []).append(a)
+
+    merged: list[tuple[ModifierCommand, list[_Pt2]]] = []
+    for root in sorted(components):
+        comp = components[root]
+        if len(comp) == 1:
+            merged.append(entries[comp[0]])
+            continue
+        merged.append(_merge_ground_beam_component([members[a] for a in comp]))
+    return merged
+
+
+def _merge_ground_beam_component(
+    members: list[ModifierCommand],
+) -> tuple[ModifierCommand, list[_Pt2]]:
+    """同一直線上の地中梁群を 1 本の台形プリズムに統合し (命令, 平面外形) を返す。
+
+    先頭を基準に軸方向へ全端点(各梁の原点・原点 + depth·方向)を射影し、最小〜最大
+    区間を新しい 1 本の押し出しにする。断面(``profile``)・方位角(``azimuth``)・
+    高さ(``origin`` の z)は先頭を引き継ぐ。全メンバーは同一グループキー
+    (同一断面・同一向き)かつ同一軸線上のため、先頭の断面で全長を厳密に表せる。
+    """
+    base = members[0]
+    ox, oy, oz = base['origin']
+    dx, dy = _ground_beam_axis_dir(base)
+    ts: list[float] = []
+    for mod in members:
+        mx, my, _mz = mod['origin']
+        t0 = dx * (mx - ox) + dy * (my - oy)
+        emx, emy = _ground_beam_axis_dir(mod)
+        t1 = t0 + mod['depth'] * (dx * emx + dy * emy)
+        ts.extend((t0, t1))
+    t_lo, t_hi = min(ts), max(ts)
+    merged: ModifierCommand = {
+        'profile': base['profile'],
+        'depth': t_hi - t_lo,
+        'origin': [ox + dx * t_lo, oy + dy * t_lo, oz],
+        'azimuth': base['azimuth'],
+    }
+    return merged, _modifier_footprint(merged)
 
 
 def _ground_beam_modifier(
