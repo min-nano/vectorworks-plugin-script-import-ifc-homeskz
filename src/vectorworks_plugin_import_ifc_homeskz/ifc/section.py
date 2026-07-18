@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..document import ColumnCommand, MemberCommand, SectionCommand
-from .grid import CLASS_X, CLASS_Y, determine_class, resolve_lines
+from .grid import CLASS_X, determine_class, resolve_lines
 
 if TYPE_CHECKING:
     import ifcopenshell
