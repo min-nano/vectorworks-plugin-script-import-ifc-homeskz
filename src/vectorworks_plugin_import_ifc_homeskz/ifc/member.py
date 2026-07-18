@@ -10,11 +10,18 @@ IFC の IfcBeam / IfcMember を走査し、各階の横架材天端レイヤ
 Axis 属性に Z 成分を持つ梁(隅木等の傾斜梁)は始端と終端の
 天端 Z(``elevation``/``end_elevation``)が異なる傾斜した命令になる。
 
-登り梁は矩形断面ではなく、材の側面(長さ×せいの平行四辺形)を厚み方向へ
-押し出した任意断面(``IfcArbitraryClosedProfileDef``)で表される。矩形断面を
+登り梁は矩形断面ではなく、材の側面(長さ×せいの平行四辺形。端部の直切り=鉛直面)を
+厚み方向へ押し出した任意断面(``IfcArbitraryClosedProfileDef``)で表される。矩形断面を
 前提とする ``_get_profile_dims`` では拾えず取りこぼされるため、
 ``_sloped_member_geometry`` で平行四辺形の 4 頂点から中心軸・断面・傾斜を導出し、
 母屋・棟木と同じスキームで専用レイヤ(``n-登り梁``)に分離して配置する。
+
+登り梁の端部は直切り(鉛直面)なので、天端中央線の端点は断面中心軸(鉛直な端面の
+中央高さを通る)の**直上**(XY は同じ)= 鉛直な端面の上端に取り、高さは
+断面中心 + せい/(2·cosθ) にする。矩形前提の軸直交持ち上げ(通常の横架材・軸直交切りの
+傾斜梁)を登り梁に使うと、天端が (せい/2)(secθ − cosθ) 低くなって垂木下面(屋根勾配)に
+届かず、端部も勾配ぶん(せい/2·sinθ)軒側へずれて受ける柱との間に隙間ができるため、
+直切りの幾何(XY ずらし無し・鉛直持ち上げ)で天端を垂木下面に合わせ端部を柱に密着させる。
 
 横架材同士が食い込んでいる箇所(甲乙梁の T 字や出隅の L 字の取り合い等)は、
 相互の食い込み量を比べて勝ち負けを判定し、負け側(深く食い込む側)の端部を
@@ -427,6 +434,7 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                 if dims is not None:
                     ox, oy, oz, ax, ay, az = placement
                     width, height, length = dims
+                    vertical_cut = False
                 else:
                     # 矩形断面で拾えない材は、登り梁等の傾斜梁(任意断面=平行四辺形の
                     # 側面を厚み方向に押し出したソリッド)として中心軸を導出する。
@@ -435,6 +443,9 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                     if sloped is None:
                         continue
                     ox, oy, oz, ax, ay, az, width, height, length = sloped
+                    # 登り梁は端部が直切り(鉛直面)。下の高さ補正で矩形前提の軸直交
+                    # 持ち上げでなく直切りの幾何(XY ずらし無し・鉛直持ち上げ)を使う。
+                    vertical_cut = True
 
                 horiz = math.hypot(ax, ay)
                 if horiz <= _VERTICAL_AXIS_TOL:
@@ -451,13 +462,28 @@ def build_member_commands(ifc_file: ifcopenshell.file) -> list[MemberCommand]:
                 # ローカル配置 Z で描画する。基準高さ(横架材天端)にない梁も
                 # 正しい高さに配置するため。Z が取得できない梁のみレイヤ基準高さを使う。
                 # IFC の配置点は断面中心なので、構造材ツールの断面基準点
-                # (左右中央・上端)に合わせ、軸に直交し軸を含む鉛直面内で
-                # 上向きの単位ベクトル n の方向に背/2 だけ持ち上げ天端中央線にする。
+                # (左右中央・上端)に合わせて天端中央線を求める。
                 if oz is None:
                     # レイヤ基準高さ(横架材天端)は既に天端の高さなので補正不要
                     elevation = layer_elevation
                     end_elevation = layer_elevation
+                elif vertical_cut:
+                    # 登り梁: 端部は直切り(鉛直面)。断面中心軸は鉛直な端面の中央高さを
+                    # 通るため、天端中央線の端点は端面中央の**直上**(XY は同じ)= 鉛直な
+                    # 端面の上端にあり、高さは 断面中心 + せい/(2·cosθ)(cosθ=horiz)。
+                    # 矩形前提の軸直交持ち上げ(下の else)を登り梁に使うと、
+                    #  (1) 天端が (せい/2)(secθ − cosθ) だけ低くなり、垂木下面(屋根勾配)に
+                    #      届かない(始端・終端の高さを垂木下面に合わせる要件)、
+                    #  (2) 端部が勾配ぶん(せい/2·sinθ)軒側へずれ、上端を受ける柱との間に
+                    #      水平の隙間ができる(登り梁を柱が受ける端の隙間を無くす要件)、
+                    # の 2 点が生じる。直切りの幾何(XY ずらし無し・鉛直持ち上げ)にして
+                    # 天端を屋根勾配=垂木下面に合わせ、端部を柱に密着させる。
+                    half = height / 2.0
+                    elevation = storey_elevation + oz + half / horiz
+                    end_elevation = elevation + az * length
                 else:
+                    # 軸に直交し軸を含む鉛直面内で上向きの単位ベクトル n の方向に
+                    # 背/2 だけ持ち上げ天端中央線にする(端部が軸直交切りの傾斜梁・水平梁)。
                     nx = -az * ax / horiz
                     ny = -az * ay / horiz
                     nz = horiz
