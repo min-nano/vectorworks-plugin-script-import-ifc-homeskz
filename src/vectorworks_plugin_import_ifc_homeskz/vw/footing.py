@@ -95,6 +95,13 @@ _MODIFIER_AZIMUTH_OFFSET_DEG = 90.0
 # 底盤モディファイアに False が立つ。レイヤ平面のワールド 3D として扱わせる)。
 _MODIFIER_PLANE_VAR = 1160
 _MODIFIER_PLANE_VALUE = False
+# 地中梁の可視ソリッドに立てる「断面ビューポートで構造用図形として扱う」
+# (Mark Object as Structural)。断面ビューポートで地中梁を底盤など他の構造用図形と
+# 一体の構造用図形としてマージ表示させる。削り取りモディファイア(底盤の clip)には
+# 不要で、可視ソリッドにのみ立てる。selector 702 は Vectorworks 公式のオブジェクト
+# 変数一覧(Function Reference の Object Selectors)より。
+_MARK_STRUCTURAL_VAR = 702
+_MARK_STRUCTURAL_VALUE = True
 
 
 def _draw_modifier(modifier: Any) -> Any:
@@ -147,10 +154,15 @@ def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
 
     削り取りで底盤から除去した位置を、同じ台形プリズムのソリッドで埋める。底盤と同じ
     基礎スラブクラス(``class_name``)を付け、同一コンクリートとして一体に見せる。
+    可視ソリッドには「断面ビューポートで構造用図形として扱う」(Mark Object as
+    Structural=selector 702)を立て、断面ビューポートで底盤など他の構造用図形と一体に
+    マージ表示させる(削り取りモディファイアには不要で可視ソリッドにのみ立てる)。
     """
     for modifier in modifiers:
         solid = _draw_modifier(modifier)
         vs.SetClass(solid, class_name)
+        vs.SetObjectVariableBoolean(
+            solid, _MARK_STRUCTURAL_VAR, _MARK_STRUCTURAL_VALUE)
 
 
 def draw_wall(command: WallCommand) -> Any:
