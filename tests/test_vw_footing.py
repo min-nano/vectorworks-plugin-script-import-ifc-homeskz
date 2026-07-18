@@ -273,26 +273,37 @@ class TestExecuteSlabs:
 
 class TestExecuteSlabsWithModifiers:
     def test_creates_slab_pio_with_modifier_group(self) -> None:
-        # 地中梁モディファイアを持つ底盤は、外形ポリゴン(パス)とモディファイア群
-        # (プロファイル群)を一緒に CreateCustomObjectPath('Slab', 外形, 群)に渡して
-        # 作る。作成時に一緒に渡すことで噛み合わせ(add)になる。
+        # 地中梁モディファイアを持つ底盤は、作成時ダイアログを抑止するため
+        # CreateCustomObjectN('Slab', showPref=False)で Slab PIO を作り、
+        # SetCustomObjectPath(外形)・SetCustomObjectProfileGroup(モディファイア群)を
+        # 後付けする(Slab PIO のプロファイル群は底盤に足す=噛み合わせる=add)。
         vs_mock = _make_vs_mock({'F-底盤'})
         vw_footing = _load(vs_mock)
 
         count = vw_footing.execute_slabs([make_slab_with_modifier()])
 
         assert count == 1
-        # モディファイアありは CreateCustomObjectPath('Slab', 外形, 群)で作る
-        # (CreateSlab や後付け ModifySlab/SetCustomObjectProfileGroup では噛み合わない)
+        # CreateCustomObjectN(showPref=False)で作成時ダイアログを抑止して Slab PIO を作る
+        # (CreateSlab や ModifySlab では噛み合わない。CreateCustomObjectPath は
+        # ダイアログを出すためフォールバックのみ)
         vs_mock.CreateSlab.assert_not_called()
         vs_mock.ModifySlab.assert_not_called()
-        vs_mock.SetCustomObjectProfileGroup.assert_not_called()
-        vs_mock.CreateCustomObjectN.assert_not_called()
-        path_args = vs_mock.CreateCustomObjectPath.call_args.args
-        assert path_args[0] == 'Slab'
-        slab = vs_mock.CreateCustomObjectPath.return_value
+        vs_mock.CreateCustomObjectPath.assert_not_called()
+        cn_args = vs_mock.CreateCustomObjectN.call_args.args
+        assert cn_args[0] == 'Slab'
+        assert cn_args[1] == (0.0, 0.0)
+        assert cn_args[3] is False               # showPref=False(ダイアログ抑止)
+        slab = vs_mock.CreateCustomObjectN.return_value
+        # 外形(パス)とモディファイア群(プロファイル群)を後付けする
+        vs_mock.SetCustomObjectPath.assert_called_once_with(
+            slab, vs_mock.LNewObj.return_value)
+        vs_mock.SetCustomObjectProfileGroup.assert_called_once()
+        assert vs_mock.SetCustomObjectProfileGroup.call_args.args[0] is slab
         # 作成直後にパス図形のオブジェクト変数(1167)を立てる(エクスポートに一致)
         vs_mock.SetObjectVariableBoolean.assert_any_call(slab, 1167, True)
+        # 各モディファイアソリッドに 1160=False を立てる(エクスポートに一致)
+        bool_calls = [c.args for c in vs_mock.SetObjectVariableBoolean.call_args_list]
+        assert any(a[1] == 1160 and a[2] is False for a in bool_calls)
         # モディファイア群はグループにまとめる
         vs_mock.BeginGroup.assert_called_once()
         vs_mock.EndGroup.assert_called_once()
@@ -310,6 +321,20 @@ class TestExecuteSlabsWithModifiers:
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
+    def test_falls_back_to_create_custom_object_path(self) -> None:
+        # CreateCustomObjectN が NIL を返す環境では CreateCustomObjectPath で作る。
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
+        vw_footing = _load(vs_mock)
+
+        count = vw_footing.execute_slabs([make_slab_with_modifier()])
+
+        assert count == 1
+        path_args = vs_mock.CreateCustomObjectPath.call_args.args
+        assert path_args[0] == 'Slab'
+        slab = vs_mock.CreateCustomObjectPath.return_value
+        vs_mock.SetObjectVariableBoolean.assert_any_call(slab, 1167, True)
+
     def test_slab_without_modifiers_uses_create_slab(self) -> None:
         vs_mock = _make_vs_mock({'F-底盤'})
         vw_footing = _load(vs_mock)
@@ -318,9 +343,9 @@ class TestExecuteSlabsWithModifiers:
 
         vs_mock.CreateSlab.assert_called_once()
         vs_mock.CreateCustomObjectPath.assert_not_called()
+        vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.ModifySlab.assert_not_called()
         vs_mock.SetCustomObjectProfileGroup.assert_not_called()
-        vs_mock.CreateCustomObjectN.assert_not_called()
 
 
 class TestSlabStyles:
