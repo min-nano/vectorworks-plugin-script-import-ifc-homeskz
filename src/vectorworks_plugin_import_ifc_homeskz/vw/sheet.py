@@ -65,6 +65,16 @@ _GRAPHIC_LEGEND_STYLE = '基礎伏図凡例'
 _LEGEND_WIDTH_FIELD = 'BoxWidth'
 _LEGEND_BOX_WIDTH = '150'
 
+# グラフィック凡例の描画属性(オブジェクト別に直接設定する)。グラフィック凡例 PIO は
+# クラス(本体クラス・カレントクラスとも)では凡例の枠線・セルの見た目を制御できない
+# (VW 上でクラスを設定しても一般クラスの属性で作図される)ため、クラスによる制御は
+# 諦め、線の太さ・塗りをオブジェクトの属性として直接設定する。
+# 線の太さ 0.13mm(SetLW の単位はミル=1/1000 インチ。0.13mm ≒ 5 ミル=0.127mm を VW は
+# 0.13mm と表示する)。
+_LEGEND_LINE_WEIGHT_MILS = 5
+# 塗り=なし(SetFPat の塗りパターン 0 = なし)。
+_LEGEND_FILL_NONE = 0
+
 # データタグの「引出線を表示」パラメータ(オブジェクト情報パレットのチェックボックス)。
 # 既定 ON で、部材に接して置いても引出線が描かれてしまうため per-instance で OFF に
 # する。フィールド名 'Use Leader'・Boolean 値 'False' は VW が描画したデータタグの
@@ -253,13 +263,10 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     配置先シートレイヤ(``legend['number']`` = レイヤ名)をアクティブにしてから、
     ``vs.CreateCustomObjectN`` でグラフィック凡例 PIO を挿入位置に作る。第 4 引数
     ``showPref=False`` でインポート中に設定ダイアログが開くのを防ぐ。**グラフィック凡例
-    PIO は本体を ``SetClass`` しても、リセット時に PIO が内部で描く枠線・セルは
-    「本体のクラス」ではなく「カレントクラス(アクティブクラス)」で作図される**
-    (手動作図でナビゲーションパレットからクラスを選ぶ=カレントクラスを切り替えると
-    そのクラスに描かれるのと同じ挙動。VW 上で確認)。そのため生成・リセットの前に
-    ``vs.ActiveClass`` で現在のカレントクラスを退避し、``vs.NameClass`` で作図クラス
-    (``legend['class']`` = 図中枠)をカレントクラスに切り替える(``NameClass`` は
-    無ければクラスを作成してアクティブにする)。本体のクラスも ``vs.SetClass`` で揃える。
+    PIO はクラス(本体クラス・カレントクラスとも)では凡例の枠線・セルの見た目を制御
+    できない**(VW 上でクラスを設定・カレントクラスを切り替えても一般クラスの属性で
+    作図される)。そのためクラスによる制御は諦め、**線の太さ・塗りをオブジェクトの属性
+    として直接設定する**(``vs.SetLW`` で線の太さ 0.13mm、``vs.SetFPat`` で塗りなし)。
     続いてユーザーが VW 側で用意したグラフィック凡例スタイル(``legend['style']``。
     基礎伏図=``基礎伏図凡例``、床伏図・母屋伏図=``床伏図凡例``)を ``vs.SetPluginStyle`` で
     関連付ける。凡例のデータソース(=シンボルをソースにし各伏図ビューポートで
@@ -268,9 +275,9 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     PIO の箱幅が 0 でサイズ 0(リサイズハンドルを掴めない)ため、スタイル関連付けの
     後に箱幅フィールド ``BoxWidth`` を既定値に設定し ``vs.ResetObject`` で反映して
     可視化する(箱幅は by-instance のジオメトリでスタイルは決めない。高さは行内容から
-    自動決定される)。リセット後にカレントクラスを退避値へ戻す(セルの再計算=
-    ``UpdateStyledObjects`` 時も同じクラスに描くため ``execute_sheets`` 側で再度
-    切り替える)。PIO が作れない場合は False を返す。
+    自動決定される)。線の太さ・塗りの属性は最後(``ResetObject`` の後、かつ後段の
+    ``UpdateStyledObjects`` によるセル再計算より前)に設定し、by-instance の属性として
+    保持させる。PIO が作れない場合は False を返す。
     """
     x, y = legend['position']
     # シートレイヤ番号はレイヤ名が担うため、番号でシートレイヤをアクティブにする
@@ -278,13 +285,6 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     obj = vs.CreateCustomObjectN(_GRAPHIC_LEGEND_PLUGIN, (x, y), 0, False)
     if obj == vs.Handle(0):
         return False
-    # グラフィック凡例 PIO は内部の枠線・セルをカレントクラスで作図するため、生成・
-    # リセットの前に作図クラス(図中枠)をカレントクラスへ切り替える(NameClass は無ければ
-    # クラスを作成しアクティブにする)。本体のクラスも SetClass で揃える。リセット後に
-    # 退避したカレントクラスへ戻す。
-    previous_class = vs.ActiveClass()
-    vs.NameClass(legend['class'])
-    vs.SetClass(obj, legend['class'])
     # ソース定義(シンボル + 各伏図ビューポートフィルタ)・集計基準・行レイアウトを
     # 持つプラグインスタイルを関連付ける。ソースは PIO パラメータでは設定できないため
     # スタイルに焼き込む方式(構造材・データタグと同じ SetPluginStyle 方式)。
@@ -293,9 +293,10 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     # 可視化する(矩形を描いて作るときの幅に相当。レイアウトが幅に追従する)。
     vs.SetRField(obj, _GRAPHIC_LEGEND_PLUGIN, _LEGEND_WIDTH_FIELD, _LEGEND_BOX_WIDTH)
     vs.ResetObject(obj)
-    # カレントクラスを退避値へ戻す(他の描画に影響させない。セル再計算=
-    # UpdateStyledObjects 時は execute_sheets が再度作図クラスへ切り替える)。
-    vs.NameClass(previous_class)
+    # クラスでは見た目を制御できないため、線の太さ(0.13mm)・塗り(なし)を
+    # オブジェクトの属性として直接設定する。
+    vs.SetLW(obj, _LEGEND_LINE_WEIGHT_MILS)
+    vs.SetFPat(obj, _LEGEND_FILL_NONE)
     return True
 
 
@@ -334,11 +335,9 @@ def execute_sheets(
     count = 0
     tag_count = 0
     legend_count = 0
-    # 実際に配置した凡例のスタイル名 → 作図クラスの対応(基礎伏図凡例・床伏図凡例など)。
-    # 全配置後にスタイルごとに 1 回ずつ UpdateStyledObjects を呼び、ソースからセルを
-    # 再計算する。その再計算でも枠線・セルはカレントクラスで作図されるため、各スタイルの
-    # 作図クラスをカレントクラスに切り替えてから呼ぶ(下記)。
-    placed_styles: dict[str, str] = {}
+    # 実際に配置した凡例のスタイル名(基礎伏図凡例・床伏図凡例など)。全配置後に
+    # スタイルごとに 1 回ずつ UpdateStyledObjects を呼び、ソースからセルを再計算する。
+    placed_styles: set[str] = set()
     for command in commands:
         sheet_layer, viewport = draw_sheet(command)
         if viewport is not None and viewport != vs.Handle(0):
@@ -357,7 +356,7 @@ def execute_sheets(
                     continue
                 if draw_legend(legend, sheet_layer):
                     legend_count += 1
-                    placed_styles[legend['style']] = legend['class']
+                    placed_styles.add(legend['style'])
         count += 1
     # グラフィック凡例を配置したら、スタイルが決める内容(ソースから集めたセル=
     # シンボル)をインスタンスへプッシュするため、全配置後に**使用した各スタイル**
@@ -365,16 +364,10 @@ def execute_sheets(
     # (構造材・柱と同じ規約)。SetPluginStyle + ResetObject だけでは
     # スタイルのソースからセルが再計算されず、凡例が空(セル 0 個 = 幅 0)のままに
     # なる(VW 上でスタイル編集ダイアログを開いて OK すると反映されるのと同じ
-    # 再計算を、この呼び出しが担う)。by-instance の個別フィールド(BoxWidth 等)は
-    # 保持したまま by-style の内容のみ更新される。この再計算でも凡例の枠線・セルは
-    # カレントクラスで作図されるため、各スタイルの作図クラス(図中枠)をカレントクラスに
-    # 切り替えてから UpdateStyledObjects を呼び、終わったらカレントクラスを退避値へ戻す。
-    if placed_styles:
-        previous_class = vs.ActiveClass()
-        for style in sorted(placed_styles):
-            vs.NameClass(placed_styles[style])
-            vs.UpdateStyledObjects(style)
-        vs.NameClass(previous_class)
+    # 再計算を、この呼び出しが担う)。by-instance の個別フィールド(BoxWidth・線の太さ・
+    # 塗り等)は保持したまま by-style の内容のみ更新される。
+    for style in sorted(placed_styles):
+        vs.UpdateStyledObjects(style)
     if counters is not None:
         counters['tags'] = tag_count
         counters['legends'] = legend_count

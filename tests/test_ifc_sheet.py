@@ -290,8 +290,6 @@ class TestBuildLegendCommands:
         assert legend['number'] == '1'
         # 基礎伏図凡例スタイルを関連付ける
         assert legend['style'] == '基礎伏図凡例'
-        # 作図クラスは図中枠
-        assert legend['class'] == '01作図-01線-07枠線-02図中枠'
         # M12→土台用・M16→ホールダウン用のラベル(固定マッピング)
         assert legend['items'] == [
             {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
@@ -347,7 +345,6 @@ class TestBuildFloorLegendCommands:
         assert legends  # 伏図があるので凡例が組み立てられる
         for legend in legends:
             assert legend['style'] == '床伏図凡例'
-            assert legend['class'] == '01作図-01線-07枠線-02図中枠'
             assert legend['items'] == []
             assert legend['position'] == [0.0, 0.0]
 

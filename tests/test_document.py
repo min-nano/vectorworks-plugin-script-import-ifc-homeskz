@@ -170,8 +170,7 @@ def make_valid_document() -> dict[str, Any]:
         ],
         'legends': [
             {
-                'number': '1', 'style': '基礎伏図凡例',
-                'class': '01作図-01線-07枠線-02図中枠', 'position': [0.0, 0.0],
+                'number': '1', 'style': '基礎伏図凡例', 'position': [0.0, 0.0],
                 'items': [
                     {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
                     {'symbol': 'アンカーボルト_M16',
@@ -855,18 +854,6 @@ class TestValidateDocument:
         document = make_valid_document()
         document['legends'][0]['style'] = ''
         with pytest.raises(DocumentValidationError, match='style'):
-            validate_document(document)
-
-    def test_rejects_legend_without_class(self) -> None:
-        document = make_valid_document()
-        del document['legends'][0]['class']
-        with pytest.raises(DocumentValidationError, match='class'):
-            validate_document(document)
-
-    def test_rejects_legend_with_empty_class(self) -> None:
-        document = make_valid_document()
-        document['legends'][0]['class'] = ''
-        with pytest.raises(DocumentValidationError, match='class'):
             validate_document(document)
 
     def test_rejects_legend_with_bad_position(self) -> None:

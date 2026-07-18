@@ -151,10 +151,6 @@ FOUNDATION_LEGEND_STYLE = '基礎伏図凡例'
 FLOOR_LEGEND_STYLE = '床伏図凡例'
 FLOOR_LEGEND_POSITION = [0.0, 0.0]
 
-# 各伏図に置くグラフィック凡例の作図クラス(PIO 本体をこのクラスで描く)。基礎伏図・
-# 床伏図・母屋伏図いずれも枠線の図中枠クラスに揃える。
-LEGEND_CLASS = '01作図-01線-07枠線-02図中枠'
-
 # 柱梁伏図(各階)シートの構成
 # タイトルの種別ラベル。一般階は "床"、最上階は主屋根の "小屋"。いずれも階番号と
 # 組み合わせて "{階番号}階床" / "{階数}階小屋" のように使う。
@@ -417,7 +413,6 @@ def build_legend_commands(
     return [{
         'number': FOUNDATION_PLAN_SHEET_NUMBER,
         'style': FOUNDATION_LEGEND_STYLE,
-        'class': LEGEND_CLASS,
         'position': list(FOUNDATION_LEGEND_POSITION),
         'items': items,
     }]
@@ -448,7 +443,6 @@ def build_floor_legend_commands(
     return [{
         'number': sheet['number'],
         'style': FLOOR_LEGEND_STYLE,
-        'class': LEGEND_CLASS,
         'position': list(FLOOR_LEGEND_POSITION),
         'items': [],
     } for sheet in sheets]
