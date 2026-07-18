@@ -33,7 +33,19 @@ def make_slab_command() -> SlabCommand:
         'boundary': [[0.0, 0.0], [3000.0, 0.0], [3000.0, 2000.0], [0.0, 2000.0]],
         'elevation': 50.0, 'thickness': 150.0,
         'bound': {'story_offset': 0, 'level': '底盤天端', 'offset': 0.0},
+        'modifiers': [],
     }
+
+
+def make_slab_with_modifier() -> SlabCommand:
+    command = make_slab_command()
+    command['modifiers'] = [{
+        'profile': [[0.0, 0.0], [-150.0, 0.0], [-290.0, 140.0], [0.0, 140.0]],
+        'depth': 1060.0,
+        'origin': [760.0, 5520.0, -240.0],
+        'azimuth': 0.0,
+    }]
+    return command
 
 
 # 既定の基礎スラブスタイル名(コンクリート 150mm)
@@ -257,6 +269,46 @@ class TestExecuteSlabs:
         vs_mock.SetSlabHeight.assert_not_called()
         # フォールバックでポリゴンにクラスを設定
         vs_mock.SetClass.assert_called_once()
+
+
+class TestExecuteSlabsWithModifiers:
+    def test_creates_slab_with_modifier_group_path(self) -> None:
+        # 地中梁モディファイアを持つ底盤は CreateCustomObjectPath('Slab', …) で作る
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vw_footing = _load(vs_mock)
+
+        count = vw_footing.execute_slabs([make_slab_with_modifier()])
+
+        assert count == 1
+        # モディファイアがある底盤は CreateSlab ではなく CreateCustomObjectPath
+        vs_mock.CreateSlab.assert_not_called()
+        vs_mock.CreateCustomObjectPath.assert_called_once()
+        name = vs_mock.CreateCustomObjectPath.call_args.args[0]
+        assert name == 'Slab'
+        # モディファイア群はグループにまとめる
+        vs_mock.BeginGroup.assert_called_once()
+        vs_mock.EndGroup.assert_called_once()
+        # 台形プリズムを押し出しで作り、起こして方位角へ回し配置する
+        vs_mock.BeginXtrd.assert_called_once_with(0.0, 1060.0)
+        vs_mock.EndXtrd.assert_called_once()
+        rot_calls = [c.args for c in vs_mock.Rotate3D.call_args_list]
+        assert (90.0, 0.0, 0.0) in rot_calls        # 断面を起こす
+        assert (0.0, 0.0, 90.0) in rot_calls        # azimuth(0)+90 へ回す
+        # Z はスラブ天端フレーム(絶対 z - elevation)へ寄せる
+        move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
+        assert (760.0, 5520.0, -240.0 - 50.0) in move_calls
+        # スラブとして天端・バインド・スタイル対象は従来どおり
+        vs_mock.SetSlabHeight.assert_called_once_with(
+            vs_mock.CreateCustomObjectPath.return_value, 50.0)
+
+    def test_slab_without_modifiers_still_uses_create_slab(self) -> None:
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vw_footing = _load(vs_mock)
+
+        vw_footing.execute_slabs([make_slab_command()])
+
+        vs_mock.CreateCustomObjectPath.assert_not_called()
+        vs_mock.CreateSlab.assert_called_once()
 
 
 class TestSlabStyles:
