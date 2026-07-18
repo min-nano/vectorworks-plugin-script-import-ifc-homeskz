@@ -272,68 +272,59 @@ class TestExecuteSlabs:
 
 
 class TestExecuteSlabsWithModifiers:
-    def test_creates_slab_pio_with_modifier_group(self) -> None:
-        # 地中梁モディファイアを持つ底盤は、作成時ダイアログを抑止するため
-        # CreateCustomObjectN('Slab', showPref=False)で Slab PIO を作り、
-        # SetCustomObjectPath(外形)・SetCustomObjectProfileGroup(モディファイア群)を
-        # 後付けする(Slab PIO のプロファイル群は底盤に足す=噛み合わせる=add)。
+    def test_carves_slab_and_draws_beam_solid(self) -> None:
+        # 地中梁を持つ底盤は、台形プリズムを 2 回作る: (1) 削り取りモディファイアとして
+        # CreateSlab の通常スラブに SetCustomObjectProfileGroup で渡し底盤を削り取る、
+        # (2) 同じ台形プリズムを独立した可視ソリッドとして基礎スラブクラスで置く。
         vs_mock = _make_vs_mock({'F-底盤'})
         vw_footing = _load(vs_mock)
 
         count = vw_footing.execute_slabs([make_slab_with_modifier()])
 
         assert count == 1
-        # CreateCustomObjectN(showPref=False)で作成時ダイアログを抑止して Slab PIO を作る
-        # (CreateSlab や ModifySlab では噛み合わない。CreateCustomObjectPath は
-        # ダイアログを出すためフォールバックのみ)
-        vs_mock.CreateSlab.assert_not_called()
-        vs_mock.ModifySlab.assert_not_called()
+        # 底盤は通常の CreateSlab(可視・スタイル付き)で作る。PIO 直接作成・ModifySlab は不使用。
+        vs_mock.CreateSlab.assert_called_once()
+        vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.CreateCustomObjectPath.assert_not_called()
-        cn_args = vs_mock.CreateCustomObjectN.call_args.args
-        assert cn_args[0] == 'Slab'
-        assert cn_args[1] == (0.0, 0.0)
-        assert cn_args[3] is False               # showPref=False(ダイアログ抑止)
-        slab = vs_mock.CreateCustomObjectN.return_value
-        # 外形(パス)とモディファイア群(プロファイル群)を後付けする
-        vs_mock.SetCustomObjectPath.assert_called_once_with(
-            slab, vs_mock.LNewObj.return_value)
+        vs_mock.ModifySlab.assert_not_called()
+        slab = vs_mock.CreateSlab.return_value
+        # (1) 削り取りモディファイア群を通常スラブのプロファイル群として渡す(clip)
         vs_mock.SetCustomObjectProfileGroup.assert_called_once()
         assert vs_mock.SetCustomObjectProfileGroup.call_args.args[0] is slab
-        # 作成直後にパス図形のオブジェクト変数(1167)を立てる(エクスポートに一致)
-        vs_mock.SetObjectVariableBoolean.assert_any_call(slab, 1167, True)
-        # 各モディファイアソリッドに 1160=False を立てる(エクスポートに一致)
-        bool_calls = [c.args for c in vs_mock.SetObjectVariableBoolean.call_args_list]
-        assert any(a[1] == 1160 and a[2] is False for a in bool_calls)
-        # モディファイア群はグループにまとめる
         vs_mock.BeginGroup.assert_called_once()
         vs_mock.EndGroup.assert_called_once()
-        # 台形プリズムを押し出しで作り、起こして方位角へ回し配置する
-        vs_mock.BeginXtrd.assert_called_once_with(0.0, 1060.0)
-        vs_mock.EndXtrd.assert_called_once()
-        rot_calls = [c.args for c in vs_mock.Rotate3D.call_args_list]
-        assert (90.0, 0.0, 0.0) in rot_calls        # 断面を起こす
-        assert (0.0, 0.0, 90.0) in rot_calls        # azimuth(0)+90 へ回す
-        # Z は絶対値(梁下端のワールド Z)そのまま。貫入(天端引き上げ)はしない=実形状。
+        # 台形プリズムは 2 回作る(削り取り 1 + 可視ソリッド 1)
+        assert vs_mock.BeginXtrd.call_count == 2
+        assert vs_mock.EndXtrd.call_count == 2
+        # 各ソリッドに 1160=False を立てる(レイヤ平面のワールド 3D)
+        bool_calls = [c.args for c in vs_mock.SetObjectVariableBoolean.call_args_list]
+        assert any(a[1] == 1160 and a[2] is False for a in bool_calls)
+        # (2) 可視の地中梁ソリッドに底盤と同じ基礎スラブクラスを付ける
+        class_calls = [c.args for c in vs_mock.SetClass.call_args_list]
+        assert any(a[1] == '04構造-01基礎-02基礎スラブ'
+                   and a[0] is vs_mock.LNewObj.return_value for a in class_calls)
+        # Z は絶対値(梁下端のワールド Z)そのまま。断面天端は実形状のまま(v=140)。
         move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
         assert (760.0, 5520.0, -240.0) in move_calls
         line_calls = [c.args for c in vs_mock.LineTo.call_args_list]
-        assert (-290.0, 140.0) in line_calls        # 断面天端は実形状のまま(v=140)
+        assert (-290.0, 140.0) in line_calls
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
-    def test_falls_back_to_create_custom_object_path(self) -> None:
-        # CreateCustomObjectN が NIL を返す環境では CreateCustomObjectPath で作る。
+    def test_draws_beam_solid_even_when_slab_not_created(self) -> None:
+        # スラブが作れなくても(フォールバック)、地中梁の可視ソリッドは描く。
         vs_mock = _make_vs_mock({'F-底盤'})
-        vs_mock.CreateCustomObjectN.return_value = vs_mock.Handle(0)
+        vs_mock.CreateSlab.return_value = vs_mock.Handle(0)
         vw_footing = _load(vs_mock)
 
         count = vw_footing.execute_slabs([make_slab_with_modifier()])
 
         assert count == 1
-        path_args = vs_mock.CreateCustomObjectPath.call_args.args
-        assert path_args[0] == 'Slab'
-        slab = vs_mock.CreateCustomObjectPath.return_value
-        vs_mock.SetObjectVariableBoolean.assert_any_call(slab, 1167, True)
+        # 削り取りは行われないが、可視の地中梁ソリッドは 1 本描く
+        vs_mock.SetCustomObjectProfileGroup.assert_not_called()
+        assert vs_mock.BeginXtrd.call_count == 1
+        class_calls = [c.args for c in vs_mock.SetClass.call_args_list]
+        assert any(a[1] == '04構造-01基礎-02基礎スラブ' for a in class_calls)
 
     def test_slab_without_modifiers_uses_create_slab(self) -> None:
         vs_mock = _make_vs_mock({'F-底盤'})
@@ -346,6 +337,7 @@ class TestExecuteSlabsWithModifiers:
         vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.ModifySlab.assert_not_called()
         vs_mock.SetCustomObjectProfileGroup.assert_not_called()
+        vs_mock.BeginXtrd.assert_not_called()
 
 
 class TestSlabStyles:
