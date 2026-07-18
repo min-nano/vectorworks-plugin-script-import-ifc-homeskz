@@ -272,9 +272,9 @@ class TestExecuteSlabs:
 
 
 class TestExecuteSlabsWithModifiers:
-    def test_creates_base_slab_and_attaches_modifier_group(self) -> None:
+    def test_creates_base_slab_and_meshes_modifier(self) -> None:
         # 地中梁モディファイアを持つ底盤も、確実に描画される CreateSlab で底盤を作り、
-        # モディファイア群を SetCustomObjectProfileGroup で後付けして噛み合わせる。
+        # 各モディファイアを ModifySlab(isClipObject=False=足す)で噛み合わせる。
         vs_mock = _make_vs_mock({'F-底盤'})
         vw_footing = _load(vs_mock)
 
@@ -286,32 +286,32 @@ class TestExecuteSlabsWithModifiers:
         vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.CreateCustomObjectPath.assert_not_called()
         slab = vs_mock.CreateSlab.return_value
-        # モディファイア群をスラブのプロファイル群として噛み合わせる
-        vs_mock.SetCustomObjectProfileGroup.assert_called_once()
-        group_arg = vs_mock.SetCustomObjectProfileGroup.call_args.args
-        assert group_arg[0] is slab
-        # モディファイア群はグループにまとめる
-        vs_mock.BeginGroup.assert_called_once()
-        vs_mock.EndGroup.assert_called_once()
+        solid = vs_mock.LNewObj.return_value
+        # モディファイアは削り取り(profile group)ではなく ModifySlab で足す(噛み合わせる)
+        vs_mock.SetCustomObjectProfileGroup.assert_not_called()
+        vs_mock.ModifySlab.assert_called_once_with(slab, solid, False, -1)
         # 台形プリズムを押し出しで作り、起こして方位角へ回し配置する
         vs_mock.BeginXtrd.assert_called_once_with(0.0, 1060.0)
         vs_mock.EndXtrd.assert_called_once()
         rot_calls = [c.args for c in vs_mock.Rotate3D.call_args_list]
         assert (90.0, 0.0, 0.0) in rot_calls        # 断面を起こす
         assert (0.0, 0.0, 90.0) in rot_calls        # azimuth(0)+90 へ回す
-        # Z はスラブ天端フレーム(絶対 z - elevation)へ寄せる
+        # Z は絶対値(梁下端のワールド Z)そのまま。以前は elevation を引いて 50mm 低く
+        # 描画されていた(SetSlabHeight はモディファイアを持ち上げないため)。
         move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
-        assert (760.0, 5520.0, -240.0 - 50.0) in move_calls
+        assert (760.0, 5520.0, -240.0) in move_calls
+        assert (760.0, 5520.0, -240.0 - 50.0) not in move_calls
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
-    def test_slab_without_modifiers_skips_profile_group(self) -> None:
+    def test_slab_without_modifiers_skips_mesh(self) -> None:
         vs_mock = _make_vs_mock({'F-底盤'})
         vw_footing = _load(vs_mock)
 
         vw_footing.execute_slabs([make_slab_command()])
 
         vs_mock.CreateSlab.assert_called_once()
+        vs_mock.ModifySlab.assert_not_called()
         vs_mock.SetCustomObjectProfileGroup.assert_not_called()
         vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.CreateCustomObjectPath.assert_not_called()
