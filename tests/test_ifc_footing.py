@@ -166,16 +166,20 @@ class TestBuildFromFixture:
             # elevation は天端の絶対 Z、bound.offset は底盤天端(絶対)との差
             assert math.isclose(
                 slab['elevation'], slab_top + slab['bound']['offset'])
-            # thickness は None(地中梁)か正の数(底盤のコンクリート厚、整数 mm)
+            # スラブは底盤のみ(地中梁はモディファイア)。厚みは正の整数 mm。
             thickness = slab['thickness']
-            assert thickness is None or (thickness > 0.0
-                                         and thickness == round(thickness))
-        # 主たる底盤は天端=底盤天端 (offset≈0)、地中梁は底盤天端より低い (offset<0)
+            assert thickness is not None
+            assert thickness > 0.0 and thickness == round(thickness)
+            assert isinstance(slab['modifiers'], list)
+        # 主たる底盤は天端=底盤天端 (offset≈0)、独立基礎底盤は別高さ (offset≠0)
         offsets = [round(s['bound']['offset'], 1) for s in slabs]
         assert 0.0 in offsets
-        assert any(o < 0.0 for o in offsets)
-        # 底盤(基礎底盤系)はスラブスタイル用のコンクリート厚を持つ
-        assert any(s['thickness'] is not None for s in slabs)
+        # 地中梁は単独スラブではなく、底盤スラブのモディファイアとして持つ。
+        # 台形プリズムの総数はフィクスチャの地中梁数(伏図次郎=23)と一致する。
+        total_modifiers = sum(len(s['modifiers']) for s in slabs)
+        assert total_modifiers == 23
+        # モディファイアを持つ底盤が少なくとも 1 枚ある。
+        assert any(s['modifiers'] for s in slabs)
 
     def test_continuous_base_slabs_are_merged(self) -> None:
         # 連続する同厚の基礎底盤(ベタ基礎)は 1 枚に統合される。伏図次郎は
@@ -208,6 +212,130 @@ class TestBuildFromFixture:
         assert math.isclose(face_max_x - center_max_x, 60.0, abs_tol=0.5)
 
 
+class TestGroundBeamModifier:
+    """地中梁 → 台形プリズムのモディファイア変換 (``_ground_beam_modifier``)。"""
+
+    def test_geometry_from_horizontal_solid(self) -> None:
+        # 水平押し出し(+X)・鉛直断面(ly=+Z)の台形地中梁。
+        placement: footing._Placement = (
+            (1000.0, 2000.0, -240.0),
+            (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        pts = [(0.0, 0.0), (-150.0, 0.0), (-290.0, 140.0), (0.0, 140.0)]
+        solid: footing._Solid = (
+            placement, (1.0, 0.0, 0.0), 1060.0, pts, None)
+        mod = footing._ground_beam_modifier(solid, 100.0, 200.0)
+        assert mod is not None
+        assert math.isclose(mod['depth'], 1060.0)
+        assert math.isclose(mod['azimuth'], 0.0)
+        # XY はセンタリング済み、z は絶対値(梁下端)。
+        assert mod['origin'] == [900.0, 1800.0, -240.0]
+        # 幅軸 u・鉛直軸 v の断面。この配置では元の (u, v) と一致する。
+        for got, want in zip(mod['profile'], pts):
+            assert math.isclose(got[0], want[0])
+            assert math.isclose(got[1], want[1])
+
+    def test_vertical_extrude_returns_none(self) -> None:
+        # 鉛直押し出しは地中梁でない(通常起きない)ため None。
+        solid: footing._Solid = (
+            _identity_placement(), (0.0, 0.0, 1.0), 100.0,
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)], None)
+        assert footing._ground_beam_modifier(solid, 0.0, 0.0) is None
+
+    def test_azimuth_from_run_direction(self) -> None:
+        # 押し出し +Y → 方位角 90 度。
+        placement: footing._Placement = (
+            (0.0, 0.0, 0.0),
+            (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
+        solid: footing._Solid = (
+            placement, (0.0, 1.0, 0.0), 500.0,
+            [(0.0, 0.0), (-150.0, 0.0), (-290.0, 140.0), (0.0, 140.0)], None)
+        mod = footing._ground_beam_modifier(solid, 0.0, 0.0)
+        assert mod is not None
+        assert math.isclose(mod['azimuth'], 90.0)
+
+    def test_modifiers_roundtrip_to_solid_world(self) -> None:
+        # モディファイアの (profile, origin, azimuth, depth) が、描画フェーズの回転
+        # 規約(Rotate3D(90,0,0) → Rotate3D(0,0,azimuth+90) → Move3D(origin))で
+        # 元ソリッドのワールド座標(センタリング済み)を復元する。
+        from vectorworks_plugin_import_ifc_homeskz.ifc.grid import resolve_lines
+        ifc = _open('伏図次郎【2階】.ifc')
+        _lines, cx, cy = resolve_lines(ifc)
+        beams = [e for e in ifc.by_type('IfcFooting')
+                 if '地中梁' in (e.Name or '')]
+        assert beams
+        max_err = 0.0
+        checked = 0
+        for element in beams:
+            solid = footing._world_solid(element)
+            if solid is None:
+                continue
+            (o, lx, ly, _lz), ex, depth, pts, _dims = solid
+            mod = footing._ground_beam_modifier(solid, cx, cy)
+            assert mod is not None
+            phi = math.radians(mod['azimuth'] + 90.0)
+            for (u, v), (pu, pv) in zip(pts, mod['profile']):
+                for t in (0.0, depth):
+                    base = (o[0] + lx[0] * u + ly[0] * v,
+                            o[1] + lx[1] * u + ly[1] * v,
+                            o[2] + lx[2] * u + ly[2] * v)
+                    true = (base[0] + ex[0] * t - cx,
+                            base[1] + ex[1] * t - cy,
+                            base[2] + ex[2] * t)
+                    got = (mod['origin'][0] + pu * math.cos(phi)
+                           + t * math.sin(phi),
+                           mod['origin'][1] + pu * math.sin(phi)
+                           - t * math.cos(phi),
+                           mod['origin'][2] + pv)
+                    max_err = max(max_err,
+                                  max(abs(true[i] - got[i]) for i in range(3)))
+                    checked += 1
+        assert checked > 0
+        assert max_err < 1e-6
+
+
+class TestAttachGroundBeamModifiers:
+    """地中梁モディファイアの底盤への振り分け (``_attach_ground_beam_modifiers``)。"""
+
+    def test_attached_to_overlapping_slab(self) -> None:
+        slabs = [_slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0)),
+                 _slab(_rect_boundary(5000.0, 0.0, 6000.0, 1000.0))]
+        mod = _modifier([400.0, 400.0, -240.0])
+        footprint = [(300.0, 300.0), (700.0, 300.0),
+                     (700.0, 700.0), (300.0, 700.0)]
+        footing._attach_ground_beam_modifiers(slabs, [(mod, footprint)])
+        assert slabs[0]['modifiers'] == [mod]
+        assert slabs[1]['modifiers'] == []
+
+    def test_nonoverlapping_falls_back_to_nearest(self) -> None:
+        slabs = [_slab(_rect_boundary(0.0, 0.0, 1000.0, 1000.0)),
+                 _slab(_rect_boundary(5000.0, 0.0, 6000.0, 1000.0))]
+        mod = _modifier([5500.0, 3000.0, -240.0])
+        # どちらの底盤の外にもあるが、重心は 2 枚目の底盤に近い。
+        footprint = [(5400.0, 3000.0), (5600.0, 3000.0),
+                     (5600.0, 3100.0), (5400.0, 3100.0)]
+        footing._attach_ground_beam_modifiers(slabs, [(mod, footprint)])
+        assert slabs[0]['modifiers'] == []
+        assert slabs[1]['modifiers'] == [mod]
+
+    def test_no_slabs_drops_silently(self) -> None:
+        slabs: list[footing.SlabCommand] = []
+        mod = _modifier([0.0, 0.0, 0.0])
+        footprint = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+        # 底盤が無ければ付けられず捨てる(例外は出ない)。
+        footing._attach_ground_beam_modifiers(slabs, [(mod, footprint)])
+        assert slabs == []
+
+    def test_build_slab_commands_attaches_all_ground_beams(self) -> None:
+        ifc = _open('伏図次郎【2階】.ifc')
+        slabs = footing.build_slab_commands(ifc)
+        beams = [e for e in ifc.by_type('IfcFooting')
+                 if '地中梁' in (e.Name or '')]
+        # 全地中梁がいずれかの底盤のモディファイアに収まる(取りこぼさない)。
+        assert sum(len(s['modifiers']) for s in slabs) == len(beams)
+        # スラブは底盤のみ(地中梁の単独スラブは無い)。
+        assert all(s['thickness'] is not None for s in slabs)
+
+
 def _slab(
     boundary: list[list[float]], thickness: float | None = 150.0,
     offset: float = 0.0, layer: str = footing.LAYER_FOUNDATION_SLAB,
@@ -220,6 +348,18 @@ def _slab(
         'thickness': thickness,
         'bound': {
             'story_offset': 0, 'level': footing.LEVEL_SLAB_TOP, 'offset': offset},
+        'modifiers': [],
+    }
+
+
+def _modifier(
+    origin: list[float], azimuth: float = 0.0,
+) -> footing.ModifierCommand:
+    return {
+        'profile': [[0.0, 0.0], [-150.0, 0.0], [-290.0, 140.0], [0.0, 140.0]],
+        'depth': 1000.0,
+        'origin': origin,
+        'azimuth': azimuth,
     }
 
 

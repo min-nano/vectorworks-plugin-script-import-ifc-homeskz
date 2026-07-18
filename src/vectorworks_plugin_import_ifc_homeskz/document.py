@@ -214,8 +214,25 @@
                 "thickness": 150.0,
                 # 高さ基準(ストーリレベルへのバインド)。スラブ天端を基礎の底盤天端
                 # レベルにバインドする。offset は天端の絶対 Z と底盤天端の絶対 Z の差
-                # (主たる底盤は ≈0、地中梁は底盤天端より低いため負値)。
-                "bound": {"story_offset": 0, "level": "底盤天端", "offset": 0.0}
+                # (主たる底盤は ≈0)。
+                "bound": {"story_offset": 0, "level": "底盤天端", "offset": 0.0},
+                # 底盤に噛み合う地中梁(台形断面の下り梁)を、スラブのモディファイア
+                # (3D ソリッド)として持たせる。地中梁は台形断面のため単一スラブでは
+                # 描けず、底盤コンクリートにモディファイアとして噛み合わせる。無ければ
+                # 空(省略可)。各モディファイアは水平に押し出した台形プリズム。
+                "modifiers": [
+                    {
+                        # 台形断面(u=水平幅方向・v=鉛直方向の 2D 頂点列)。
+                        "profile": [[0.0, 0.0], [-150.0, 0.0],
+                                    [-290.0, 140.0], [0.0, 140.0]],
+                        "depth": 1060.0,        # 押し出し長(梁の長さ)
+                        # 断面原点 (profile の (0,0)) のワールド絶対座標 [x, y, z]
+                        # (XY はセンタリング済み、z は絶対値)。
+                        "origin": [100.0, 200.0, -240.0],
+                        # 押し出し方向(梁の走る向き)の方位角(度、+X から反時計回り)。
+                        "azimuth": 0.0
+                    }
+                ]
             }
         ],
         "floors": [
@@ -650,6 +667,32 @@ class WallJoinCommand(TypedDict):
     capped: bool
 
 
+class ModifierCommand(TypedDict):
+    """底盤スラブに噛み合わせる地中梁(台形断面プリズム)のモディファイア。
+
+    地中梁は台形断面のため単一のスラブオブジェクトでは描けない。底盤(基礎底盤)の
+    コンクリートに 3D ソリッド(モディファイア)として噛み合わせて実形状を表す
+    (VW のスラブは path 図形の profile 群にモディファイアソリッドを持ち、
+    ``CreateCustomObjectPath('Slab', 外形ポリゴン, モディファイア群)`` で作られる)。
+
+    プリズムは台形断面(``profile``)を押し出し方向へ ``depth`` だけ水平に掃引した
+    もの。``profile`` は断面の 2D 頂点列 ``[[u, v], ...]`` で、u=水平幅方向
+    (押し出し方向に直交する水平軸)・v=鉛直方向(v=0 が下端)。``origin`` は断面原点
+    (profile の (0,0))のワールド絶対座標 ``[x, y, z]``(XY はセンタリング済み、
+    z は絶対値=梁下端の Z)。``azimuth`` は押し出し方向(梁の走る向き)の方位角
+    (度、+X から反時計回り)。
+
+    描画フェーズはローカルに断面を描いて鉛直に押し出し(``BeginXtrd``)、断面を
+    起こして方位角へ回し(``Rotate3D``)、``origin`` へ移動して(``Move3D``)、
+    プリズムをワールド位置へ置く(``vw/footing.py`` 参照)。
+    """
+
+    profile: list[list[float]]
+    depth: float
+    origin: list[float]
+    azimuth: float
+
+
 # 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
 SlabCommand = TypedDict('SlabCommand', {
     'layer': str,
@@ -658,22 +701,28 @@ SlabCommand = TypedDict('SlabCommand', {
     'elevation': float,
     'thickness': Optional[float],
     'bound': StoryBoundCommand,
+    'modifiers': list[ModifierCommand],
 })
-"""基礎の底盤・地中梁をスラブオブジェクトで描画する命令。
+"""基礎の底盤をスラブオブジェクトで描画する命令。
 
 boundary はスラブ外形(平面ポリゴンの頂点列)、elevation はスラブ天端の絶対 Z。
 描画フェーズは SetSlabHeight に elevation を渡してスラブの天端高さを設定する
 (SetSlabHeight は厚みではなく高さ=Coordinate を設定するため、厚みを渡すと
 天端が厚み分だけ高く描画される)。bound はスラブ天端の高さ基準で、基礎の底盤天端
-レベルにバインドする(地中梁は底盤天端より低いため offset が負値)。class は割り
-当てる構造クラス名(基礎スラブ)。
+レベルにバインドする。class は割り当てる構造クラス名(基礎スラブ)。
 
 thickness はスラブスタイルのコンクリート厚 (mm)。底盤(基礎底盤系)にだけ厚みを
 設定し、描画フェーズが「基礎スラブ - コンクリート {厚}mm / 捨てコン …mm /
 砕石 …mm」のスラブスタイルを適用する(既定=150mm はその既存スタイルをそのまま、
 それ以外の厚みは既定スタイルを複製して最上層のコンクリート厚を変更する)。
-地中梁など、スラブスタイルを適用しないスラブは None にする(実際の厚みはスラブ
-スタイルのコンポーネントが決めるため、スタイルを適用しないスラブでは意味を持たない)。
+スラブスタイルを適用しないスラブは None にする(実際の厚みはスラブスタイルの
+コンポーネントが決めるため、スタイルを適用しないスラブでは意味を持たない)。
+
+modifiers は底盤に噛み合う地中梁(台形断面プリズム)のモディファイア(``
+ModifierCommand``)のリスト。地中梁は台形断面のため単一スラブでは描けず、底盤
+コンクリートにモディファイアとして噛み合わせる(要件)。無ければ空リスト。
+描画フェーズは modifiers があるスラブを ``CreateCustomObjectPath('Slab', …)`` で、
+無いスラブを ``CreateSlab`` で作る。
 """
 
 
@@ -1178,6 +1227,27 @@ def _validate_slab(index: int, command: Any) -> None:
     _require(thickness is None or _is_number(thickness),
              f'{where}.thickness は数値または None である必要があります')
     _validate_story_bound(where, 'bound', command.get('bound'))
+    modifiers = command.get('modifiers', [])
+    _require(isinstance(modifiers, list),
+             f'{where}.modifiers はリストである必要があります')
+    for j, modifier in enumerate(modifiers):
+        _validate_modifier(f'{where}.modifiers[{j}]', modifier)
+
+
+def _validate_modifier(where: str, command: Any) -> None:
+    _require(isinstance(command, dict), f'{where} は dict である必要があります')
+    profile = command.get('profile')
+    _require(isinstance(profile, list) and len(profile) >= 3,
+             f'{where}.profile は 3 点以上の頂点リストである必要があります')
+    for j, point in enumerate(profile):
+        _require(_is_point(point),
+                 f'{where}.profile[{j}] は [u, v] の数値ペアである必要があります')
+    _require(_is_number(command.get('depth')),
+             f'{where}.depth は数値である必要があります')
+    _require(_is_point3(command.get('origin')),
+             f'{where}.origin は [x, y, z] の数値 3 つ組である必要があります')
+    _require(_is_number(command.get('azimuth')),
+             f'{where}.azimuth は数値である必要があります')
 
 
 def _validate_floor(index: int, command: Any) -> None:
