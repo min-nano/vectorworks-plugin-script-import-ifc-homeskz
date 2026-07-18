@@ -416,6 +416,27 @@ def _wall(
     }
 
 
+def _col(x: float, y: float) -> footing.ColumnCommand:
+    """自由端の終端柱判定用の最小の柱命令(位置のみ使う)。"""
+    return {
+        'layer': '1to2-柱',
+        'member_id': '105×105 - 管柱',
+        'class': '04構造-02木造-08柱-01管柱',
+        'structural_use': '4',
+        'position': [x, y],
+        'width': 105.0,
+        'depth': 105.0,
+        'height': 2800.0,
+        'elevation': 0.0,
+        'top_hardware': '',
+        'bottom_hardware': '',
+        'bottom_bound': {
+            'story_offset': 0, 'level': footing.LEVEL_BEAM_TOP, 'offset': 0.0},
+        'top_bound': {
+            'story_offset': 1, 'level': footing.LEVEL_BEAM_TOP, 'offset': 0.0},
+    }
+
+
 class TestMergeWallCommands:
     """同一直線上・同一断面の立上りを 1 本に統合する。"""
 
@@ -559,6 +580,49 @@ class TestExtendFreeWallEnds:
 
     def test_empty_returns_empty(self) -> None:
         assert footing._extend_free_wall_ends([]) == []
+
+    def test_free_end_snaps_to_terminal_column_center(self) -> None:
+        # 半島状の自由端が柱芯より外側(土台の半材せいぶん=52mm)に入力されて
+        # いても、終端柱の柱芯 + 半壁厚に揃える。150mm 壁・柱芯 y=5460・自由端
+        # y=5512 → 柱芯へ寄せてから半壁厚(75)延長 → y=5535(柱芯 + 75)。
+        wall = _wall([0.0, 5512.0], [0.0, 4550.0], thickness=150.0)
+        columns = [_col(0.0, 5460.0)]
+        ext = footing._extend_free_wall_ends([wall], columns)
+        assert ext[0]['start'] == [0.0, 5535.0]   # 柱芯 5460 + 半壁厚 75
+        # end も自由端だが柱が無いため端点から半壁厚(75)延長される(5512→4475)
+        assert ext[0]['end'] == [0.0, 4475.0]
+
+    def test_free_end_at_column_center_extends_half_thickness(self) -> None:
+        # 柱芯 = 自由端(overshoot 0)なら従来どおり半壁厚だけ延長する(柱芯へ
+        # 寄せても位置は変わらない)。120mm 壁・柱芯=自由端 y=3000 → y=3060。
+        wall = _wall([0.0, 0.0], [0.0, 3000.0], thickness=120.0)
+        columns = [_col(0.0, 3000.0)]
+        ext = footing._extend_free_wall_ends([wall], columns)
+        assert ext[0]['end'] == [0.0, 3060.0]      # 柱芯 3000 + 半壁厚 60
+        assert ext[0]['start'] == [0.0, -60.0]     # 柱の無い始端は端点から半壁厚
+
+    def test_far_column_is_not_used_as_terminal(self) -> None:
+        # 沿軸許容(150mm)を超えて内側にある柱は終端柱にしない(隣モジュールの
+        # 柱を拾わない)。自由端 y=5512・柱 y=5000(512mm 内側) → 柱芯へ寄せず
+        # 端点から半壁厚(60)延長 → y=5572。
+        wall = _wall([0.0, 5512.0], [0.0, 4550.0], thickness=120.0)
+        columns = [_col(0.0, 5000.0)]
+        ext = footing._extend_free_wall_ends([wall], columns)
+        assert ext[0]['start'] == [0.0, 5572.0]    # 端点 5512 + 半壁厚 60
+
+    def test_offaxis_column_is_not_used_as_terminal(self) -> None:
+        # 壁芯線から半壁厚 + 余裕を超えて外れた柱(側並びの別壁の柱等)は使わない。
+        # 120mm 壁(半壁厚 60・余裕 20)・柱が壁芯から 200mm 横 → 端点から延長。
+        wall = _wall([0.0, 5512.0], [0.0, 4550.0], thickness=120.0)
+        columns = [_col(200.0, 5460.0)]
+        ext = footing._extend_free_wall_ends([wall], columns)
+        assert ext[0]['start'] == [0.0, 5572.0]    # 端点 5512 + 半壁厚 60
+
+    def test_none_columns_falls_back_to_endpoint_extension(self) -> None:
+        # columns 未指定なら従来どおり端点から半壁厚延長する(後方互換)。
+        wall = _wall([0.0, 5512.0], [0.0, 4550.0], thickness=120.0)
+        ext = footing._extend_free_wall_ends([wall])
+        assert ext[0]['start'] == [0.0, 5572.0]
 
 
 class TestDegenerateGeometryGuards:

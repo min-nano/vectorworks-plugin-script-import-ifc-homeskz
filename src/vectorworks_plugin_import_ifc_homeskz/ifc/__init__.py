@@ -74,8 +74,9 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
     if foundation_story is not None:
         stories = [foundation_story, *stories]
 
-    # 立上り命令は壁結合(交点はインデックス参照)の組み立てにも使うため一度だけ組み立てる
-    walls = build_wall_commands(ifc_file)
+    # 立上り命令は壁結合(交点はインデックス参照)の組み立てにも使うため一度だけ組み立てる。
+    # 半島状の自由端を柱芯 + 半壁厚に揃えるため columns を渡す(_extend_free_wall_ends)
+    walls = build_wall_commands(ifc_file, columns)
     # アンカーボルト命令は基礎伏図のグラフィック凡例(載せるシンボルの判定)にも
     # 使うため一度だけ組み立てる
     anchor_bolts = build_anchor_bolt_commands(ifc_file)

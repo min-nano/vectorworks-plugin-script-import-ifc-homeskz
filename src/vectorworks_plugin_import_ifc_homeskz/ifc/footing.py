@@ -25,6 +25,7 @@ import math
 from typing import TYPE_CHECKING, Optional
 
 from ..document import (
+    ColumnCommand,
     SlabCommand,
     StoryBoundCommand,
     StoryCommand,
@@ -82,6 +83,17 @@ _JOIN_CLUSTER_TOL = 1.0
 # 天端高さ(top_bound.offset)が同一とみなせる許容値 (mm)。これを超える差の壁は
 # 「天端高さの異なる壁」として capped で結合する(低い壁を高い壁に結合する)。
 _WALL_HEIGHT_TOL = _WALL_MERGE_DIST_TOL
+
+# 自由端の終端柱(柱芯)を探す許容値 (mm)。立上りの自由端は、端部を受ける管柱の
+# 柱芯より外側に、その上に載る土台の半材せい(土台幅の半分、約 50mm)ぶんだけ
+# 長く入力されていることがある(半島状の立上り)。柱芯を基準に半壁厚だけ延長する
+# ため、自由端の内側にある終端柱を探して基準点を柱芯へ寄せる。
+# ``_FREE_END_COLUMN_ALONG_TOL``(沿軸距離)は土台の半材せい(≤ ~75mm)を余裕を
+# もって覆い、隣接する 1 モジュール(≥455mm)先の柱は拾わない値にする。
+# ``_FREE_END_COLUMN_PERP_TOL`` は柱芯が壁芯線から外れていても許容する、半壁厚に
+# 加える直交距離。
+_FREE_END_COLUMN_ALONG_TOL = 150.0
+_FREE_END_COLUMN_PERP_TOL = 20.0
 
 # 3 次元ベクトル(ワールド座標)
 _Vec = tuple[float, float, float]
@@ -421,7 +433,10 @@ def _first_fl_storey(
     return min(storeys, key=lambda s: float(s.Elevation or 0.0))
 
 
-def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
+def build_wall_commands(
+    ifc_file: ifcopenshell.file,
+    columns: list[ColumnCommand] | None = None,
+) -> list[WallCommand]:
     """基礎の立上り(基礎梁)から wall 命令のリストを組み立てる。
 
     壁芯は配置原点からプロファイル中心線(押し出し方向)に沿った線。壁厚は矩形断面
@@ -431,8 +446,11 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
     ``merge_wall_commands`` で、同一直線上にあり同一断面形状(壁厚・高さ基準)の
     立上りを 1 本の壁に統合する(ホームズ君 IFC では通り芯の交点等で立上りが細かく
     分断されているため、できるだけマージした形状で壁を作る)。最後に
-    ``_extend_free_wall_ends`` で、他の立上りと交差しない端点を半壁厚だけ外側へ
-    延長して実形状に合わせる。
+    ``_extend_free_wall_ends`` で、他の立上りと交差しない端点を柱芯を基準に半壁厚だけ
+    外側へ延長して実形状に合わせる。柱芯の判定に柱命令(``columns``)を使うため、
+    ``build_document`` が組み立てた columns を渡す(未指定なら柱芯へ寄せず端点から
+    半壁厚延長する。半島状の立上りの自由端が土台の半材せいぶん長くなるのを防ぐ
+    ``_extend_free_wall_ends`` 参照)。
     """
     storey = _first_fl_storey(ifc_file)
     if storey is None:
@@ -478,7 +496,7 @@ def build_wall_commands(ifc_file: ifcopenshell.file) -> list[WallCommand]:
             'bottom_bound': bottom_bound,
             'top_bound': top_bound,
         })
-    return _extend_free_wall_ends(merge_wall_commands(commands))
+    return _extend_free_wall_ends(merge_wall_commands(commands), columns)
 
 
 def _wall_section_key(wall: WallCommand) -> tuple[object, ...]:
@@ -662,21 +680,69 @@ def _wall_intersection(
     return px, py, a_at_end, b_at_end
 
 
-def _extend_free_wall_ends(walls: list[WallCommand]) -> list[WallCommand]:
-    """他の立上りと交差しない端点を半壁厚だけ壁芯方向へ外側に延長する。
+def _terminal_column_base(
+    px: float, py: float, ux: float, uy: float, half: float,
+    columns: list[ColumnCommand],
+) -> tuple[float, float]:
+    """自由端 (px, py) の終端柱(柱芯)を壁芯上に射影した基準点を返す。
 
-    ホームズ君 IFC では、他の立上りと交差しない立上りの端点は**柱芯までの長さ**で
-    入力されているが、実際の基礎立上りはそこから**半壁厚だけ長い**(端面が柱芯より
-    半壁厚外側にある)。交差する端点は相手壁の外面までモデル化済みで、コーナーで
-    既に半壁厚のオーバーハングを持つ(``_wall_intersection`` の端点許容参照)ため
-    触らず、どの立上りとも交差しない端点だけを ``thickness/2`` 延長して実形状に
-    合わせる。延長は壁芯方向(自分の軸)に沿って外側(始点は始点側・終点は終点側)へ
-    行うため、交差しない側並び・平行の関係を新たに作らない。
+    立上りの自由端は、端部を受ける管柱の**柱芯**より外側に(その上に載る土台の
+    半材せいぶん)長く入力されていることがある(半島状の立上り)。柱芯を基準に
+    半壁厚だけ延長するため、自由端の内側(外向き ``(ux, uy)`` の逆側)にある終端柱を
+    探し、その柱芯を壁芯へ射影した点を返す。終端柱が見つからなければ自由端をそのまま
+    返す(柱芯 = 自由端とみなし、従来どおり半壁厚だけ延長される)。
+
+    ``(ux, uy)`` は自由端で壁の外側を向く単位ベクトル(始端の自由端なら始端向き、
+    終端の自由端なら終端向き)。終端柱は、柱芯が壁芯線に近く(直交距離 ≤
+    半壁厚 + ``_FREE_END_COLUMN_PERP_TOL``)、自由端から壁芯の内側に沿って
+    ``_FREE_END_COLUMN_ALONG_TOL`` 以内にある柱のうち自由端に最も近いもの。判定は
+    列挙順に依存しない(沿軸距離が最小の柱を選ぶ)。
+    """
+    best_t: float | None = None
+    for col in columns:
+        cx, cy = col['position'][0], col['position'][1]
+        dx, dy = cx - px, cy - py
+        t = dx * ux + dy * uy             # 外向きの沿軸成分(内側の柱は負)
+        perp = abs(dx * (-uy) + dy * ux)  # 壁芯線からの直交距離
+        if perp > half + _FREE_END_COLUMN_PERP_TOL:
+            continue
+        # 自由端の内側(t<0)または端点付近(t≈0)にある柱だけを対象にする
+        if t > _JOIN_ENDPOINT_TOL or t < -_FREE_END_COLUMN_ALONG_TOL:
+            continue
+        if best_t is None or abs(t) < abs(best_t):
+            best_t = t
+    if best_t is None:
+        return px, py
+    return px + ux * best_t, py + uy * best_t
+
+
+def _extend_free_wall_ends(
+    walls: list[WallCommand],
+    columns: list[ColumnCommand] | None = None,
+) -> list[WallCommand]:
+    """他の立上りと交差しない端点を、柱芯を基準に半壁厚だけ外側へ延長する。
+
+    ホームズ君 IFC では、他の立上りと交差しない立上りの端点は基本的に**柱芯までの
+    長さ**で入力されているが、実際の基礎立上りはそこから**半壁厚だけ長い**(端面が
+    柱芯より半壁厚外側にある)。交差する端点は相手壁の外面までモデル化済みで、
+    コーナーで既に半壁厚のオーバーハングを持つ(``_wall_intersection`` の端点許容
+    参照)ため触らず、どの立上りとも交差しない端点だけを ``thickness/2`` 延長して
+    実形状に合わせる。延長は壁芯方向(自分の軸)に沿って外側(始点は始点側・終点は
+    終点側)へ行うため、交差しない側並び・平行の関係を新たに作らない。
+
+    ただし半島状の立上りの自由端は、端部を受ける管柱の柱芯より外側に、その上に載る
+    土台の半材せい(約 50mm)ぶんだけ長く入力されていることがある。この端点をその
+    まま半壁厚延長すると柱芯から「半材せい + 半壁厚」ぶん突き出して長くなりすぎる。
+    そこで ``columns``(柱命令)が与えられたときは、自由端ごとに終端柱の柱芯
+    (``_terminal_column_base``)を探して基準点を柱芯へ寄せてから半壁厚延長する
+    (柱芯 + 半壁厚に揃える)。柱芯が見つからない自由端は従来どおり端点から半壁厚
+    延長する。
 
     交差の有無は ``_wall_intersection`` で判定する(交点が壁芯の端点にあれば
     ``a_at_end`` / ``b_at_end``)。交点に最も近い端点を「交差する端点」として除外し、
     残った端点だけを延長する。判定は入力順に対して決定的で命令の並び順に依存しない。
     """
+    cols: list[ColumnCommand] = columns or []
     n = len(walls)
     # 各壁の始点・終点が他の立上りとの交点に関与するか
     start_joined = [False] * n
@@ -713,10 +779,18 @@ def _extend_free_wall_ends(walls: list[WallCommand]) -> list[WallCommand]:
             continue
         half = wall['thickness'] / 2.0
         ux, uy = (x2 - x1) / length, (y2 - y1) / length
-        start = ([x1 - ux * half, y1 - uy * half]
-                 if not start_joined[i] else [x1, y1])
-        end = ([x2 + ux * half, y2 + uy * half]
-               if not end_joined[i] else [x2, y2])
+        if start_joined[i]:
+            start = [x1, y1]
+        else:
+            # 始端の自由端: 外向きは -軸方向。柱芯へ寄せてから半壁厚延長する。
+            bx, by = _terminal_column_base(x1, y1, -ux, -uy, half, cols)
+            start = [bx - ux * half, by - uy * half]
+        if end_joined[i]:
+            end = [x2, y2]
+        else:
+            # 終端の自由端: 外向きは +軸方向。柱芯へ寄せてから半壁厚延長する。
+            bx, by = _terminal_column_base(x2, y2, ux, uy, half, cols)
+            end = [bx + ux * half, by + uy * half]
         extended.append({
             'layer': wall['layer'],
             'class': wall['class'],
