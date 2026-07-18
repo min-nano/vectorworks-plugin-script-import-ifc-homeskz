@@ -102,19 +102,21 @@ class TestBuildSectionCommands:
     def test_oobiki_and_moya_not_treated_as_beams(self, patched: None) -> None:
         # 柱があっても、その通りに走るのが大引・母屋だけなら切断位置にしない
         columns: list[Any] = [_col(-4000.0, -3000.0), _col(-4000.0, 3000.0)]
-        oobiki = {**_beam(-4000.0, -3000.0, -4000.0, 3000.0), 'class': CLASS_OOBIKI}
-        moya = {**_beam(-4000.0, -3000.0, 4000.0, -3000.0), 'class': CLASS_MOYA}
-        cmds = section.build_section_commands(_IFC, [oobiki, moya], columns)
+        members: list[Any] = [
+            {**_beam(-4000.0, -3000.0, -4000.0, 3000.0), 'class': CLASS_OOBIKI},
+            {**_beam(-4000.0, -3000.0, 4000.0, -3000.0), 'class': CLASS_MOYA},
+        ]
+        cmds = section.build_section_commands(_IFC, members, columns)
         assert cmds == []
 
     def test_ordinary_beam_with_class_still_detected(self, patched: None) -> None:
         # クラスを持つ通常の横架材(大引・母屋以外)は従来どおり梁として扱う
         columns: list[Any] = [_col(-4000.0, -3000.0)]
-        beam = {
+        members: list[Any] = [{
             **_beam(-4000.0, -3000.0, -4000.0, 3000.0),
             'class': '04構造-02木造-05小屋組-01小屋梁',
-        }
-        cmds = section.build_section_commands(_IFC, [beam], columns)
+        }]
+        cmds = section.build_section_commands(_IFC, members, columns)
         assert [c['drawing_number'] for c in cmds] == ['X1']
 
     def test_beam_only_line_excluded(self, patched: None) -> None:
