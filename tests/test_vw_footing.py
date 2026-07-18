@@ -303,6 +303,9 @@ class TestExecuteSlabsWithModifiers:
         class_calls = [c.args for c in vs_mock.SetClass.call_args_list]
         assert any(a[1] == '04構造-01基礎-02基礎スラブ'
                    and a[0] is vs_mock.LNewObj.return_value for a in class_calls)
+        # 可視の地中梁ソリッドに「断面ビューポートで構造用図形として扱う」
+        # (Mark Object as Structural=selector 702)を立てる
+        assert any(a[1] == 702 and a[2] is True for a in bool_calls)
         # Z は絶対値(梁下端のワールド Z)そのまま。断面天端は実形状のまま(v=140)。
         move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
         assert (760.0, 5520.0, -240.0) in move_calls
