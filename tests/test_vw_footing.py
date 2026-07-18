@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import math
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -41,9 +42,7 @@ def make_slab_with_modifier() -> SlabCommand:
     command = make_slab_command()
     command['modifiers'] = [{
         'profile': [[0.0, 0.0], [-150.0, 0.0], [-290.0, 140.0], [0.0, 140.0]],
-        'depth': 1060.0,
-        'origin': [760.0, 5520.0, -240.0],
-        'azimuth': 0.0,
+        'path': [[760.0, 5520.0, -240.0], [1820.0, 5520.0, -240.0]],
     }]
     return command
 
@@ -273,9 +272,9 @@ class TestExecuteSlabs:
 
 class TestExecuteSlabsWithModifiers:
     def test_carves_slab_and_draws_beam_solid(self) -> None:
-        # 地中梁を持つ底盤は、台形プリズムを 2 回作る: (1) 削り取りモディファイアとして
-        # CreateSlab の通常スラブに SetCustomObjectProfileGroup で渡し底盤を削り取る、
-        # (2) 同じ台形プリズムを独立した可視ソリッドとして基礎スラブクラスで置く。
+        # 地中梁を持つ底盤は、パス押し出しソリッドを 2 回作る: (1) 削り取りモディファイア
+        # として CreateSlab の通常スラブに SetCustomObjectProfileGroup で渡し底盤を削り取る、
+        # (2) 同じソリッドを独立した可視ソリッドとして基礎スラブクラスで置く。
         vs_mock = _make_vs_mock({'F-底盤'})
         vw_footing = _load(vs_mock)
 
@@ -293,21 +292,23 @@ class TestExecuteSlabsWithModifiers:
         assert vs_mock.SetCustomObjectProfileGroup.call_args.args[0] is slab
         vs_mock.BeginGroup.assert_called_once()
         vs_mock.EndGroup.assert_called_once()
-        # 台形プリズムは 2 回作る(削り取り 1 + 可視ソリッド 1)
-        assert vs_mock.BeginXtrd.call_count == 2
-        assert vs_mock.EndXtrd.call_count == 2
+        # パス押し出しは 2 回作る(削り取り 1 + 可視ソリッド 1)。直線押し出しは使わない。
+        assert vs_mock.CreateExtrudeAlongPath.call_count == 2
+        assert vs_mock.CreateNurbsCurve.call_count == 2
+        assert vs_mock.BeginPoly3D.call_count == 2
+        vs_mock.BeginXtrd.assert_not_called()
         # 各ソリッドに 1160=False を立てる(レイヤ平面のワールド 3D)
         bool_calls = [c.args for c in vs_mock.SetObjectVariableBoolean.call_args_list]
         assert any(a[1] == 1160 and a[2] is False for a in bool_calls)
-        # (2) 可視の地中梁ソリッドに底盤と同じ基礎スラブクラスを付ける
+        # (2) 可視の地中梁ソリッド(パス押し出しの返り値)に基礎スラブクラスを付ける
+        solid = vs_mock.CreateExtrudeAlongPath.return_value
         class_calls = [c.args for c in vs_mock.SetClass.call_args_list]
         assert any(a[1] == '04構造-01基礎-02基礎スラブ'
-                   and a[0] is vs_mock.LNewObj.return_value for a in class_calls)
-        # Z は絶対値(梁下端のワールド Z)そのまま。断面天端は実形状のまま(v=140)。
-        move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
-        assert (760.0, 5520.0, -240.0) in move_calls
-        line_calls = [c.args for c in vs_mock.LineTo.call_args_list]
-        assert (-290.0, 140.0) in line_calls
+                   and a[0] is solid for a in class_calls)
+        # 掃引パス始端(梁下端の絶対 Z)から NURBS を作る。断面天端は実形状のまま(v=140)。
+        vs_mock.CreateNurbsCurve.assert_any_call((760.0, 5520.0, -240.0), True, 1)
+        pt_calls = [c.args for c in vs_mock.Add3DPt.call_args_list]
+        assert any(math.isclose(a[0][2], -240.0 + 140.0) for a in pt_calls)
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
@@ -322,9 +323,25 @@ class TestExecuteSlabsWithModifiers:
         assert count == 1
         # 削り取りは行われないが、可視の地中梁ソリッドは 1 本描く
         vs_mock.SetCustomObjectProfileGroup.assert_not_called()
-        assert vs_mock.BeginXtrd.call_count == 1
+        assert vs_mock.CreateExtrudeAlongPath.call_count == 1
         class_calls = [c.args for c in vs_mock.SetClass.call_args_list]
         assert any(a[1] == '04構造-01基礎-02基礎スラブ' for a in class_calls)
+
+    def test_falls_back_to_segment_prisms_when_path_extrude_fails(self) -> None:
+        # CreateExtrudeAlongPath が NIL を返す環境では、区間ごとの直線押し出しに
+        # フォールバックする(1 区間 = 1 プリズム、削り取り 1 + 可視 1 で 2 回)。
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vs_mock.CreateExtrudeAlongPath.return_value = vs_mock.Handle(0)
+        vw_footing = _load(vs_mock)
+
+        count = vw_footing.execute_slabs([make_slab_with_modifier()])
+
+        assert count == 1
+        # パス 1 区間 × (削り取り + 可視) = 直線押し出し 2 回
+        assert vs_mock.BeginXtrd.call_count == 2
+        assert vs_mock.EndXtrd.call_count == 2
+        line_calls = [c.args for c in vs_mock.LineTo.call_args_list]
+        assert (-290.0, 140.0) in line_calls
 
     def test_slab_without_modifiers_uses_create_slab(self) -> None:
         vs_mock = _make_vs_mock({'F-底盤'})
@@ -337,6 +354,7 @@ class TestExecuteSlabsWithModifiers:
         vs_mock.CreateCustomObjectN.assert_not_called()
         vs_mock.ModifySlab.assert_not_called()
         vs_mock.SetCustomObjectProfileGroup.assert_not_called()
+        vs_mock.CreateExtrudeAlongPath.assert_not_called()
         vs_mock.BeginXtrd.assert_not_called()
 
 

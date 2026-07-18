@@ -174,10 +174,17 @@ class TestBuildFromFixture:
         # 主たる底盤は天端=底盤天端 (offset≈0)、独立基礎底盤は別高さ (offset≠0)
         offsets = [round(s['bound']['offset'], 1) for s in slabs]
         assert 0.0 in offsets
-        # 地中梁は単独スラブではなく、底盤スラブのモディファイアとして持つ。
-        # 台形プリズムの総数はフィクスチャの地中梁数(伏図次郎=23)と一致する。
+        # 地中梁は単独スラブではなく、底盤スラブのモディファイアとして持つ。連続する
+        # 地中梁は 1 本のパスに統合されるため、モディファイア数は元の地中梁数(23)より
+        # 少ない(伏図次郎では 8 本のパスに統合される)。
         total_modifiers = sum(len(s['modifiers']) for s in slabs)
-        assert total_modifiers == 23
+        assert 0 < total_modifiers < 23
+        # モディファイアはパス押し出し(profile + 2 点以上の path)を持つ。
+        for slab in slabs:
+            for modifier in slab['modifiers']:
+                assert len(modifier['profile']) >= 3
+                assert len(modifier['path']) >= 2
+                assert all(len(p) == 3 for p in modifier['path'])
         # モディファイアを持つ底盤が少なくとも 1 枚ある。
         assert any(s['modifiers'] for s in slabs)
 
@@ -212,8 +219,8 @@ class TestBuildFromFixture:
         assert math.isclose(face_max_x - center_max_x, 60.0, abs_tol=0.5)
 
 
-class TestGroundBeamModifier:
-    """地中梁 → 台形プリズムのモディファイア変換 (``_ground_beam_modifier``)。"""
+class TestGroundBeamSegment:
+    """地中梁 → セグメント (断面, 始点, 終点) 変換 (``_ground_beam_segment``)。"""
 
     def test_geometry_from_horizontal_solid(self) -> None:
         # 水平押し出し(+X)・鉛直断面(ly=+Z)の台形地中梁。
@@ -223,14 +230,16 @@ class TestGroundBeamModifier:
         pts = [(0.0, 0.0), (-150.0, 0.0), (-290.0, 140.0), (0.0, 140.0)]
         solid: footing._Solid = (
             placement, (1.0, 0.0, 0.0), 1060.0, pts, None)
-        mod = footing._ground_beam_modifier(solid, 100.0, 200.0)
-        assert mod is not None
-        assert math.isclose(mod['depth'], 1060.0)
-        assert math.isclose(mod['azimuth'], 0.0)
-        # XY はセンタリング済み、z は絶対値(梁下端)。
-        assert mod['origin'] == [900.0, 1800.0, -240.0]
-        # 幅軸 u・鉛直軸 v の断面。この配置では元の (u, v) と一致する。
-        for got, want in zip(mod['profile'], pts):
+        seg = footing._ground_beam_segment(solid, 100.0, 200.0)
+        assert seg is not None
+        profile, a, b = seg
+        # A=断面原点(センタリング済み・z 絶対)、B=A から +X へ depth 進んだ点。
+        assert a == (900.0, 1800.0, -240.0)
+        assert math.isclose(b[0], 900.0 + 1060.0)
+        assert math.isclose(b[1], 1800.0)
+        assert math.isclose(b[2], -240.0)
+        # 進行方向左向き u・鉛直 v の断面。この配置では元の (u, v) と一致する。
+        for got, want in zip(profile, pts):
             assert math.isclose(got[0], want[0])
             assert math.isclose(got[1], want[1])
 
@@ -239,58 +248,96 @@ class TestGroundBeamModifier:
         solid: footing._Solid = (
             _identity_placement(), (0.0, 0.0, 1.0), 100.0,
             [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)], None)
-        assert footing._ground_beam_modifier(solid, 0.0, 0.0) is None
+        assert footing._ground_beam_segment(solid, 0.0, 0.0) is None
 
-    def test_azimuth_from_run_direction(self) -> None:
-        # 押し出し +Y → 方位角 90 度。
+    def test_endpoint_from_run_direction(self) -> None:
+        # 押し出し +Y → 終点が始点から +Y へ depth 進んだ点。
         placement: footing._Placement = (
             (0.0, 0.0, 0.0),
             (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
         solid: footing._Solid = (
             placement, (0.0, 1.0, 0.0), 500.0,
             [(0.0, 0.0), (-150.0, 0.0), (-290.0, 140.0), (0.0, 140.0)], None)
-        mod = footing._ground_beam_modifier(solid, 0.0, 0.0)
-        assert mod is not None
-        assert math.isclose(mod['azimuth'], 90.0)
+        seg = footing._ground_beam_segment(solid, 0.0, 0.0)
+        assert seg is not None
+        _profile, a, b = seg
+        assert a == (0.0, 0.0, 0.0)
+        assert math.isclose(b[0], 0.0)
+        assert math.isclose(b[1], 500.0)
 
-    def test_modifiers_roundtrip_to_solid_world(self) -> None:
-        # モディファイアの (profile, origin, azimuth, depth) が、描画フェーズの回転
-        # 規約(Rotate3D(90,0,0) → Rotate3D(0,0,azimuth+90) → Move3D(origin))で
-        # 元ソリッドのワールド座標(センタリング済み)を復元する。
-        from vectorworks_plugin_import_ifc_homeskz.ifc.grid import resolve_lines
-        ifc = _open('伏図次郎【2階】.ifc')
-        _lines, cx, cy = resolve_lines(ifc)
-        beams = [e for e in ifc.by_type('IfcFooting')
-                 if '地中梁' in (e.Name or '')]
-        assert beams
-        max_err = 0.0
-        checked = 0
-        for element in beams:
-            solid = footing._world_solid(element)
-            if solid is None:
-                continue
-            (o, lx, ly, _lz), ex, depth, pts, _dims = solid
-            mod = footing._ground_beam_modifier(solid, cx, cy)
-            assert mod is not None
-            phi = math.radians(mod['azimuth'] + 90.0)
-            for (u, v), (pu, pv) in zip(pts, mod['profile']):
-                for t in (0.0, depth):
-                    base = (o[0] + lx[0] * u + ly[0] * v,
-                            o[1] + lx[1] * u + ly[1] * v,
-                            o[2] + lx[2] * u + ly[2] * v)
-                    true = (base[0] + ex[0] * t - cx,
-                            base[1] + ex[1] * t - cy,
-                            base[2] + ex[2] * t)
-                    got = (mod['origin'][0] + pu * math.cos(phi)
-                           + t * math.sin(phi),
-                           mod['origin'][1] + pu * math.sin(phi)
-                           - t * math.cos(phi),
-                           mod['origin'][2] + pv)
-                    max_err = max(max_err,
-                                  max(abs(true[i] - got[i]) for i in range(3)))
-                    checked += 1
-        assert checked > 0
-        assert max_err < 1e-6
+
+class TestMergeGroundBeamPaths:
+    """連続する地中梁の 1 本のパスへの統合 (``_merge_ground_beam_paths``)。"""
+
+    _PROF = [[0.0, 0.0], [-150.0, 0.0], [-290.0, 140.0], [0.0, 140.0]]
+    _FP = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+
+    def _seg(
+        self, a: footing._Pt3, b: footing._Pt3,
+        profile: list[list[float]] | None = None,
+    ) -> footing._Segment:
+        return (profile or [list(p) for p in self._PROF], a, b, list(self._FP))
+
+    def test_collinear_segments_merge_into_one_path(self) -> None:
+        # 端点を共有し同一断面で一直線に連続する 3 本 → 1 本のパス(4 頂点)。
+        segs = [
+            self._seg((0.0, 0.0, -240.0), (1000.0, 0.0, -240.0)),
+            self._seg((1000.0, 0.0, -240.0), (2000.0, 0.0, -240.0)),
+            self._seg((2000.0, 0.0, -240.0), (3000.0, 0.0, -240.0)),
+        ]
+        result = footing._merge_ground_beam_paths(segs)
+        assert len(result) == 1
+        modifier, footprints = result[0]
+        assert len(modifier['path']) == 4
+        assert modifier['path'][0] == [0.0, 0.0, -240.0]
+        assert modifier['path'][-1] == [3000.0, 0.0, -240.0]
+        assert len(footprints) == 3
+
+    def test_corner_merges_into_single_bent_path(self) -> None:
+        # 屈曲部: +X の梁と、コーナーで向きの変わる +Y の梁が 1 本のパスに統合される。
+        # ホームズ君の断面は進行方向左向き u なので、コーナーで左右が反転する
+        # (=断面 u の符号が反転した対のプロファイル)。
+        prof_x = [[0.0, 0.0], [-150.0, 0.0], [-290.0, 140.0], [0.0, 140.0]]
+        prof_y = [[0.0, 0.0], [150.0, 0.0], [290.0, 140.0], [0.0, 140.0]]
+        segs = [
+            self._seg((0.0, 0.0, -240.0), (1000.0, 0.0, -240.0), prof_x),
+            self._seg((0.0, 0.0, -240.0), (0.0, -1000.0, -240.0), prof_y),
+        ]
+        result = footing._merge_ground_beam_paths(segs)
+        assert len(result) == 1
+        modifier, _fp = result[0]
+        # 3 頂点(コーナーで屈曲する 1 本の折れ線)。
+        assert len(modifier['path']) == 3
+
+    def test_different_profiles_do_not_merge(self) -> None:
+        # 端点を共有しても断面形状が異なれば統合しない。
+        other = [[0.0, 0.0], [-200.0, 0.0], [-200.0, 200.0], [0.0, 200.0]]
+        segs = [
+            self._seg((0.0, 0.0, -240.0), (1000.0, 0.0, -240.0)),
+            self._seg((1000.0, 0.0, -240.0), (2000.0, 0.0, -240.0), other),
+        ]
+        result = footing._merge_ground_beam_paths(segs)
+        assert len(result) == 2
+
+    def test_different_level_does_not_merge(self) -> None:
+        # 端点の XY が同じでも Z が異なれば別ノードとして統合しない。
+        segs = [
+            self._seg((0.0, 0.0, -240.0), (1000.0, 0.0, -240.0)),
+            self._seg((1000.0, 0.0, -300.0), (2000.0, 0.0, -300.0)),
+        ]
+        result = footing._merge_ground_beam_paths(segs)
+        assert len(result) == 2
+
+    def test_tee_junction_breaks_chains(self) -> None:
+        # 次数 3 の交点(T 字)ではパスが分断される。
+        segs = [
+            self._seg((0.0, 0.0, -240.0), (1000.0, 0.0, -240.0)),
+            self._seg((1000.0, 0.0, -240.0), (2000.0, 0.0, -240.0)),
+            self._seg((1000.0, 0.0, -240.0), (1000.0, 1000.0, -240.0)),
+        ]
+        result = footing._merge_ground_beam_paths(segs)
+        # 3 本とも別パス(交点で統合されない)。
+        assert len(result) == 3
 
 
 class TestAttachGroundBeamModifiers:
@@ -302,7 +349,7 @@ class TestAttachGroundBeamModifiers:
         mod = _modifier([400.0, 400.0, -240.0])
         footprint = [(300.0, 300.0), (700.0, 300.0),
                      (700.0, 700.0), (300.0, 700.0)]
-        footing._attach_ground_beam_modifiers(slabs, [(mod, footprint)])
+        footing._attach_ground_beam_modifiers(slabs, [(mod, [footprint])])
         assert slabs[0]['modifiers'] == [mod]
         assert slabs[1]['modifiers'] == []
 
@@ -313,7 +360,7 @@ class TestAttachGroundBeamModifiers:
         # どちらの底盤の外にもあるが、重心は 2 枚目の底盤に近い。
         footprint = [(5400.0, 3000.0), (5600.0, 3000.0),
                      (5600.0, 3100.0), (5400.0, 3100.0)]
-        footing._attach_ground_beam_modifiers(slabs, [(mod, footprint)])
+        footing._attach_ground_beam_modifiers(slabs, [(mod, [footprint])])
         assert slabs[0]['modifiers'] == []
         assert slabs[1]['modifiers'] == [mod]
 
@@ -322,16 +369,21 @@ class TestAttachGroundBeamModifiers:
         mod = _modifier([0.0, 0.0, 0.0])
         footprint = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
         # 底盤が無ければ付けられず捨てる(例外は出ない)。
-        footing._attach_ground_beam_modifiers(slabs, [(mod, footprint)])
+        footing._attach_ground_beam_modifiers(slabs, [(mod, [footprint])])
         assert slabs == []
 
-    def test_build_slab_commands_attaches_all_ground_beams(self) -> None:
+    def test_build_slab_commands_covers_all_ground_beams(self) -> None:
         ifc = _open('伏図次郎【2階】.ifc')
         slabs = footing.build_slab_commands(ifc)
         beams = [e for e in ifc.by_type('IfcFooting')
                  if '地中梁' in (e.Name or '')]
-        # 全地中梁がいずれかの底盤のモディファイアに収まる(取りこぼさない)。
-        assert sum(len(s['modifiers']) for s in slabs) == len(beams)
+        # 連続する地中梁は 1 本のパスに統合されるため、モディファイア数は元の地中梁数
+        # より少ないが 1 本以上あり、全パスの区間数の合計は地中梁数を下回らない
+        # (全地中梁が取りこぼされずどこかのパスに含まれる)。
+        modifiers = [m for s in slabs for m in s['modifiers']]
+        assert 0 < len(modifiers) < len(beams)
+        total_segments = sum(len(m['path']) - 1 for m in modifiers)
+        assert total_segments == len(beams)
         # スラブは底盤のみ(地中梁の単独スラブは無い)。
         assert all(s['thickness'] is not None for s in slabs)
 
@@ -353,13 +405,11 @@ def _slab(
 
 
 def _modifier(
-    origin: list[float], azimuth: float = 0.0,
+    start: list[float], depth: float = 1000.0,
 ) -> footing.ModifierCommand:
     return {
         'profile': [[0.0, 0.0], [-150.0, 0.0], [-290.0, 140.0], [0.0, 140.0]],
-        'depth': 1000.0,
-        'origin': origin,
-        'azimuth': azimuth,
+        'path': [start, [start[0] + depth, start[1], start[2]]],
     }
 
 
