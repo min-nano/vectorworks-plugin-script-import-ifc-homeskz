@@ -110,6 +110,20 @@ class TestExecuteRafters:
         vs_mock.SetClass.assert_called_once()
         assert vs_mock.SetClass.call_args.args[1] == '04構造-02木造-05小屋組-05垂木'
 
+    def test_sets_all_attributes_by_class(self) -> None:
+        # 垂木の描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+        vs_mock = _make_vs_mock({'R-垂木'})
+        vw_rafter = _load(vs_mock)
+        vw_rafter.execute_rafters([make_command()])
+        obj = vs_mock.CreateCustomObjectN.return_value
+        vs_mock.SetPenColorByClass.assert_called_once_with(obj)
+        vs_mock.SetFillColorByClass.assert_called_once_with(obj)
+        vs_mock.SetLWByClass.assert_called_once_with(obj)
+        vs_mock.SetLSByClass.assert_called_once_with(obj)
+        vs_mock.SetFPatByClass.assert_called_once_with(obj)
+        vs_mock.SetMarkerByClass.assert_called_once_with(obj)
+        vs_mock.SetOpacityByClass.assert_called_once_with(obj)
+
     def test_skips_when_layer_missing(self) -> None:
         vs_mock = _make_vs_mock(set())
         vw_rafter = _load(vs_mock)

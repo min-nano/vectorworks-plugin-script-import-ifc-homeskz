@@ -21,6 +21,11 @@
 軸組ツールの高さ・向き・pitch・各パラメータの最終挙動は VectorWorks 上で検証する
 (描画フェーズは他要素と同じく VW 上で検証する方針。冒頭の名前付き定数に集約)。
 
+配置後は ``SetClass`` で構造クラスを割り当てたうえで、描画属性(太さ・色・パターン・
+透明度等)を ``_set_all_attributes_by_class`` ですべてクラス属性に従わせる(床・野地板・
+柱束伏図記号・鉄筋と同じ規約。``SetClass`` はクラスを割り当てるだけで各描画属性は
+by-instance の既定値のまま残るため、属性ごとの by-class 設定関数を個別に呼ぶ)。
+
 配置先レイヤが存在しない命令はスキップする(レイヤは story 命令が生成する)。
 プラグインが利用できない場合は平面投影の直線にフォールバックする。
 """
@@ -64,6 +69,22 @@ _FIELD_MATERIAL = 'Material'
 _MATERIAL_WOOD = '木'
 
 
+def _set_all_attributes_by_class(obj: Any) -> None:
+    """オブジェクトの描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+
+    ``SetClass`` はクラスを割り当てるだけで各描画属性は by-instance の既定値のまま残る
+    ため、属性ごとの by-class 設定関数を個別に呼ぶ(``vw/floor.py``・``vw/roof.py``・
+    ``vw/column_mark.py``・``vw/rebar.py`` と同じ規約)。
+    """
+    vs.SetPenColorByClass(obj)
+    vs.SetFillColorByClass(obj)
+    vs.SetLWByClass(obj)
+    vs.SetLSByClass(obj)
+    vs.SetFPatByClass(obj)
+    vs.SetMarkerByClass(obj)
+    vs.SetOpacityByClass(obj)
+
+
 def draw_rafter(command: RafterCommand) -> Any:
     """rafter 命令 1 件を軸組ツールで描画し、配置したハンドルを返す。
 
@@ -91,6 +112,8 @@ def draw_rafter(command: RafterCommand) -> Any:
         vs.Rotate3D(0.0, 0.0, azimuth)
         vs.Move3D(x1, y1, z1)
         vs.SetClass(obj, command['class'])
+        # 描画属性(太さ・色・パターン・透明度等)をすべてクラス属性に従わせる。
+        _set_all_attributes_by_class(obj)
         vs.SetRField(obj, PLUGIN_NAME, 'type', _MEMBER_TYPE)
         vs.SetRField(obj, PLUGIN_NAME, 'width', str(w))
         vs.SetRField(obj, PLUGIN_NAME, 'height', str(h))
