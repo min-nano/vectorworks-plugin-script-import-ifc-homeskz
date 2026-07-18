@@ -7,13 +7,12 @@
 (オフセットは 0/0 で壁芯に揃える)。
 
 **地中梁**は台形断面のため単一スラブでは描けず、底盤コンクリートに噛み合う
-モディファイア(台形プリズム=3D ソリッド)にする。モディファイアを持つ底盤は
-Slab PIO のパス(外形ポリゴン)とプロファイル群(モディファイア)で表す
-(``_draw_modifier`` / ``_draw_modifier_group``)。**作成時の「オブジェクトの設定」
-ダイアログを避けるため** ``CreateCustomObjectN``(``showPref=False``)で PIO を作り、
-``SetCustomObjectPath`` / ``SetCustomObjectProfileGroup`` で後付けする(鉄筋 PIO と
-同じダイアログ抑止パターン。``CreateCustomObjectPath`` は showPref 引数が無く
-インポートを中断させるためフォールバックにのみ使う)。
+モディファイア(台形プリズム=3D ソリッド)にする。モディファイアを持つ底盤も、
+**確実に描画される標準の ``CreateSlab``(外形ポリゴン)で底盤を作ってから**、
+モディファイア群を ``SetCustomObjectProfileGroup`` でスラブのプロファイル群として
+噛み合わせる(``_draw_modifier`` / ``_draw_modifier_group``)。``CreateCustomObjectPath``
+(作成ダイアログでインポート中断)や ``CreateCustomObjectN``(点モード作成では底盤が
+不可視になる)で Slab PIO を直接作る方法は使わない。
 
 底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
 捨てコン …mm / 砕石 …mm``)を適用する。既定=150mm はその既存スタイルをそのまま、
@@ -64,20 +63,14 @@ _CONCRETE_COMPONENT_INDEX = 1
 _JOIN_SHOW_ALERTS = False
 
 # --- 地中梁モディファイア(底盤に噛み合う台形プリズム)の描画 ---
-# モディファイアを持つ底盤は CreateSlab ではなくパス図形の Slab PIO を作り、外形
-# ポリゴン(path)とモディファイア群(profile)を持たせる(参考スクリプトの「箱を
-# スラブに噛み合わせた」エクスポートに一致)。**``CreateCustomObjectPath`` は作成時に
-# 「オブジェクトの設定」ダイアログを開いてインポートを中断させる**(点オブジェクトの
-# ``showPref`` に相当する引数が無い)。これを避けるため、鉄筋 PIO と同じく
-# ``CreateCustomObjectN``(``showPref=False`` でダイアログ抑止)で PIO を原点に作り、
-# ``SetCustomObjectPath``(外形ポリゴン)・``SetCustomObjectProfileGroup``
-# (モディファイア群)を後付けする。いずれも無変換のワールド座標を与える。
-_SLAB_PIO = 'Slab'
-# CreateCustomObjectN の showPref 引数(オブジェクトの設定ダイアログの表示)。常に
-# 非表示にしてインポート中の手動操作を防ぐ。挿入点は原点(パス・プロファイルは
-# 無変換のワールド座標で与えるためオブジェクト配置は恒等)。
-_SHOW_PREF_DIALOG = False
-_INSERT_POINT = (0.0, 0.0)
+# モディファイアを持つ底盤も、**確実に描画される標準の ``CreateSlab``(外形ポリゴン)で
+# 底盤を作ってから**、モディファイア群(3D ソリッドのグループ)を
+# ``SetCustomObjectProfileGroup`` でスラブのプロファイル群として噛み合わせる。
+# CreateSlab で作った有効な底盤に後付けするため、モディファイアが付かなくても底盤
+# 自体は必ず描かれる。**``CreateCustomObjectPath``/``CreateCustomObjectN`` で Slab PIO を
+# 直接作る方法は使わない**: 前者は作成時に「オブジェクトの設定」ダイアログを開いて
+# インポートを中断させ(showPref 相当の引数が無い)、後者(点モード作成 + パス後付け)は
+# 底盤がジオメトリを持たず**存在はするが描画されない**(選択はできるが不可視)ため。
 # 台形断面(u=水平幅・v=鉛直)を XY 平面に描いて鉛直(+Z)に push し、断面を起こして
 # 鉛直軸 v を +Z に向ける傾き(度)。続けて押し出し方向(+Z→水平)を方位角へ向ける
 # 追加回転(azimuth + このオフセット、度)。幅軸 u が走る向き +90 度に一致する。
@@ -117,7 +110,8 @@ def _draw_modifier(modifier: Any, elevation: float) -> None:
 def _draw_modifier_group(modifiers: list[Any], elevation: float) -> Any:
     """モディファイア群を 1 つのグループにまとめてハンドルを返す。
 
-    ``CreateCustomObjectPath('Slab', 外形ポリゴン, グループ)`` の profile 引数に渡す。
+    ``SetCustomObjectProfileGroup(slab, グループ)`` でスラブのプロファイル群として
+    噛み合わせる。
     """
     vs.BeginGroup()
     for modifier in modifiers:
@@ -304,18 +298,17 @@ def draw_slab(
 ) -> None:
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
-    外形ポリゴンを閉じた多角形として作成し、スラブにする。**地中梁モディファイアを
-    持つ底盤は Slab PIO の外形ポリゴン(パス)とモディファイア群(プロファイル)で
-    作り**(台形断面の地中梁を底盤コンクリートに噛み合わせる。参考スクリプトの
-    「箱をスラブに噛み合わせた」エクスポートに一致)、モディファイアの無い底盤は
-    従来どおり ``CreateSlab`` で作る。**モディファイアを持つ底盤は作成時の設定
-    ダイアログを抑止するため ``CreateCustomObjectN``(``showPref=False``)で PIO を
-    作り、``SetCustomObjectPath`` / ``SetCustomObjectProfileGroup`` で外形・モディ
-    ファイアを後付けする**(``CreateCustomObjectPath`` はダイアログでインポートを
-    中断させるためフォールバックのみ)。底盤にはコンクリート厚に応じたスラブスタイルを
-    適用する(``_apply_slab_style``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で
-    設定し、天端の高さ基準を底盤天端レベルにバインドする。スラブが生成できない場合は
-    外形ポリゴンにフォールバックする。
+    外形ポリゴンを閉じた多角形として作成し、標準の ``CreateSlab`` でスラブにする
+    (底盤の有無に関わらず確実に描画される)。**地中梁モディファイアを持つ底盤は、
+    その ``CreateSlab`` で作った底盤に ``SetCustomObjectProfileGroup`` でモディファイア群
+    (台形プリズムの 3D ソリッド)を後付けして噛み合わせる**(台形断面の地中梁を底盤
+    コンクリートに噛み合わせる。参考スクリプトの「箱をスラブに噛み合わせた」エクスポートに
+    一致)。``CreateCustomObjectPath``(作成ダイアログでインポート中断)や
+    ``CreateCustomObjectN``(点モード作成では底盤が不可視)で Slab PIO を直接作る方法は
+    使わない。底盤にはコンクリート厚に応じたスラブスタイルを適用する
+    (``_apply_slab_style``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の
+    高さ基準を底盤天端レベルにバインドする。スラブが生成できない場合は外形ポリゴンに
+    フォールバックする。
 
     **``SetSlabHeight`` はスラブ厚ではなく天端高さ(Coordinate)を設定する**。
     以前はここに厚みを渡していたため天端が厚み分だけ高く描画されていた
@@ -334,25 +327,17 @@ def draw_slab(
     vs.EndPoly()
     poly_h = vs.LNewObj()
 
-    if modifiers:
-        group_h = _draw_modifier_group(modifiers, command['elevation'])
-        # 作成時の設定ダイアログを抑止するため CreateCustomObjectN(showPref=False)で
-        # PIO を原点に作り、外形ポリゴン(パス)とモディファイア群(プロファイル)を
-        # 後付けする(鉄筋 PIO と同じダイアログ抑止パターン)。
-        slab = vs.CreateCustomObjectN(
-            _SLAB_PIO, _INSERT_POINT, 0.0, _SHOW_PREF_DIALOG)
-        if slab != vs.Handle(0):
-            vs.SetCustomObjectPath(slab, poly_h)
-            vs.SetCustomObjectProfileGroup(slab, group_h)
-        else:
-            # フォールバック: パス・プロファイル付きで直接作成する(作成時ダイアログが
-            # 出る場合があるが底盤の配置自体は行う)。
-            slab = vs.CreateCustomObjectPath(_SLAB_PIO, poly_h, group_h)
-    else:
-        slab = vs.CreateSlab(poly_h)
+    slab = vs.CreateSlab(poly_h)
     if slab != vs.Handle(0):
         vs.SetClass(slab, command['class'])
         _apply_slab_style(slab, command, base_style, styles)
+        if modifiers:
+            # 地中梁モディファイア(台形プリズム群)を、CreateSlab で作った有効な底盤の
+            # プロファイル群として噛み合わせる。SetSlabHeight の前に付けることで、外形
+            # ポリゴンとモディファイアが一体で天端の絶対 Z へ持ち上がる(モディファイアの
+            # Z は _draw_modifier がスラブ天端フレーム=絶対 z - elevation で描く)。
+            group_h = _draw_modifier_group(modifiers, command['elevation'])
+            vs.SetCustomObjectProfileGroup(slab, group_h)
         vs.SetSlabHeight(slab, command['elevation'])
         bound = command['bound']
         vs.SetObjectStoryBound(
