@@ -252,7 +252,8 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
 
     配置先シートレイヤ(``legend['number']`` = レイヤ名)をアクティブにしてから、
     ``vs.CreateCustomObjectN`` でグラフィック凡例 PIO を挿入位置に作る。第 4 引数
-    ``showPref=False`` でインポート中に設定ダイアログが開くのを防ぐ。配置後、
+    ``showPref=False`` でインポート中に設定ダイアログが開くのを防ぐ。配置後、PIO 本体を
+    ``vs.SetClass`` で作図クラス(``legend['class']`` = 図中枠)に設定する。続いて
     ユーザーが VW 側で用意したグラフィック凡例スタイル(``legend['style']``。基礎伏図=
     ``基礎伏図凡例``、床伏図・母屋伏図=``床伏図凡例``)を ``vs.SetPluginStyle`` で
     関連付ける。凡例のデータソース(=シンボルをソースにし各伏図ビューポートで
@@ -269,6 +270,8 @@ def draw_legend(legend: LegendCommand, sheet_layer: Any) -> bool:
     obj = vs.CreateCustomObjectN(_GRAPHIC_LEGEND_PLUGIN, (x, y), 0, False)
     if obj == vs.Handle(0):
         return False
+    # PIO 本体を作図クラス(図中枠)に設定する。存在しないクラスは VW が自動生成する。
+    vs.SetClass(obj, legend['class'])
     # ソース定義(シンボル + 各伏図ビューポートフィルタ)・集計基準・行レイアウトを
     # 持つプラグインスタイルを関連付ける。ソースは PIO パラメータでは設定できないため
     # スタイルに焼き込む方式(構造材・データタグと同じ SetPluginStyle 方式)。
