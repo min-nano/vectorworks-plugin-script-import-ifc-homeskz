@@ -71,20 +71,49 @@ def _set_all_attributes_by_class(obj: Any) -> None:
     vs.SetOpacityByClass(obj)
 
 
+def _layer_z() -> float:
+    """アクティブな作図レイヤの Z(レイヤ標高)を返す。取得できなければ 0。
+
+    ストーリレベルにバインドされたレイヤ(底盤天端の ``F-底盤`` 等)は Z(標高)を
+    持ち、**3D パス図形の座標はレイヤ基準(レイヤ相対)で解釈される**ため、絶対 Z の
+    パスをそのまま与えるとレイヤ標高ぶん持ち上がって描画される(``vw/roof.py`` で
+    VW 上検証済みの挙動: 絶対 Z で与えるとレイヤ高さぶん余計に持ち上がる)。パス Z から
+    この値を引いてレイヤ相対にすることで、パス平面(=配筋 PIO の天端基準)を目的の
+    絶対 Z(底盤天端)に一致させる。コンクリート底盤は Slab ツール(``SetSlabHeight``)が
+    絶対 Z に置くため、補正しないと配筋だけがレイヤ標高ぶん上に浮く。
+
+    ``GetZVals`` が無い(VW 2018 以前)/タプルを返さない環境では 0 を返す(レイヤ
+    Z=0 相当=補正なし。``vw/roof.py`` の退避と同じ堅牢化)。
+    """
+    try:
+        z_vals = vs.GetZVals()
+    except AttributeError:
+        return 0.0
+    if isinstance(z_vals, tuple) and z_vals and isinstance(z_vals[0], (int, float)):
+        return float(z_vals[0])
+    return 0.0
+
+
 def _create_path(command: RebarCommand) -> Any:
     """rebar 命令の 3D パス頂点から 3D ポリゴンを作り、そのハンドルを返す。
 
     スラブモード(``closed=True``)は閉じた多角形、梁モード(``closed=False``)は
     開いた線として作る。作成モード(開/閉)を明示設定してから ``vs.Poly3D`` で
     全頂点を一度に与える(``vw`` の配筋 PIO 側 ``draw.py`` と同じ 3D ポリゴンの作り方)。
+
+    命令のパス Z は絶対(ワールド)座標だが、3D パス図形はアクティブな作図レイヤ基準
+    (レイヤ相対)で座標を扱うため、レイヤ標高(``_layer_z``)を引いてレイヤ相対 Z で
+    与える(絶対 Z のままだとレイヤ標高ぶん浮く。``_layer_z`` の docstring 参照)。
+    X・Y はレイヤ標高の影響を受けないためそのまま与える。
     """
     if command['closed']:
         vs.ClosePoly()
     else:
         vs.OpenPoly()
+    layer_z = _layer_z()
     coords: list[float] = []
     for x, y, z in command['path']:
-        coords.extend((x, y, z))
+        coords.extend((x, y, z - layer_z))
     vs.Poly3D(*coords)
     return vs.LNewObj()
 
