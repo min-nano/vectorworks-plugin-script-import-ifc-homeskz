@@ -141,6 +141,44 @@ class TestEndHasReceiver:
         members = [a, b]
         assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
 
+    def test_noboribari_receives_across_layers(self) -> None:
+        # 登り梁(n-登り梁)の端部が別レイヤの母屋(n-母屋)に取り付く。登り梁は
+        # レイヤ一致の制約を外すため、別レイヤでも受ける材とみなす。
+        moya = _member('R-母屋', (0.0, 0.0), (3000.0, 0.0))
+        nobori = _member('R-登り梁', (1500.0, 60.0), (1500.0, 2000.0))
+        nobori['class'] = joint.CLASS_NOBORIBARI
+        geoms = [joint._member_geom(moya), joint._member_geom(nobori)]
+        members = [moya, nobori]
+        assert joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
+
+    def test_non_noboribari_still_layer_restricted(self) -> None:
+        # 通常の横架材は別レイヤの相手を受ける材にしない(従来どおり)。
+        moya = _member('R-母屋', (0.0, 0.0), (3000.0, 0.0))
+        beam = _member('R-軒高', (1500.0, 60.0), (1500.0, 2000.0))
+        geoms = [joint._member_geom(moya), joint._member_geom(beam)]
+        members = [moya, beam]
+        assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
+
+    def test_noboribari_parallel_still_excluded(self) -> None:
+        # 登り梁でも平行(同一直線上・側並び)な相手は受ける材にしない。
+        moya = _member('R-母屋', (0.0, 0.0), (3000.0, 0.0))
+        nobori = _member('R-登り梁', (3000.0, 0.0), (5000.0, 0.0))
+        nobori['class'] = joint.CLASS_NOBORIBARI
+        geoms = [joint._member_geom(moya), joint._member_geom(nobori)]
+        members = [moya, nobori]
+        assert not joint._end_has_receiver(1, 3000.0, 0.0, geoms, members, [])
+
+    def test_noboribari_separated_z_still_excluded(self) -> None:
+        # 登り梁でも Z 範囲が離れた相手(段差・別階)は受ける材にしない。
+        moya = _member('R-母屋', (0.0, 0.0), (3000.0, 0.0), elevation=425.0,
+                       end_elevation=425.0)
+        nobori = _member('R-登り梁', (1500.0, 60.0), (1500.0, 2000.0),
+                         elevation=4000.0, end_elevation=4000.0)
+        nobori['class'] = joint.CLASS_NOBORIBARI
+        geoms = [joint._member_geom(moya), joint._member_geom(nobori)]
+        members = [moya, nobori]
+        assert not joint._end_has_receiver(1, 1500.0, 60.0, geoms, members, [])
+
 
 class TestColumnReceiver:
     # 梁: 天端 425・背 180 → Z 範囲 [245, 425]
@@ -262,6 +300,20 @@ class TestBuildJointCommands:
         s2 = sorted(tuple(x['position'])
                     for x in joint.build_joint_commands([c, b, a]))
         assert s1 == s2
+
+    def test_noboribari_end_on_moya_places_joint(self) -> None:
+        # 登り梁(R-登り梁)の上端が別レイヤの棟木(R-母屋)に取り付くと、登り梁
+        # 端部に仕口が付く。仕口は登り梁と同じレイヤ(R-登り梁)に描かれる。
+        munagi = _member('R-母屋', (-2000.0, 3000.0), (2000.0, 3000.0),
+                         elevation=6000.0, end_elevation=6000.0)
+        nobori = _member('R-登り梁', (0.0, 0.0), (0.0, 2940.0),
+                         elevation=425.0, end_elevation=6000.0)
+        nobori['class'] = joint.CLASS_NOBORIBARI
+        commands = joint.build_joint_commands([munagi, nobori])
+        nobori_joints = [c for c in commands if c['layer'] == 'R-登り梁']
+        assert len(nobori_joints) == 1
+        assert nobori_joints[0]['position'] == [0.0, 2940.0]
+        assert nobori_joints[0]['symbol'] == '仕口'
 
 
 class TestBuildFromFixture:
