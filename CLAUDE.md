@@ -344,11 +344,10 @@ VW 2026 でレイヤをストーリレベルに正しくバインドするには
   2. 指示線を移動する（`_place_section_line`）＝既製は方向別に正しい向き（X通り＝鉛直・Y通り＝水平）で用意されているため回転はせず、`line_start`/`line_end` の中点へ中心を `HMove` するだけにする（長さも向きも変えない）。
   3. 指示線の `Drawing Number`／`Drawing Title` を新しい通り名に `SetRField` で変更し `ResetObject`。
   4. リンク先ビューポートの図番・図面タイトル（`SetObjectVariableString` selector 1033／1032）も合わせる。
-  5. その（流用して残す）ビューポートで**全デザインレイヤを表示**にする（`_show_all_design_layers`＝`FLayer`→`NextLayer` で全レイヤを辿り `SetVPLayerVisibility(vp, layer, 0=表示)`）。既製の断面ビューポートはインポート前＝デザインレイヤ生成前に用意されており、生成したデザインレイヤは既製ビューポートで非表示のまま残る。軸組図＝断面は全ての構造要素を写す必要があるため、各ビューポート（インスタンス）で全デザインレイヤを表示にする＝デザインレイヤ作成ダイアログの「ビューポートでの新規レイヤの表示設定＝表示」を各ビューポートに再現するもの（ユーザー確認によりビューポートスタイル経由＝`GetObject('軸組図')`＋`SetVPLayerVisibility` はスクリプトから効かなかったため、インスタンスに直接設定する方式にした）。`SetVPLayerVisibility` はデザインレイヤのみが対象でシートレイヤに渡しても無害。本フェーズはデザインレイヤ生成後に呼ばれるため生成したレイヤも表示になる。
-  6. 使わなかった既製の指示線（`_PREMADE_NUMBER_RE`＝`^[XY]\d+$` に一致し未使用のもの）とそのビューポートを `DelObject` で削除する（手置きの指示線には触れない）。
-  7. 残ったビューポートを更新（`UpdateVP`）してシートレイヤ上で重ならないように格子状に並べる（`_arrange_viewports`＝左上 `_ARRANGE_ORIGIN` から 1 行 `_ARRANGE_COLUMNS`＝5 枚ずつ、各ビューポートの実サイズ `GetBBox` に `_ARRANGE_GAP`＝300mm の余白を足して詰める）。
+  5. 使わなかった既製の指示線（`_PREMADE_NUMBER_RE`＝`^[XY]\d+$` に一致し未使用のもの）とそのビューポートを `DelObject` で削除する（手置きの指示線には触れない）。
+  6. 残ったビューポートを更新（`UpdateVP`）してシートレイヤ上で重ならないように格子状に並べる（`_arrange_viewports`＝左上 `_ARRANGE_ORIGIN` から 1 行 `_ARRANGE_COLUMNS`＝5 枚ずつ、各ビューポートの実サイズ `GetBBox` に `_ARRANGE_GAP`＝300mm の余白を足して詰める）。
 
-  **既製ビューポート＝40 枚の手動用意・シートレイヤ名 `A`・ビューポートへの全デザインレイヤ表示設定（`SetVPLayerVisibility`）・PIO 名 `Section Line2`・フィールド名（`Drawing Number`／`Drawing Title`／`Linked To`）・断面指示線の検索/移動/改名/削除/整列の各 vs 呼び出しは VectorWorks 上で最終確認する方針**（実オブジェクトのスクリプト書き出しに一致させ、`vw/section.py`・`ifc/section.py` 冒頭の名前付き定数に集約）。実行順は伏図（`execute_sheets`）の後（`execute_document`。デザインレイヤ=モデルと既製ビューポートを参照するため、レイヤ生成・並べ替え・構造材描画の完了後）。
+  **既製ビューポート＝40 枚の手動用意・シートレイヤ名 `A`・PIO 名 `Section Line2`・フィールド名（`Drawing Number`／`Drawing Title`／`Linked To`）・断面指示線の検索/移動/改名/削除/整列の各 vs 呼び出しは VectorWorks 上で最終確認する方針**（実オブジェクトのスクリプト書き出しに一致させ、`vw/section.py`・`ifc/section.py` 冒頭の名前付き定数に集約）。実行順は伏図（`execute_sheets`）の後（`execute_document`。デザインレイヤ=モデルと既製ビューポートを参照するため、レイヤ生成・並べ替え・構造材描画の完了後）。
 
 ### シートレイヤ・伏図（ifc/sheet.py → vw/sheet.py）
 

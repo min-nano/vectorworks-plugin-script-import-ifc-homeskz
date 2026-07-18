@@ -13,21 +13,10 @@
 2. 切断位置(命令の ``line_start`` / ``line_end`` の中点)へ移動し、
 3. ``Drawing Number`` / ``Drawing Title`` を切断位置に応じた通りの名前に変更し、
 4. リンクするビューポートの図番・図面タイトルも合わせ、
-5. その(流用して残す)ビューポートで**全てのデザインレイヤを表示**に設定し、
-6. 使わない既製の指示線とビューポートを削除し、
-7. 残ったビューポートを更新してシートレイヤ ``A`` 上で重ならないように並べる。
+5. 使わない既製の指示線とビューポートを削除し、
+6. 残ったビューポートを更新してシートレイヤ ``A`` 上で重ならないように並べる。
 
-既製の断面ビューポート(軸組図)はインポート前=デザインレイヤ生成前に用意されている
-ため、インポートで生成したデザインレイヤは既製ビューポートで非表示のままになる。軸組図
-は建物を切断した断面図で全ての構造要素が写る必要があるため、生成したデザインレイヤを
-全て表示にしたい。これはデザインレイヤ作成ダイアログの「ビューポートでの新規レイヤの
-表示設定」を「表示」にするのと同じ効果で、**流用して残す各ビューポート(インスタンス)
-に対し、全デザインレイヤ(``FLayer`` → ``NextLayer``)を ``SetVPLayerVisibility`` で
-表示に設定する**ことで再現する(``vw/sheet.py`` の ``configure_viewport_layers`` と
-同じ方式。``SetVPLayerVisibility`` はデザインレイヤのみが対象で、シートレイヤに渡しても
-無害)。本フェーズはデザインレイヤ生成後に呼ばれるため、生成したレイヤも表示になる。
-
-**断面指示線・ビューポートの検索/移動/改名/削除/表示設定/整列の各 vs 呼び出しは
+**断面指示線・ビューポートの検索/移動/改名/削除/整列の各 vs 呼び出しは
 VectorWorks 上で最終確認する方針**(他要素と同じく、本モジュール冒頭の名前付き定数に
 集約する)。指示線は長さも向きも変えず位置だけ操作する(既製が方向別に正しい向きで
 用意されているため。要件どおり)。
@@ -53,10 +42,6 @@ _F_LINKED_TO = 'Linked To'
 # ビューポートのオブジェクト変数 selector(vw/sheet.py と同じ)。
 _OV_VP_DRAWING_TITLE = 1032   # 図面タイトル
 _OV_VP_DRAWING_NUMBER = 1033  # 図番
-
-# ビューポートのレイヤ表示種別(SetVPLayerVisibility): 0=表示, 1=非表示, 2=グレー
-# (vw/sheet.py と同じ)。軸組図(断面)は全ての構造要素を写すため全レイヤを表示にする。
-_VP_LAYER_VISIBLE = 0
 
 # 既製ビューポートの図番パターン(X1..X20 / Y1..Y20)。使わずに残ったものだけを削除
 # 対象にし、それ以外の断面指示線(手置き等)には触れない。
@@ -127,24 +112,6 @@ def _place_section_line(handle: Any, command: SectionCommand) -> None:
     vs.ResetObject(handle)
 
 
-def _show_all_design_layers(viewport: Any) -> None:
-    """ビューポートで全てのデザインレイヤを表示に設定する。
-
-    既製の断面ビューポート(軸組図)はデザインレイヤ生成前に用意されているため、
-    インポートで生成したデザインレイヤは非表示のまま残る。軸組図は建物を切断した
-    断面図で全ての構造要素が写る必要があるため、全デザインレイヤ(``FLayer`` →
-    ``NextLayer``)を辿って ``SetVPLayerVisibility`` で表示に設定する。これは
-    デザインレイヤ作成ダイアログの「ビューポートでの新規レイヤの表示設定」を「表示」に
-    するのと同じ効果を、各ビューポートインスタンスに対して再現するもの。
-    ``SetVPLayerVisibility`` はデザインレイヤのみが対象で、シートレイヤに渡しても無害
-    (``vw/sheet.py`` の ``configure_viewport_layers`` と同じ方式)。
-    """
-    layer_h = vs.FLayer()
-    while layer_h != vs.Handle(0):
-        vs.SetVPLayerVisibility(viewport, layer_h, _VP_LAYER_VISIBLE)
-        layer_h = vs.NextLayer(layer_h)
-
-
 def _arrange_viewports(viewports: list[Any]) -> None:
     """ビューポートを更新し、シートレイヤ上で重ならないように格子状に並べる。
 
@@ -176,10 +143,8 @@ def execute_sections(commands: list[SectionCommand]) -> int:
     """section 命令のリストを実行し、配置(流用)した断面ビューポート数を返す。
 
     既製の断面指示線を図番で探して切断位置へ移動・改名し、リンクするビューポートの
-    図番・タイトルも合わせる。流用して残す各ビューポートで全てのデザインレイヤを表示に
-    設定する(軸組図=断面は全ての構造要素を写すため)。使わなかった既製の指示線・
-    ビューポートを削除し、残ったビューポートを更新してシートレイヤ上で重ならないように
-    並べる。
+    図番・タイトルも合わせる。使わなかった既製の指示線・ビューポートを削除し、残った
+    ビューポートを更新してシートレイヤ上で重ならないように並べる。
     """
     if not commands:
         return 0
@@ -199,11 +164,6 @@ def execute_sections(commands: list[SectionCommand]) -> int:
                                        command['drawing_title'])
             vs.SetObjectVariableString(vp, _OV_VP_DRAWING_NUMBER,
                                        command['drawing_number'])
-            # 軸組図(断面)は全ての構造要素を写すため、この(残す)ビューポートで
-            # 全デザインレイヤを表示にする。既製ビューポートはデザインレイヤ生成前に
-            # 用意されており、生成したレイヤが非表示のまま残るのを防ぐ(作成ダイアログの
-            # 「ビューポートでの新規レイヤの表示設定=表示」と同じ効果)。
-            _show_all_design_layers(vp)
             used_viewports.append(vp)
         used_numbers.add(command['source_number'])
         placed += 1

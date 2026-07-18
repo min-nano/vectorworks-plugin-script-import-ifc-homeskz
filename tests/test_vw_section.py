@@ -146,27 +146,6 @@ class TestExecuteSections:
         # 使用した X1 は削除しない
         assert ('LINE', 'X1') not in deleted
 
-    def test_shows_all_design_layers_on_kept_viewports(self) -> None:
-        vs_mock = _make_vs_mock(['X1', 'Y1'])
-        vw_section = _load(vs_mock)
-        vw_section.execute_sections([
-            make_command('X', 'X1', 'X1', [-4000.0, -4000.0], [-4000.0, 4000.0]),
-            make_command('Y', 'Y1', 'い', [-5000.0, -3000.0], [5000.0, -3000.0]),
-        ])
-        # 流用して残す各ビューポート(インスタンス)で全デザインレイヤ(モックは
-        # 'LAYER' 1 枚)を表示に設定する(作成ダイアログの「ビューポートでの新規レイヤの
-        # 表示設定=表示」と同じ効果)。
-        vis_calls = {c.args for c in vs_mock.SetVPLayerVisibility.call_args_list}
-        assert (('VP', 'X1/A'), 'LAYER', vw_section._VP_LAYER_VISIBLE) in vis_calls
-        assert (('VP', 'Y1/A'), 'LAYER', vw_section._VP_LAYER_VISIBLE) in vis_calls
-
-    def test_no_visibility_change_without_commands(self) -> None:
-        vs_mock = _make_vs_mock(['X1'])
-        vw_section = _load(vs_mock)
-        # 命令が無ければ流用するビューポートも無いので表示設定はしない。
-        assert vw_section.execute_sections([]) == 0
-        vs_mock.SetVPLayerVisibility.assert_not_called()
-
     def test_skips_missing_source(self) -> None:
         vs_mock = _make_vs_mock(['X1'])
         vw_section = _load(vs_mock)
