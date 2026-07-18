@@ -86,7 +86,54 @@ def _make_stateful_vs_mock() -> MagicMock:
     vs_mock.BuildResourceList.return_value = (0, 0)
     # ビューポートの全クラス表示ループ用(クラス無し扱いで空ループにする)
     vs_mock.ClassNum.return_value = 0
+    # 断面ビューポートの配置(GetBBox + HMove)用に BBox を 2 点で返す
+    vs_mock.GetBBox.return_value = ((0.0, 0.0), (0.0, 0.0))
+    _install_premade_section_lines(vs_mock, null_handle, layers, get_obj)
     return vs_mock
+
+
+def _install_premade_section_lines(
+    vs_mock: MagicMock, null_handle: object, layers: list[str],
+    get_obj: Any,
+) -> None:
+    """既製の断面指示線 X1..X20/Y1..Y20 をモデル化する(section フェーズ用)。
+
+    FInLayer/NextObj で 40 本の断面指示線を列挙し、GetRField で Drawing Number /
+    Linked To を返す。Linked To(``X1/A`` 等)は GetObject でビューポートハンドルに
+    解決する。これにより execute_sections が既製指示線を検索・移動・改名できる。
+    """
+    premade = {f'{d}{k}': object()
+               for d in ('X', 'Y') for k in range(1, 21)}
+    handles = list(premade.values())
+    handle_to_num = {h: n for n, h in premade.items()}
+
+    def f_in_layer(_layer_h: Any) -> Any:
+        return handles[0]
+
+    def next_obj(obj: Any) -> Any:
+        if obj in handle_to_num:
+            i = handles.index(obj)
+            return handles[i + 1] if i + 1 < len(handles) else null_handle
+        return null_handle
+
+    def get_rfield(h: Any, record: str, field: str) -> str:
+        if record == 'Section Line2' and h in handle_to_num:
+            if field == 'Drawing Number':
+                return handle_to_num[h]
+            if field == 'Linked To':
+                return f'{handle_to_num[h]}/A'
+        return ''
+
+    def get_obj_ext(name: str) -> Any:
+        h = get_obj(name)
+        if h is null_handle and isinstance(name, str) and name.endswith('/A'):
+            return ('VP', name)
+        return h
+
+    vs_mock.FInLayer.side_effect = f_in_layer
+    vs_mock.NextObj.side_effect = next_obj
+    vs_mock.GetRField.side_effect = get_rfield
+    vs_mock.GetObject.side_effect = get_obj_ext
 
 
 def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[str, int]:
@@ -100,6 +147,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         import vectorworks_plugin_import_ifc_homeskz.vw.footing as vw_footing
         import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
         import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
+        import vectorworks_plugin_import_ifc_homeskz.vw.section as vw_section
         import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
         import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
         importlib.reload(vw_grid)
@@ -111,6 +159,7 @@ def _run_execute_document(vs_mock: MagicMock, document: dict[str, Any]) -> dict[
         importlib.reload(vw_anchor)
         importlib.reload(vw_fire)
         importlib.reload(vw_joint)
+        importlib.reload(vw_section)
         importlib.reload(vw_sheet)
         importlib.reload(vw)
         return vw.execute_document(document)
@@ -224,6 +273,11 @@ def make_document() -> dict[str, Any]:
                           'layers': ['F-底盤', 'F-立上り', 'F-床束',
                                      'F-アンカーボルト', '共通']}},
         ],
+        'sections': [
+            {'direction': 'X', 'source_number': 'X1',
+             'drawing_number': 'X1', 'drawing_title': 'X1通り',
+             'line_start': [0.0, -9000.0], 'line_end': [0.0, 9000.0]},
+        ],
         'tags': [],
         'column_marks': [
             {'layer': '2-柱伏図記号', 'class': '01作図-04記号-04構造-一般',
@@ -258,7 +312,7 @@ class TestExecuteDocument:
                           'anchor_bolts': 1, 'floor_posts': 1, 'fire_braces': 1,
                           'joints': 1,
                           'column_marks': 1, 'sheets': 1, 'tags': 0,
-                          'legends': 1}
+                          'legends': 1, 'sections': 1}
 
     def test_empty_document_returns_zero_counts(self) -> None:
         vs_mock = _make_stateful_vs_mock()
@@ -267,7 +321,8 @@ class TestExecuteDocument:
                     'walls': [],
                     'wall_joins': [], 'slabs': [], 'floors': [],
                     'anchor_bolts': [], 'floor_posts': [],
-                    'fire_braces': [], 'joints': [], 'sheets': [], 'tags': [],
+                    'fire_braces': [], 'joints': [], 'sheets': [],
+                    'sections': [], 'tags': [],
                     'column_marks': [], 'legends': [], 'rebars': []}
         counts = _run_execute_document(vs_mock, document)
         assert counts == {'stories': 0, 'grids': 0, 'members': 0, 'rafters': 0,
@@ -277,7 +332,7 @@ class TestExecuteDocument:
                           'anchor_bolts': 0, 'floor_posts': 0, 'fire_braces': 0,
                           'joints': 0,
                           'column_marks': 0, 'sheets': 0, 'tags': 0,
-                          'legends': 0}
+                          'legends': 0, 'sections': 0}
 
     def test_rejects_unsupported_version_before_drawing(self) -> None:
         vs_mock = _make_stateful_vs_mock()

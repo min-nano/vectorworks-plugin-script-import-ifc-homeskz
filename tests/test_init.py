@@ -84,6 +84,10 @@ def _make_vs_mock() -> MagicMock:
     vs_mock.CreateCustomObjectPath.return_value = None
     vs_mock.GetStoryElevationN.return_value = 0.0
     vs_mock.GetLayerElevationN.return_value = (0.0, 0.0)
+    # ビューポートの全クラス表示ループ用(クラス無し扱いで空ループにする)
+    vs_mock.ClassNum.return_value = 0
+    # 断面ビューポートの配置(GetBBox + HMove)用に BBox を 2 点で返す
+    vs_mock.GetBBox.return_value = ((0.0, 0.0), (0.0, 0.0))
     return vs_mock
 
 
@@ -98,6 +102,7 @@ def _reload_vw_modules() -> None:
     import vectorworks_plugin_import_ifc_homeskz.vw.joint as vw_joint
     import vectorworks_plugin_import_ifc_homeskz.vw.member as vw_member
     import vectorworks_plugin_import_ifc_homeskz.vw.rafter as vw_rafter
+    import vectorworks_plugin_import_ifc_homeskz.vw.section as vw_section
     import vectorworks_plugin_import_ifc_homeskz.vw.sheet as vw_sheet
     import vectorworks_plugin_import_ifc_homeskz.vw.story as vw_story
     importlib.reload(vw_grid)
@@ -109,6 +114,7 @@ def _reload_vw_modules() -> None:
     importlib.reload(vw_anchor)
     importlib.reload(vw_fire)
     importlib.reload(vw_joint)
+    importlib.reload(vw_section)
     importlib.reload(vw_sheet)
     importlib.reload(vw)
 

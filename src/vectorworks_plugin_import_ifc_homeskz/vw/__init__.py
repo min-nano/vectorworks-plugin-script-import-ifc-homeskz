@@ -23,6 +23,7 @@ from .member import execute_members
 from .rafter import execute_rafters
 from .rebar import execute_rebars
 from .roof import execute_roofs
+from .section import execute_sections
 from .sheet import execute_sheets
 from .story import execute_stories, reorder_story_layers
 
@@ -30,9 +31,9 @@ __all__ = ['execute_anchor_bolts', 'execute_column_marks', 'execute_columns',
            'execute_document', 'execute_fire_braces', 'execute_floor_posts',
            'execute_floors', 'execute_grids', 'execute_joints',
            'execute_members', 'execute_rafters', 'execute_rebars',
-           'execute_roofs', 'execute_sheets', 'execute_slabs',
-           'execute_stories', 'execute_wall_joins', 'execute_walls',
-           'reorder_story_layers']
+           'execute_roofs', 'execute_sections', 'execute_sheets',
+           'execute_slabs', 'execute_stories', 'execute_wall_joins',
+           'execute_walls', 'reorder_story_layers']
 
 
 def execute_document(document: Any) -> dict[str, int]:
@@ -55,7 +56,7 @@ def execute_document(document: Any) -> dict[str, int]:
     Returns: {'stories', 'grids', 'members', 'rafters', 'roofs', 'columns',
         'walls', 'wall_joins', 'slabs', 'floors', 'rebars', 'anchor_bolts',
         'floor_posts', 'fire_braces', 'joints', 'column_marks', 'sheets',
-        'tags', 'legends'}
+        'tags', 'legends', 'sections'}
         各命令の実行数。rafters は屋根版から導出した垂木(軸組)数、roofs は
         屋根版から導出した野地板(屋根オブジェクト)数、wall_joins は
         交差する立上りを結合した回数、slabs は底盤・地中梁数、floors は各階 FL
@@ -133,5 +134,9 @@ def execute_document(document: Any) -> dict[str, int]:
         validated['legends'])
     counts['tags'] = counters.get('tags', 0)
     counts['legends'] = counters.get('legends', 0)
+    # 断面図(建物中心を切る断面ビューポート)はデザインレイヤ(モデル)を参照するため、
+    # 伏図と同じくレイヤ生成・並べ替え・構造材描画の完了後に描画する。
+    trace('execute_sections start')
+    counts['sections'] = execute_sections(validated['sections'])
     trace('execute_document phases done')
     return counts

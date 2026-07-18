@@ -71,6 +71,7 @@ def run() -> None:
             f'{counts["floor_posts"]} 本の床束(シンボル)、'
             f'{counts["fire_braces"]} 本の火打(シンボル)を配置しました。'
             f' {counts["sheets"]} 枚のシートレイヤ(伏図)を作成し、'
+            f'軸組図に {counts["sections"]} 枚の断面ビューポート(通り)を配置し、'
             f'{counts["tags"]} 個の断面寸法データタグ、'
             f'{counts["column_marks"]} 個の下階柱記号、'
             f'{counts["legends"]} 個のグラフィック凡例を配置しました。'

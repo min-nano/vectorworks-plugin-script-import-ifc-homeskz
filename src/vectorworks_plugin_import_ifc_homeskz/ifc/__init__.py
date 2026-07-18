@@ -29,6 +29,7 @@ from .noboribari import correct_noboribari
 from .rafter import build_rafter_commands
 from .rebar import build_rebar_commands
 from .roof import build_roof_commands
+from .section import build_section_commands
 from .sheet import (
     build_floor_legend_commands,
     build_legend_commands,
@@ -51,6 +52,7 @@ __all__ = ['build_anchor_bolt_commands', 'build_column_commands',
            'build_member_commands', 'correct_noboribari',
            'build_rafter_commands',
            'build_rebar_commands', 'build_roof_commands',
+           'build_section_commands',
            'build_sheet_commands', 'build_slab_commands',
            'build_story_commands', 'build_tag_commands', 'build_wall_commands',
            'build_wall_join_commands', 'open_ifc']
@@ -111,6 +113,10 @@ def build_document(ifc_file: ifcopenshell.file) -> Document:
         'joints': build_joint_commands(members, columns),
         # 伏図は各柱 span レイヤを切断レベルで絞って表示するため columns を渡す
         'sheets': build_sheet_commands(ifc_file, columns),
+        # 軸組図の断面ビューポート。柱と梁の両方が通る通り(柱梁の芯)を X・Y 方向
+        # それぞれ検出し、既製の断面指示線(X{k}/Y{k})を割り当てて切断位置へ移動・
+        # 改名する。柱梁の芯の検出に members・columns を渡す
+        'sections': build_section_commands(ifc_file, members, columns),
         'tags': build_tag_commands(members),
         # 断面記号は span 柱レイヤごとに置くため columns を渡す
         'column_marks': build_column_mark_commands(columns),
