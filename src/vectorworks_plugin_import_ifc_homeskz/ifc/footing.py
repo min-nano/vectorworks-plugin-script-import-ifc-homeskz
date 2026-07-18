@@ -9,8 +9,10 @@
   IfcSlab/IfcFooting。スラブオブジェクト(slab 命令)にする。天端を基礎の
   底盤天端レベルにバインドする。
 - 地中梁(地中梁・部分地中梁): ``Name`` に ``地中梁`` を含む IfcFooting。
-  底盤の下にぶら下がるためスラブオブジェクトにし、実形状どおり底盤天端より
-  低い天端にバインドする(底盤と噛み合う)。
+  台形断面のため単一のスラブオブジェクトでは描けない。底盤(基礎底盤)の
+  コンクリートに 3D ソリッド(モディファイア=``ModifierCommand``)として
+  噛み合わせて実形状を表す。各地中梁の台形プリズムを、平面で重なる底盤スラブ
+  命令の ``modifiers`` に持たせる(単独のスラブ命令にはしない)。
 
 底盤天端レベルの高さは、底盤(基礎底盤系)の天端 Z ごとに平面面積を合計し、
 合計面積が最大の天端 Z を採用する(エンティティ列挙順に依存しない決定的な高さ)。
@@ -26,6 +28,7 @@ from typing import TYPE_CHECKING, Optional
 
 from ..document import (
     ColumnCommand,
+    ModifierCommand,
     SlabCommand,
     StoryBoundCommand,
     StoryCommand,
@@ -1047,26 +1050,27 @@ def build_slab_commands(
     ifc_file: ifcopenshell.file,
     walls: list[WallCommand] | None = None,
 ) -> list[SlabCommand]:
-    """基礎の底盤・地中梁から slab 命令のリストを組み立てる。
+    """基礎の底盤から slab 命令のリストを組み立てる(地中梁はモディファイアで表す)。
 
     平面外形を底盤天端レベルにセンタリングして格納し、天端の絶対 Z を elevation に
     格納する(描画フェーズが SetSlabHeight でスラブの天端高さとして設定する)。
     加えて天端を底盤天端レベルにバインドする(bound.offset は実天端 Z と底盤天端の
     絶対 Z の差)。基礎ストーリは GL=0 のため elevation はストーリ基準高さとも一致する。
-    地中梁は底盤の下にぶら下がるため天端が底盤天端より低く offset が負値になる。
 
     ``thickness`` は底盤(基礎底盤系)にだけ設定するスラブスタイルのコンクリート厚
     (mm、Z 方向の厚みを整数 mm に丸めた値)。描画フェーズがこの厚みからスラブ
-    スタイルを選ぶ(``vw/footing.py`` 参照)。地中梁はスラブスタイルを適用しない
-    ため ``thickness=None`` にする(スラブ厚は SetSlabHeight では設定できず=高さを
-    設定する関数のため、スラブスタイルのコンポーネントが決める)。
+    スタイルを選ぶ(``vw/footing.py`` 参照)。
 
     命令を組み立てた後、``merge_slab_commands`` で**同じ厚さ・同じ高さで連続する
     底盤**(基礎底盤系)を 1 枚のスラブに統合し、``align_slabs_to_wall_faces`` で
     底盤の外周を立上り(基礎梁)の**外面に合わせて外側へ広げる**(ホームズ君 IFC の
-    底盤外形は立上りの壁心に一致しているため、外面まで半壁厚だけ広げる)。統合・
-    外面合わせとも底盤にだけ適用し、地中梁(``thickness=None``)はそのまま残す。
+    底盤外形は立上りの壁心に一致しているため、外面まで半壁厚だけ広げる)。
     外面合わせに使う立上りは ``walls``(未指定なら ``build_wall_commands`` で組み立てる)。
+
+    **地中梁**(台形断面)は単一のスラブでは描けないため、底盤コンクリートに噛み合う
+    モディファイア(台形プリズム=``ModifierCommand``)にする(要件)。統合・外面合わせ
+    まで済んだ底盤のうち、各地中梁の平面外形と重なる底盤の ``modifiers`` に振り分ける
+    (``_attach_ground_beam_modifiers``)。地中梁を単独のスラブ命令にはしない。
     """
     slab_top = resolve_slab_top_elevation(ifc_file)
     slab_top_abs = slab_top if slab_top is not None else 0.0
@@ -1076,7 +1080,7 @@ def build_slab_commands(
     commands: list[SlabCommand] = []
     for element in _iter_footing_elements(ifc_file):
         name = element.Name or ''
-        if not (_is_ground_beam(name) or _is_base_slab(name)):
+        if not _is_base_slab(name):
             continue
         solid = _world_solid(element)
         if solid is None:
@@ -1086,20 +1090,143 @@ def build_slab_commands(
         bound: StoryBoundCommand = {
             'story_offset': 0, 'level': LEVEL_SLAB_TOP,
             'offset': top_abs - slab_top_abs}
-        # 底盤(基礎底盤系)だけスラブスタイルのコンクリート厚を持たせる。
-        # 地中梁はスラブスタイルを適用しないため None。
-        style_thickness = float(round(thickness)) if _is_base_slab(name) else None
         commands.append({
             'layer': LAYER_FOUNDATION_SLAB,
             'class': CLASS_FOUNDATION_SLAB,
             'boundary': boundary,
             'elevation': top_abs,
-            'thickness': style_thickness,
+            'thickness': float(round(thickness)),
             'bound': bound,
+            'modifiers': [],
         })
     if walls is None:
         walls = build_wall_commands(ifc_file)
-    return align_slabs_to_wall_faces(merge_slab_commands(commands), walls)
+    slabs = align_slabs_to_wall_faces(merge_slab_commands(commands), walls)
+    modifiers = _build_ground_beam_modifiers(ifc_file, center_x, center_y)
+    _attach_ground_beam_modifiers(slabs, modifiers)
+    return slabs
+
+
+def _build_ground_beam_modifiers(
+    ifc_file: ifcopenshell.file, center_x: float, center_y: float,
+) -> list[tuple[ModifierCommand, list[_Pt2]]]:
+    """地中梁を台形プリズムのモディファイアに変換したリストを返す。
+
+    各地中梁は水平押し出しの台形断面ソリッド。断面(``profile``)を幅軸 u・鉛直軸 v
+    の 2D 頂点列に取り直し、押し出し方向の方位角(``azimuth``)と断面原点のワールド
+    座標(``origin``、XY はセンタリング済み)を求める。返り値は
+    ``(モディファイア命令, 平面外形)`` のリストで、平面外形は底盤への振り分け判定
+    (``_attach_ground_beam_modifiers``)に使う(グリッド中心オフセット済み)。
+    """
+    result: list[tuple[ModifierCommand, list[_Pt2]]] = []
+    for element in ifc_file.by_type('IfcFooting'):
+        if not _is_ground_beam(element.Name or ''):
+            continue
+        solid = _world_solid(element)
+        if solid is None:
+            continue
+        modifier = _ground_beam_modifier(solid, center_x, center_y)
+        if modifier is None:
+            continue
+        footprint = [(x - center_x, y - center_y) for x, y in _footprint(solid)]
+        result.append((modifier, footprint))
+    return result
+
+
+def _ground_beam_modifier(
+    solid: _Solid, center_x: float, center_y: float,
+) -> ModifierCommand | None:
+    """地中梁の押し出しソリッドを台形プリズムのモディファイア命令にする。
+
+    押し出し方向(梁の走る向き)の水平成分から方位角を求め、断面頂点を幅軸 u
+    (走る向きを +90 度回した水平単位ベクトル ``w``)・鉛直軸 v(ワールド Z の差分)へ
+    取り直す。断面原点(profile の (0,0)=ソリッド配置原点)の XY をセンタリングし、
+    z は絶対値(梁下端の Z)にする。u 軸の取り方(``w`` = 走る向き +90 度)は描画
+    フェーズの回転規約(``Rotate3D(90,0,0)`` → ``Rotate3D(0,0,azimuth+90)``)と一致
+    させる。押し出し方向が水平でない(鉛直)ソリッドは地中梁でないため None。
+    """
+    (origin, lx, ly, _lz), extrude, depth, pts, _dims = solid
+    run_len = math.hypot(extrude[0], extrude[1])
+    if run_len <= 0.0:
+        return None
+    ux, uy = extrude[0] / run_len, extrude[1] / run_len
+    azimuth = math.degrees(math.atan2(uy, ux))
+    # 幅軸 w = 走る向きを +90 度回した水平単位ベクトル(描画の回転規約に一致)。
+    wx, wy = -uy, ux
+    ox, oy, oz = origin
+    profile: list[list[float]] = []
+    for u, v in pts:
+        px = ox + lx[0] * u + ly[0] * v
+        py = oy + lx[1] * u + ly[1] * v
+        pz = oz + lx[2] * u + ly[2] * v
+        u_off = (px - ox) * wx + (py - oy) * wy
+        v_off = pz - oz
+        profile.append([u_off, v_off])
+    return {
+        'profile': profile,
+        'depth': float(depth),
+        'origin': [ox - center_x, oy - center_y, oz],
+        'azimuth': azimuth,
+    }
+
+
+def _polygon_centroid(pts: list[_Pt2]) -> _Pt2:
+    """多角形頂点列の重心(頂点の相加平均)を返す。"""
+    n = len(pts)
+    return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
+
+
+def _footprint_samples(pts: list[_Pt2]) -> list[_Pt2]:
+    """平面外形の代表点(重心・各頂点・各辺の中点)を返す(振り分けの判定用)。"""
+    samples: list[_Pt2] = [_polygon_centroid(pts)]
+    samples.extend(pts)
+    n = len(pts)
+    for i in range(n):
+        ax, ay = pts[i]
+        bx, by = pts[(i + 1) % n]
+        samples.append(((ax + bx) / 2.0, (ay + by) / 2.0))
+    return samples
+
+
+def _best_slab_for_footprint(
+    footprint: list[_Pt2], slabs: list[SlabCommand],
+) -> int | None:
+    """地中梁の平面外形が最も重なる底盤スラブのインデックスを返す。無ければ None。
+
+    地中梁の代表点(``_footprint_samples``)が各底盤の外形内に入る数を数え、最も多い
+    底盤に振り分ける。どの底盤にも入らない(継目・下屋等で外形の外に出た)ときは、
+    重心が最も近い底盤へフォールバックして取りこぼさない。底盤が無ければ None。
+    """
+    if not slabs:
+        return None
+    polys = [[(x, y) for x, y in slab['boundary']] for slab in slabs]
+    samples = _footprint_samples(footprint)
+    counts = [sum(1 for sx, sy in samples if _point_in_poly(sx, sy, poly))
+              for poly in polys]
+    best = max(range(len(polys)), key=lambda i: counts[i])
+    if counts[best] > 0:
+        return best
+    # フォールバック: 重心が最も近い底盤
+    cx, cy = _polygon_centroid(footprint)
+    return min(range(len(polys)),
+               key=lambda i: math.dist((cx, cy), _polygon_centroid(polys[i])))
+
+
+def _attach_ground_beam_modifiers(
+    slabs: list[SlabCommand],
+    modifiers: list[tuple[ModifierCommand, list[_Pt2]]],
+) -> None:
+    """地中梁モディファイアを、平面で重なる底盤スラブの ``modifiers`` に振り分ける。
+
+    各モディファイアを最も重なる底盤(``_best_slab_for_footprint``)に付ける。底盤が
+    1 枚も無い場合は付けられないため捨てる(地中梁だけで底盤の無い基礎は稀)。判定は
+    入力順に対して決定的。
+    """
+    for modifier, footprint in modifiers:
+        index = _best_slab_for_footprint(footprint, slabs)
+        if index is None:
+            continue
+        slabs[index]['modifiers'].append(modifier)
 
 
 # --- 底盤のマージ・外面合わせ ---
@@ -1473,6 +1600,7 @@ def merge_slab_commands(slabs: list[SlabCommand]) -> list[SlabCommand]:
                 'elevation': base['elevation'],
                 'thickness': base['thickness'],
                 'bound': base['bound'],
+                'modifiers': [],
             }
             merged_at.setdefault(first, []).append(merged)
             dropped.update(comp)
@@ -1624,5 +1752,6 @@ def align_slabs_to_wall_faces(
             'elevation': slab['elevation'],
             'thickness': slab['thickness'],
             'bound': slab['bound'],
+            'modifiers': slab.get('modifiers', []),
         })
     return result

@@ -1,10 +1,15 @@
-"""wall / slab 命令の描画。基礎の立上り(壁)・底盤/地中梁(スラブ)を配置する。
+"""wall / slab 命令の描画。基礎の立上り(壁)・底盤(スラブ)を配置する。
 
-立上りは ``vs.Wall`` で壁オブジェクトを、底盤・地中梁は外形ポリゴンから
+立上りは ``vs.Wall`` で壁オブジェクトを、底盤は外形ポリゴンから
 ``vs.CreateSlab`` でスラブオブジェクトを生成する。いずれも高さ基準を
 ``SetObjectStoryBound`` でストーリレベルにバインドする(梁・柱と同じ規約)。
 立上りには壁スタイル(``WALL_STYLE_NAME``)を ``SetWallStyle`` で適用する
 (オフセットは 0/0 で壁芯に揃える)。
+
+**地中梁**は台形断面のため単一スラブでは描けず、底盤コンクリートに噛み合う
+モディファイア(台形プリズム=3D ソリッド)にする。モディファイアを持つ底盤は
+``CreateCustomObjectPath('Slab', 外形ポリゴン, モディファイア群)`` で作る
+(``_draw_modifier`` / ``_draw_modifier_group``)。
 
 底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
 捨てコン …mm / 砕石 …mm``)を適用する。既定=150mm はその既存スタイルをそのまま、
@@ -53,6 +58,58 @@ _CONCRETE_COMPONENT_INDEX = 1
 # 同じ高さはコンクリート一体のため閉じない=capped=False)。showAlerts=False で
 # 結合失敗時のダイアログを抑止する(インポート中に手動操作を求められないように)。
 _JOIN_SHOW_ALERTS = False
+
+# --- 地中梁モディファイア(底盤に噛み合う台形プリズム)の描画 ---
+# モディファイアを持つ底盤は CreateSlab ではなく CreateCustomObjectPath でスラブを
+# 作り、外形ポリゴン(path)とモディファイア群(profile)を渡す(参考スクリプトの
+# 「箱をスラブに噛み合わせた」エクスポートの呼び出し列に一致させる)。
+_SLAB_PIO = 'Slab'
+# 台形断面(u=水平幅・v=鉛直)を XY 平面に描いて鉛直(+Z)に push し、断面を起こして
+# 鉛直軸 v を +Z に向ける傾き(度)。続けて押し出し方向(+Z→水平)を方位角へ向ける
+# 追加回転(azimuth + このオフセット、度)。幅軸 u が走る向き +90 度に一致する。
+# 回転規約は解析フェーズ(ifc/footing.py の _ground_beam_modifier)と一致させており、
+# 最終的な向き・高さは VectorWorks 上で確認する方針(他要素と同じ)。
+_MODIFIER_TILT_DEG = 90.0
+_MODIFIER_AZIMUTH_OFFSET_DEG = 90.0
+
+
+def _draw_modifier(modifier: Any, elevation: float) -> None:
+    """地中梁モディファイア 1 件を台形プリズム(押し出しソリッド)として描く。
+
+    台形断面(``profile``、u=幅・v=鉛直)を XY 平面に描いて ``BeginXtrd`` で鉛直
+    (0→depth)に押し出し、断面を起こして(``Rotate3D(90,0,0)``)方位角へ回し
+    (``Rotate3D(0,0,azimuth+90)``)、断面原点へ移動する。**Z はスラブ外形ポリゴンと
+    同じ「スラブ天端を 0 とするフレーム」に合わせる**ため、絶対 Z(``origin`` の z=
+    梁下端)から ``elevation``(スラブ天端の絶対 Z)を引く。スラブ作成後の
+    ``SetSlabHeight(elevation)`` が外形ポリゴンとモディファイアを一体で天端の絶対 Z
+    へ持ち上げるため、最終的にモディファイアは実形状の絶対 Z に収まる。
+    """
+    profile = modifier['profile']
+    ox, oy, oz = modifier['origin']
+    vs.BeginXtrd(0.0, modifier['depth'])
+    vs.ClosePoly()
+    vs.BeginPoly()
+    vs.MoveTo(profile[0][0], profile[0][1])
+    for u, v in profile[1:]:
+        vs.LineTo(u, v)
+    vs.EndPoly()
+    vs.EndXtrd()
+    vs.ResetOrientation3D()
+    vs.Rotate3D(_MODIFIER_TILT_DEG, 0.0, 0.0)
+    vs.Rotate3D(0.0, 0.0, modifier['azimuth'] + _MODIFIER_AZIMUTH_OFFSET_DEG)
+    vs.Move3D(ox, oy, oz - elevation)
+
+
+def _draw_modifier_group(modifiers: list[Any], elevation: float) -> Any:
+    """モディファイア群を 1 つのグループにまとめてハンドルを返す。
+
+    ``CreateCustomObjectPath('Slab', 外形ポリゴン, グループ)`` の profile 引数に渡す。
+    """
+    vs.BeginGroup()
+    for modifier in modifiers:
+        _draw_modifier(modifier, elevation)
+    vs.EndGroup()
+    return vs.LNewObj()
 
 
 def draw_wall(command: WallCommand) -> Any:
@@ -233,12 +290,14 @@ def draw_slab(
 ) -> None:
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
-    外形ポリゴンを閉じた多角形として作成し、``CreateSlab`` でスラブにする。
-    底盤(``thickness`` を持つ)にはコンクリート厚に応じたスラブスタイルを適用する
-    (``_apply_slab_style``。既定スタイル名は ``base_style``、スタイル名→ハンドルの
-    一覧は ``styles``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で設定し、天端の高さ
-    基準を底盤天端レベルにバインドする。スラブが生成できない場合は外形ポリゴンに
-    フォールバックする。
+    外形ポリゴンを閉じた多角形として作成し、スラブにする。**地中梁モディファイアを
+    持つ底盤は ``CreateCustomObjectPath('Slab', 外形ポリゴン, モディファイア群)`` で
+    作り**(台形断面の地中梁を底盤コンクリートに噛み合わせる。参考スクリプトの
+    「箱をスラブに噛み合わせた」エクスポートに一致)、モディファイアの無い底盤は
+    従来どおり ``CreateSlab`` で作る。底盤にはコンクリート厚に応じたスラブスタイルを
+    適用する(``_apply_slab_style``)。スラブ天端の絶対 Z を ``SetSlabHeight`` で
+    設定し、天端の高さ基準を底盤天端レベルにバインドする。スラブが生成できない場合は
+    外形ポリゴンにフォールバックする。
 
     **``SetSlabHeight`` はスラブ厚ではなく天端高さ(Coordinate)を設定する**。
     以前はここに厚みを渡していたため天端が厚み分だけ高く描画されていた
@@ -247,6 +306,7 @@ def draw_slab(
     ため、この絶対 Z はストーリ基準高さと一致する。
     """
     boundary = command['boundary']
+    modifiers = command.get('modifiers') or []
 
     vs.ClosePoly()
     vs.BeginPoly()
@@ -256,7 +316,11 @@ def draw_slab(
     vs.EndPoly()
     poly_h = vs.LNewObj()
 
-    slab = vs.CreateSlab(poly_h)
+    if modifiers:
+        group_h = _draw_modifier_group(modifiers, command['elevation'])
+        slab = vs.CreateCustomObjectPath(_SLAB_PIO, poly_h, group_h)
+    else:
+        slab = vs.CreateSlab(poly_h)
     if slab != vs.Handle(0):
         vs.SetClass(slab, command['class'])
         _apply_slab_style(slab, command, base_style, styles)

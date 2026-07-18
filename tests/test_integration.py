@@ -63,6 +63,7 @@ class Expected:
         moya_stories: set[str] | None = None,
         roof_stories: set[str] | None = None,
         legends: int = 1,
+        slab_modifiers: int = 0,
     ) -> None:
         self.filename = filename
         self.story_names = story_names
@@ -73,6 +74,8 @@ class Expected:
         self.columns = columns
         self.walls = walls
         self.slabs = slabs
+        # 底盤スラブに噛み合わせる地中梁モディファイア(台形プリズム)の総数。
+        self.slab_modifiers = slab_modifiers
         self.floors = floors
         self.anchor_bolts = anchor_bolts
         self.floor_posts = floor_posts
@@ -112,7 +115,8 @@ FIXTURES = [
         members=147,
         columns=138,
         walls=17,
-        slabs=27,
+        slabs=1,
+        slab_modifiers=26,
         floors=2,
         anchor_bolts=96,
         floor_posts=41,
@@ -136,7 +140,8 @@ FIXTURES = [
         members=266,
         columns=197,
         walls=27,
-        slabs=37,
+        slabs=2,
+        slab_modifiers=35,
         floors=4,
         anchor_bolts=110,
         floor_posts=25,
@@ -159,7 +164,8 @@ FIXTURES = [
         members=270,
         columns=141,
         walls=17,
-        slabs=25,
+        slabs=2,
+        slab_modifiers=23,
         floors=2,
         anchor_bolts=85,
         floor_posts=98,
@@ -184,6 +190,7 @@ FIXTURES = [
         columns=165,
         walls=13,
         slabs=28,
+        slab_modifiers=0,
         floors=3,
         anchor_bolts=60,
         floor_posts=44,
@@ -207,7 +214,8 @@ FIXTURES = [
         members=69,
         columns=109,
         walls=10,
-        slabs=20,
+        slabs=1,
+        slab_modifiers=19,
         floors=3,
         anchor_bolts=30,
         floor_posts=20,
@@ -429,6 +437,8 @@ class TestSampleIfcAnalysis:
         assert len(document['columns']) == exp.columns
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
+        assert sum(len(s['modifiers']) for s in document['slabs']) \
+            == exp.slab_modifiers
         assert len(document['floors']) == exp.floors
         assert len(document['anchor_bolts']) == exp.anchor_bolts
         assert len(document['floor_posts']) == exp.floor_posts
