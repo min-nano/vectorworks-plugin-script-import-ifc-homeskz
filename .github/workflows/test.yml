@@ -3,6 +3,8 @@ name: Test
 on:
   pull_request:
     branches: ["**"]
+  push:
+    branches: ["main"]
 
 # 既定では読み取りのみ。カバレッジのアップロードジョブだけに
 # code-quality:write を与える（下記 upload-coverage ジョブ参照）
