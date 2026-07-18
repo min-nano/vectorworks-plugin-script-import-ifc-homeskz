@@ -6,6 +6,10 @@ import json
 import ifcopenshell
 import pytest
 
+from vectorworks_plugin_import_ifc_homeskz.document import (
+    MemberCommand,
+    StoryBoundCommand,
+)
 from vectorworks_plugin_import_ifc_homeskz.ifc.column import (
     _get_position_2d,
     _hardware_spec,
@@ -24,12 +28,13 @@ def _top_member(
     width: float, start: tuple[float, float], end: tuple[float, float],
     top_z: float, height: float = 90.0, member_class: str = CLASS_MOYA,
     layer: str = 'R-母屋',
-) -> dict:
+) -> MemberCommand:
     """テスト用の横架材命令(母屋等)を組み立てる。
 
     ``top_z`` は天端の絶対 Z、断面下端は ``top_z - height``。
     """
-    bound = {'story_offset': 0, 'level': '母屋', 'offset': 0.0}
+    bound: StoryBoundCommand = {
+        'story_offset': 0, 'level': '母屋', 'offset': 0.0}
     return {
         'layer': layer,
         'member_id': f'{int(width)}×{int(height)}',
