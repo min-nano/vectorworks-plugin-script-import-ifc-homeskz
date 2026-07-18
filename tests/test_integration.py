@@ -74,7 +74,9 @@ class Expected:
         self.columns = columns
         self.walls = walls
         self.slabs = slabs
-        # 底盤スラブに噛み合わせる地中梁モディファイア(台形プリズム)の総数。
+        # 底盤スラブに噛み合わせる地中梁の総区間数(パス押し出しの各パスの区間数の
+        # 合計)。連続する地中梁は 1 本のパスに統合されるが、区間数の合計は元の
+        # 地中梁数と一致する(統合で取りこぼさない)。
         self.slab_modifiers = slab_modifiers
         self.floors = floors
         self.anchor_bolts = anchor_bolts
@@ -437,8 +439,14 @@ class TestSampleIfcAnalysis:
         assert len(document['columns']) == exp.columns
         assert len(document['walls']) == exp.walls
         assert len(document['slabs']) == exp.slabs
-        assert sum(len(s['modifiers']) for s in document['slabs']) \
-            == exp.slab_modifiers
+        modifiers = [m for s in document['slabs'] for m in s['modifiers']]
+        # 連続する地中梁は 1 本のパスに統合される。各パスの区間数の合計は元の
+        # 地中梁数(exp.slab_modifiers)と一致し(取りこぼさない)、統合により
+        # パス数は区間数以下になる。
+        assert sum(len(m['path']) - 1 for m in modifiers) == exp.slab_modifiers
+        assert len(modifiers) <= exp.slab_modifiers
+        if exp.slab_modifiers:
+            assert len(modifiers) >= 1
         assert len(document['floors']) == exp.floors
         assert len(document['anchor_bolts']) == exp.anchor_bolts
         assert len(document['floor_posts']) == exp.floor_posts

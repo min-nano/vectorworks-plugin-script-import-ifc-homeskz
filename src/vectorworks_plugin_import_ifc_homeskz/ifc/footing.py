@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 from ..document import (
     ColumnCommand,
@@ -1107,51 +1107,36 @@ def build_slab_commands(
     return slabs
 
 
-def _build_ground_beam_modifiers(
-    ifc_file: ifcopenshell.file, center_x: float, center_y: float,
-) -> list[tuple[ModifierCommand, list[_Pt2]]]:
-    """地中梁を台形プリズムのモディファイアに変換したリストを返す。
+# --- 地中梁の連続パス化 ---
+# パス頂点(セグメント端点)を同一ノードとみなす距離許容値 (mm)。
+_GROUND_BEAM_NODE_TOL = 1.0
+# 断面頂点(u, v)を同一とみなす丸め許容値 (mm)。
+_GROUND_BEAM_PROFILE_TOL = 1.0
 
-    各地中梁は水平押し出しの台形断面ソリッド。断面(``profile``)を幅軸 u・鉛直軸 v
-    の 2D 頂点列に取り直し、押し出し方向の方位角(``azimuth``)と断面原点のワールド
-    座標(``origin``、XY はセンタリング済み)を求める。返り値は
-    ``(モディファイア命令, 平面外形)`` のリストで、平面外形は底盤への振り分け判定
-    (``_attach_ground_beam_modifiers``)に使う(グリッド中心オフセット済み)。
-    """
-    result: list[tuple[ModifierCommand, list[_Pt2]]] = []
-    for element in ifc_file.by_type('IfcFooting'):
-        if not _is_ground_beam(element.Name or ''):
-            continue
-        solid = _world_solid(element)
-        if solid is None:
-            continue
-        modifier = _ground_beam_modifier(solid, center_x, center_y)
-        if modifier is None:
-            continue
-        footprint = [(x - center_x, y - center_y) for x, y in _footprint(solid)]
-        result.append((modifier, footprint))
-    return result
+# 3D 点(ワールド座標、XY センタリング済み・z 絶対値)
+_Pt3 = tuple[float, float, float]
+# 地中梁 1 本のセグメント: (断面, 始点 A, 終点 B, 平面外形)
+_Segment = tuple[list[list[float]], _Pt3, _Pt3, list["_Pt2"]]
 
 
-def _ground_beam_modifier(
+def _ground_beam_segment(
     solid: _Solid, center_x: float, center_y: float,
-) -> ModifierCommand | None:
-    """地中梁の押し出しソリッドを台形プリズムのモディファイア命令にする。
+) -> tuple[list[list[float]], _Pt3, _Pt3] | None:
+    """地中梁の押し出しソリッドを (断面, 始点 A, 終点 B) に変換する。
 
-    押し出し方向(梁の走る向き)の水平成分から方位角を求め、断面頂点を幅軸 u
-    (走る向きを +90 度回した水平単位ベクトル ``w``)・鉛直軸 v(ワールド Z の差分)へ
-    取り直す。断面原点(profile の (0,0)=ソリッド配置原点)の XY をセンタリングし、
-    z は絶対値(梁下端の Z)にする。u 軸の取り方(``w`` = 走る向き +90 度)は描画
-    フェーズの回転規約(``Rotate3D(90,0,0)`` → ``Rotate3D(0,0,azimuth+90)``)と一致
-    させる。押し出し方向が水平でない(鉛直)ソリッドは地中梁でないため None。
+    断面(``profile``)は**進行方向左向き** u・鉛直 v の 2D 頂点列(v=0 が断面基準点=
+    断面原点の高さ=梁下端)。u 軸は走る向き(押し出し方向)を +90 度回した水平単位
+    ベクトル ``w`` に取る(パスに沿った押し出しで断面をパス始端接線の左向きに揃える
+    描画規約に一致)。A は断面原点(profile の (0,0)=ソリッド配置原点)のワールド座標
+    (XY センタリング済み・z 絶対値)、B は A から押し出し方向へ ``depth`` 進んだ点。
+    押し出し方向が水平でない(鉛直)ソリッドは地中梁でないため None。
     """
     (origin, lx, ly, _lz), extrude, depth, pts, _dims = solid
     run_len = math.hypot(extrude[0], extrude[1])
     if run_len <= 0.0:
         return None
     ux, uy = extrude[0] / run_len, extrude[1] / run_len
-    azimuth = math.degrees(math.atan2(uy, ux))
-    # 幅軸 w = 走る向きを +90 度回した水平単位ベクトル(描画の回転規約に一致)。
+    # 幅軸 w = 走る向きを +90 度回した水平単位ベクトル(= 進行方向左向き)。
     wx, wy = -uy, ux
     ox, oy, oz = origin
     profile: list[list[float]] = []
@@ -1162,12 +1147,198 @@ def _ground_beam_modifier(
         u_off = (px - ox) * wx + (py - oy) * wy
         v_off = pz - oz
         profile.append([u_off, v_off])
-    return {
-        'profile': profile,
-        'depth': float(depth),
-        'origin': [ox - center_x, oy - center_y, oz],
-        'azimuth': azimuth,
-    }
+    a: _Pt3 = (ox - center_x, oy - center_y, oz)
+    b: _Pt3 = (ox + extrude[0] * depth - center_x,
+               oy + extrude[1] * depth - center_y,
+               oz + extrude[2] * depth)
+    return profile, a, b
+
+
+def _mirror_profile(profile: list[list[float]]) -> list[list[float]]:
+    """進行方向を反転したときの断面。u→-u とし頂点順を反転して巻きを保つ。
+
+    セグメントを逆向きに辿ると進行方向左向き u が反転する(``u→-u``)。反転は
+    巻き(CW/CCW)を逆にするため頂点順も反転して元の巻きを保つ。断面基準点 (0,0) は
+    ``u→-u`` でも (0,0) のまま。
+    """
+    return [[-u + 0.0, v] for u, v in reversed(profile)]
+
+
+def _profile_shape_key(profile: list[list[float]]) -> tuple[_Pt2, ...]:
+    """巻き・始点位置に依存しない断面形状の正規化キー(許容値で丸める)。
+
+    符号付き面積が負なら反転して CCW に揃え、辞書順最小の頂点から始まる回転に正規化
+    してタプルにする。連続する地中梁を 1 本のパスに統合してよいか(=物理的に同じ断面
+    か)を、巻きの違いや頂点の始点位置に依存せず判定するために使う。
+    """
+    q = 1.0 / _GROUND_BEAM_PROFILE_TOL
+    pts: list[_Pt2] = [(round(u * q) / q + 0.0, round(v * q) / q + 0.0)
+                       for u, v in profile]
+    area = 0.0
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    if area < 0.0:
+        pts = pts[::-1]
+    start = min(range(len(pts)), key=lambda i: pts[i])
+    return tuple(pts[start:] + pts[:start])
+
+
+def _node_key(p: _Pt3) -> tuple[int, int, int]:
+    """3D 点をノード(同一端点)として同一視する量子化キーを返す。"""
+    q = 1.0 / _GROUND_BEAM_NODE_TOL
+    return (round(p[0] * q), round(p[1] * q), round(p[2] * q))
+
+
+def _build_ground_beam_modifiers(
+    ifc_file: ifcopenshell.file, center_x: float, center_y: float,
+) -> list[tuple[ModifierCommand, list[list[_Pt2]]]]:
+    """地中梁をパス押し出しのモディファイアに変換したリストを返す。
+
+    各地中梁を (断面, 始点, 終点, 平面外形) のセグメントにし
+    (``_ground_beam_segment``)、**連続する(端点を共有し断面形状が一致する)地中梁を
+    1 本の 3D パスに統合**する(``_merge_ground_beam_paths``。屈曲部=向きの変わる
+    コーナーも断面が一致すれば 1 本にまとめる)。返り値は ``(モディファイア命令,
+    統合した各地中梁の平面外形のリスト)`` のリストで、平面外形は底盤への振り分け判定
+    (``_attach_ground_beam_modifiers``)に使う(グリッド中心オフセット済み)。
+    """
+    segments: list[_Segment] = []
+    for element in ifc_file.by_type('IfcFooting'):
+        if not _is_ground_beam(element.Name or ''):
+            continue
+        solid = _world_solid(element)
+        if solid is None:
+            continue
+        seg = _ground_beam_segment(solid, center_x, center_y)
+        if seg is None:
+            continue
+        profile, a, b = seg
+        footprint = [(x - center_x, y - center_y) for x, y in _footprint(solid)]
+        segments.append((profile, a, b, footprint))
+    return _merge_ground_beam_paths(segments)
+
+
+class _Edge(NamedTuple):
+    """地中梁 1 本のエッジ。a→b が格納方向(=進行方向左向き u の格納断面)。"""
+
+    profile: list[list[float]]
+    a: _Pt3
+    b: _Pt3
+    fp: list["_Pt2"]
+    ka: tuple[int, int, int]
+    kb: tuple[int, int, int]
+
+
+def _merge_ground_beam_paths(
+    segments: list[_Segment],
+) -> list[tuple[ModifierCommand, list[list[_Pt2]]]]:
+    """地中梁セグメント群を、連続するものごとに 1 本のパスに統合する。
+
+    セグメントをノード(端点)とエッジ(地中梁)の無向グラフにし、途中ノードの次数が
+    2 かつ両エッジの進行方向断面(形状キー)が一致する限りパスを延ばして極大の連鎖に
+    まとめる(次数 ≠ 2 のジャンクションや断面不一致で分断する)。各連鎖を 1 本の
+    ``ModifierCommand``(掃引パス+断面)にし、連鎖に含む地中梁の平面外形リストを添える。
+    判定・並びは入力順に対して決定的(端点=次数 1 の連鎖始点から辿り、残りの閉ループを
+    後追いで処理する)。
+    """
+    edges = [_Edge(p, a, b, fp, _node_key(a), _node_key(b))
+             for p, a, b, fp in segments]
+
+    node_edges: dict[tuple[int, int, int], list[int]] = {}
+    for i, e in enumerate(edges):
+        node_edges.setdefault(e.ka, []).append(i)
+        node_edges.setdefault(e.kb, []).append(i)
+
+    def leave_profile(i: int, node: tuple[int, int, int]) -> list[list[float]]:
+        """エッジ i を node から離れる向きに辿るときの進行方向断面。"""
+        e = edges[i]
+        return e.profile if node == e.ka else _mirror_profile(e.profile)
+
+    def arrive_profile(i: int, node: tuple[int, int, int]) -> list[list[float]]:
+        """エッジ i を node へ到達する向きに辿るときの進行方向断面。"""
+        e = edges[i]
+        return e.profile if node == e.kb else _mirror_profile(e.profile)
+
+    def other_node(i: int, node: tuple[int, int, int]) -> tuple[int, int, int]:
+        e = edges[i]
+        return e.kb if node == e.ka else e.ka
+
+    def node_point(i: int, node: tuple[int, int, int]) -> _Pt3:
+        e = edges[i]
+        return e.a if node == e.ka else e.b
+
+    used: set[int] = set()
+    results: list[tuple[ModifierCommand, list[list[_Pt2]]]] = []
+
+    def through_neighbor(
+        i: int, node: tuple[int, int, int], key: tuple[_Pt2, ...],
+    ) -> int | None:
+        """node が through(次数 2・断面一致)なら次エッジを返す。無ければ None。"""
+        incident = node_edges.get(node, [])
+        if len(incident) != 2:
+            return None
+        nxt = incident[0] if incident[1] == i else incident[1]
+        if nxt in used:
+            return None
+        if _profile_shape_key(leave_profile(nxt, node)) != key:
+            return None
+        return nxt
+
+    def walk(i: int, node: tuple[int, int, int]) -> None:
+        """エッジ i を node から離れる向きに極大の連鎖として辿り results に追加する。"""
+        key = _profile_shape_key(leave_profile(i, node))
+        prof = leave_profile(i, node)
+        seq: list[int] = []
+        cur, cnode = i, node
+        while cur not in used:
+            used.add(cur)
+            seq.append(cur)
+            nn = other_node(cur, cnode)
+            nxt = through_neighbor(cur, nn, key)
+            if nxt is None:
+                break
+            cur, cnode = nxt, nn
+        if not seq:
+            return
+        node_iter = node
+        pts: list[_Pt3] = [node_point(seq[0], node_iter)]
+        fps: list[list[_Pt2]] = []
+        for e_idx in seq:
+            nn = other_node(e_idx, node_iter)
+            pts.append(node_point(e_idx, nn))
+            fps.append(edges[e_idx].fp)
+            node_iter = nn
+        command: ModifierCommand = {
+            'profile': prof,
+            'path': [[p[0], p[1], p[2]] for p in pts],
+        }
+        results.append((command, fps))
+
+    # 端点(連鎖始点)から辿る。ある端点で「逆向きに同一断面で延ばせる」なら始点でない。
+    for i in range(len(edges)):
+        if i in used:
+            continue
+        for node in (edges[i].ka, edges[i].kb):
+            key = _profile_shape_key(leave_profile(i, node))
+            incident = node_edges.get(node, [])
+            can_extend_back = False
+            if len(incident) == 2:
+                other = incident[0] if incident[1] == i else incident[1]
+                if (other not in used
+                        and _profile_shape_key(
+                            arrive_profile(other, node)) == key):
+                    can_extend_back = True
+            if can_extend_back:
+                continue
+            walk(i, node)
+            break
+    # 残り(純粋な閉ループ)を後追いで処理する。
+    for i in range(len(edges)):
+        if i not in used:
+            walk(i, edges[i].ka)
+    return results
 
 
 def _polygon_centroid(pts: list[_Pt2]) -> _Pt2:
@@ -1189,41 +1360,45 @@ def _footprint_samples(pts: list[_Pt2]) -> list[_Pt2]:
 
 
 def _best_slab_for_footprint(
-    footprint: list[_Pt2], slabs: list[SlabCommand],
+    footprints: list[list[_Pt2]], slabs: list[SlabCommand],
 ) -> int | None:
-    """地中梁の平面外形が最も重なる底盤スラブのインデックスを返す。無ければ None。
+    """地中梁(パス)の平面外形が最も重なる底盤スラブのインデックスを返す。無ければ None。
 
-    地中梁の代表点(``_footprint_samples``)が各底盤の外形内に入る数を数え、最も多い
-    底盤に振り分ける。どの底盤にも入らない(継目・下屋等で外形の外に出た)ときは、
-    重心が最も近い底盤へフォールバックして取りこぼさない。底盤が無ければ None。
+    統合した各地中梁の代表点(``_footprint_samples``)が各底盤の外形内に入る数を数え、
+    最も多い底盤に振り分ける。どの底盤にも入らない(継目・下屋等で外形の外に出た)
+    ときは、全外形の重心が最も近い底盤へフォールバックして取りこぼさない。底盤が
+    無ければ None。``footprints`` は 1 本のパスに統合した各地中梁の平面外形リスト。
     """
     if not slabs:
         return None
     polys = [[(x, y) for x, y in slab['boundary']] for slab in slabs]
-    samples = _footprint_samples(footprint)
+    samples: list[_Pt2] = []
+    for footprint in footprints:
+        samples.extend(_footprint_samples(footprint))
     counts = [sum(1 for sx, sy in samples if _point_in_poly(sx, sy, poly))
               for poly in polys]
     best = max(range(len(polys)), key=lambda i: counts[i])
     if counts[best] > 0:
         return best
-    # フォールバック: 重心が最も近い底盤
-    cx, cy = _polygon_centroid(footprint)
+    # フォールバック: 全外形の重心が最も近い底盤
+    cx = sum(s[0] for s in samples) / len(samples)
+    cy = sum(s[1] for s in samples) / len(samples)
     return min(range(len(polys)),
                key=lambda i: math.dist((cx, cy), _polygon_centroid(polys[i])))
 
 
 def _attach_ground_beam_modifiers(
     slabs: list[SlabCommand],
-    modifiers: list[tuple[ModifierCommand, list[_Pt2]]],
+    modifiers: list[tuple[ModifierCommand, list[list[_Pt2]]]],
 ) -> None:
     """地中梁モディファイアを、平面で重なる底盤スラブの ``modifiers`` に振り分ける。
 
-    各モディファイアを最も重なる底盤(``_best_slab_for_footprint``)に付ける。底盤が
-    1 枚も無い場合は付けられないため捨てる(地中梁だけで底盤の無い基礎は稀)。判定は
-    入力順に対して決定的。
+    各モディファイア(1 本のパスに統合した地中梁)を最も重なる底盤
+    (``_best_slab_for_footprint``)に付ける。底盤が 1 枚も無い場合は付けられないため
+    捨てる(地中梁だけで底盤の無い基礎は稀)。判定は入力順に対して決定的。
     """
-    for modifier, footprint in modifiers:
-        index = _best_slab_for_footprint(footprint, slabs)
+    for modifier, footprints in modifiers:
+        index = _best_slab_for_footprint(footprints, slabs)
         if index is None:
             continue
         slabs[index]['modifiers'].append(modifier)

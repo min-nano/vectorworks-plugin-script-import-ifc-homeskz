@@ -10,14 +10,18 @@
 「足す」形で Slab PIO に噛み合わせられない**(VW 2026 で確認。``CreateCustomObjectPath``
 は add で噛み合うが作成時ダイアログ+再実行クラッシュ、``CreateCustomObjectN`` +
 ``SetCustomObjectProfileGroup`` の後付けは未確定で底盤不可視、``ModifySlab`` は「選択が
-間違っています」)。そのため地中梁は台形プリズムを **2 回** 作って表す(``_draw_modifier``):
+間違っています」)。**連続する地中梁は 1 本の 3D パスにまとめ、台形断面をパスに沿って
+掃引した「パスに沿った押し出し」(``CreateExtrudeAlongPath``)でモデリングする**
+(屈曲部=向きの変わるコーナーも 1 本のパスに統合済み。解析フェーズ参照)。地中梁は
+このパス押し出しソリッドを **2 回** 作って表す(``_draw_modifier_solids``):
 (1) **削り取りモディファイア**を ``SetCustomObjectProfileGroup`` で ``CreateSlab`` の通常
 スラブに渡して底盤を**削り取り(clip)**、地中梁の位置で底盤のスラブスタイルの層
-(躯体・捨てコン・砕石)を除去して断面に写り込まないようにする(``_draw_modifier_group``。
-以前から安定して動く挙動)。(2) 同じ台形プリズムを**独立した可視 3D ソリッド**
-(``_draw_beam_solids``)として同じ ``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った
-位置を地中梁のコンクリートで埋める。ブール結合はしないが同一クラス・同一位置で一体に見える。
-モディファイアの無い底盤は削り取りをせず ``CreateSlab`` のみ。
+(躯体・捨てコン・砕石)を除去して断面に写り込まないようにする(``_draw_modifier_group``)。
+(2) 同じソリッドを**独立した可視 3D ソリッド**(``_draw_beam_solids``)として同じ
+``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った位置を地中梁のコンクリートで
+埋める。ブール結合はしないが同一クラス・同一位置で一体に見える。モディファイアの無い
+底盤は削り取りをせず ``CreateSlab`` のみ。``CreateExtrudeAlongPath`` が使えない環境では
+パスの各区間を直線押し出しした台形プリズム群にフォールバックする(``_draw_segment_prisms``)。
 
 底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
 捨てコン …mm / 砕石 …mm``)を適用する。既定=150mm はその既存スタイルをそのまま、
@@ -34,6 +38,7 @@
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import vs
@@ -67,7 +72,7 @@ _CONCRETE_COMPONENT_INDEX = 1
 # 結合失敗時のダイアログを抑止する(インポート中に手動操作を求められないように)。
 _JOIN_SHOW_ALERTS = False
 
-# --- 地中梁(台形プリズム)の描画 ---
+# --- 地中梁(パスに沿った押し出し)の描画 ---
 # 地中梁は底盤コンクリートに一体の下り梁だが、**VectorScript では地中梁を「足す」形で
 # Slab PIO に噛み合わせることができない**(VW 2026 で確認):
 #   - ``CreateCustomObjectPath('Slab', 外形, 群)`` は add で噛み合うが Slab プラグインが
@@ -75,57 +80,119 @@ _JOIN_SHOW_ALERTS = False
 #   - ``CreateCustomObjectN``/``SetCustomObjectProfileGroup`` の後付けはスラブ編集中の
 #     「新規追加」扱いで未確定になり底盤が**不可視**になる。
 #   - ``ModifySlab`` は「選択が間違っています」で失敗し別図形が残る。
-# そのため地中梁は台形プリズムを **2 回** 作って表す:
+# **連続する地中梁は 1 本の 3D パスにまとめ(屈曲部も統合、解析フェーズ)、台形断面をパスに
+# 沿って掃引した「パスに沿った押し出し」(``CreateExtrudeAlongPath``)でソリッドにする**。
+# 地中梁はこのソリッドを **2 回** 作って表す:
 #   1. **削り取りモディファイア**(``_draw_modifier_group`` → ``SetCustomObjectProfileGroup``)。
 #      ``CreateSlab``(通常スラブ)のプロファイル群として渡すと底盤を**削り取る(clip)**。
-#      これは以前から安定して動く挙動で、底盤のスラブスタイル(躯体・捨てコン・砕石の層)を
-#      地中梁の位置で除去し、地中梁断面にこれらの層が写り込まないようにする。
-#   2. **可視の 3D ソリッド**(``_draw_beam_solids``)。同じ台形プリズムを独立したソリッドとして
+#      底盤のスラブスタイル(躯体・捨てコン・砕石の層)を地中梁の位置で除去し、地中梁断面に
+#      これらの層が写り込まないようにする。
+#   2. **可視の 3D ソリッド**(``_draw_beam_solids``)。同じソリッドを独立した実体として
 #      底盤と同じ ``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った位置を地中梁の
 #      コンクリートで埋める。ブール結合はしないが、同一クラス・同一位置なので一体に見える。
-# 台形断面(u=水平幅・v=鉛直)を XY 平面に描いて鉛直(+Z)に push し、断面を起こして
-# 鉛直軸 v を +Z に向ける傾き(度)。続けて押し出し方向(+Z→水平)を方位角へ向ける
-# 追加回転(azimuth + このオフセット、度)。幅軸 u が走る向き +90 度に一致する。
-# Z は絶対値そのまま(``origin`` の z=梁下端のワールド Z)。回転規約は解析フェーズ
-# (ifc/footing.py の _ground_beam_modifier)と一致させており、最終的な向き・高さ・
-# 削り取りは VectorWorks 上で確認する方針(他要素と同じ)。
+# 掃引パスは degree-1(折れ線)の NURBS カーブ、断面はパス始端接線の左向き u・鉛直 v で
+# 始端に置いた 3D ポリゴン(``profile`` の (0,0)=パス始端)。Z は絶対値そのまま(パス頂点の
+# z=梁下端のワールド Z)。パスに沿った押し出し・削り取り・断面のパスへの位置合わせは
+# VectorWorks 上で最終確認する方針(他要素と同じ)。
+_MODIFIER_NURBS_DEGREE = 1
+_MODIFIER_NURBS_BY_CTRL = True
+# CreateExtrudeAlongPath が使えない環境のフォールバック(区間ごとの直線押し出し)で
+# 台形断面を鉛直軸 v を +Z に向ける傾き(度)・押し出し方向を方位角へ向ける追加回転(度)。
 _MODIFIER_TILT_DEG = 90.0
 _MODIFIER_AZIMUTH_OFFSET_DEG = 90.0
-# 各モディファイア/地中梁ソリッドに立てるオブジェクト変数(実オブジェクトのエクスポートで
-# 底盤モディファイアに False が立つ。レイヤ平面のワールド 3D として扱わせる)。
+# 各地中梁ソリッドに立てるオブジェクト変数(レイヤ平面のワールド 3D として扱わせる。
+# 実オブジェクトのエクスポートで底盤モディファイアに False が立つ)。
 _MODIFIER_PLANE_VAR = 1160
 _MODIFIER_PLANE_VALUE = False
 
 
-def _draw_modifier(modifier: Any) -> Any:
-    """地中梁 1 件を台形プリズム(押し出しソリッド)として描き、そのハンドルを返す。
+def _draw_path_extrude(modifier: Any) -> Any:
+    """統合地中梁パス 1 本をパスに沿った押し出しソリッドとして描き、ハンドルを返す。
 
-    台形断面(``profile``、u=幅・v=鉛直)を XY 平面に描いて ``BeginXtrd`` で鉛直
-    (0→depth)に押し出し、断面を起こして(``Rotate3D(90,0,0)``)方位角へ回し
-    (``Rotate3D(0,0,azimuth+90)``)、断面原点の**絶対位置**(``origin`` の z=梁下端の
-    ワールド Z)へ移動する。**Z は絶対値そのまま**にする=削り取りモディファイアとして
-    底盤(パスは作図レイヤ平面=絶対 Z の基礎ストーリ)に渡しても、可視ソリッドとして
-    置いても、ワールド絶対 Z で描けば正しい高さに来る。押し出しソリッドにオブジェクト変数
-    1160=False(レイヤ平面のワールド 3D)を立てる(実オブジェクトのエクスポートに一致)。
-    削り取り・可視ソリッドの両方でこの 1 件の描画を使う(地中梁を 2 回作る)。
+    掃引パス(``path``、断面基準点 (0,0) が辿る 3D 折れ線)を degree-1 の NURBS カーブ
+    (``CreateNurbsCurve`` + ``AddVertex3D``)にし、台形断面(``profile``、u=進行方向
+    左向き・v=鉛直)をパス始端接線の左向き ``u``・鉛直 ``v`` で始端に置いた 3D ポリゴンに
+    して、``CreateExtrudeAlongPath(パス, プロファイル)`` で押し出しソリッドにする。
+    **Z は絶対値そのまま**(パス頂点の z=梁下端のワールド Z)。生成できなければ(NIL)
+    None を返し、呼び出し側が区間ごとの直線押し出しにフォールバックする。
     """
     profile = modifier['profile']
-    ox, oy, oz = modifier['origin']
-    vs.BeginXtrd(0.0, modifier['depth'])
-    vs.ClosePoly()
-    vs.BeginPoly()
-    vs.MoveTo(profile[0][0], profile[0][1])
-    for u, v in profile[1:]:
-        vs.LineTo(u, v)
-    vs.EndPoly()
-    vs.EndXtrd()
-    solid = vs.LNewObj()
+    path = modifier['path']
+    if len(path) < 2:
+        return None
+    p0 = path[0]
+    nurbs = vs.CreateNurbsCurve(
+        (p0[0], p0[1], p0[2]), _MODIFIER_NURBS_BY_CTRL, _MODIFIER_NURBS_DEGREE)
+    for p in path[1:]:
+        vs.AddVertex3D(nurbs, (p[0], p[1], p[2]))
+    # 断面の向き = パス始端接線 (path[0]→path[1]) の左向き u・鉛直 v。
+    p1 = path[1]
+    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+    length = math.hypot(dx, dy)
+    tx, ty = (dx / length, dy / length) if length > 0.0 else (1.0, 0.0)
+    ux, uy = -ty, tx
+    vs.BeginPoly3D()
+    for u, v in profile:
+        vs.Add3DPt((p0[0] + ux * u, p0[1] + uy * u, p0[2] + v))
+    vs.EndPoly3D()
+    prof_h = vs.LNewObj()
+    solid = vs.CreateExtrudeAlongPath(nurbs, prof_h)
+    if solid == vs.Handle(0):
+        # 失敗時はパス/プロファイルの残骸を消してから区間押し出しにフォールバックする。
+        vs.DelObject(nurbs)
+        vs.DelObject(prof_h)
+        return None
     vs.SetObjectVariableBoolean(solid, _MODIFIER_PLANE_VAR, _MODIFIER_PLANE_VALUE)
-    vs.ResetOrientation3D()
-    vs.Rotate3D(_MODIFIER_TILT_DEG, 0.0, 0.0)
-    vs.Rotate3D(0.0, 0.0, modifier['azimuth'] + _MODIFIER_AZIMUTH_OFFSET_DEG)
-    vs.Move3D(ox, oy, oz)
     return solid
+
+
+def _draw_segment_prisms(modifier: Any) -> list[Any]:
+    """フォールバック: 統合パスの各区間を直線押し出しした台形プリズム群を返す。
+
+    ``CreateExtrudeAlongPath`` が使えない環境向け。パスの連続する 2 頂点ごとに、台形断面
+    (u=進行方向左向き・v=鉛直)を鉛直に押し出し(``BeginXtrd``)、断面を起こして
+    (``Rotate3D(90,0,0)``)区間の方位角へ回し(``Rotate3D(0,0,azimuth+90)``)、区間始点の
+    **絶対位置**へ移動する。1 区間 = 1 プリズムで、統合前の直線押し出しと同じ形状になる。
+    """
+    profile = modifier['profile']
+    path = modifier['path']
+    solids: list[Any] = []
+    for a, b in zip(path, path[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        depth = math.hypot(dx, dy)
+        if depth <= 0.0:
+            continue
+        azimuth = math.degrees(math.atan2(dy, dx))
+        vs.BeginXtrd(0.0, depth)
+        vs.ClosePoly()
+        vs.BeginPoly()
+        vs.MoveTo(profile[0][0], profile[0][1])
+        for u, v in profile[1:]:
+            vs.LineTo(u, v)
+        vs.EndPoly()
+        vs.EndXtrd()
+        solid = vs.LNewObj()
+        vs.SetObjectVariableBoolean(
+            solid, _MODIFIER_PLANE_VAR, _MODIFIER_PLANE_VALUE)
+        vs.ResetOrientation3D()
+        vs.Rotate3D(_MODIFIER_TILT_DEG, 0.0, 0.0)
+        vs.Rotate3D(0.0, 0.0, azimuth + _MODIFIER_AZIMUTH_OFFSET_DEG)
+        vs.Move3D(a[0], a[1], a[2])
+        solids.append(solid)
+    return solids
+
+
+def _draw_modifier_solids(modifier: Any) -> list[Any]:
+    """地中梁 1 本(統合パス)を 3D ソリッド(群)として描き、ハンドルのリストを返す。
+
+    通常はパスに沿った押し出し 1 個(``_draw_path_extrude``)。生成できない環境では
+    区間ごとの直線押し出しした台形プリズム群(``_draw_segment_prisms``)にフォールバック
+    する。削り取り・可視ソリッドの両方でこの描画を使う(地中梁を 2 回作る)。
+    """
+    solid = _draw_path_extrude(modifier)
+    if solid is not None:
+        return [solid]
+    return _draw_segment_prisms(modifier)
 
 
 def _draw_modifier_group(modifiers: list[Any]) -> Any:
@@ -137,7 +204,7 @@ def _draw_modifier_group(modifiers: list[Any]) -> Any:
     """
     vs.BeginGroup()
     for modifier in modifiers:
-        _draw_modifier(modifier)
+        _draw_modifier_solids(modifier)
     vs.EndGroup()
     return vs.LNewObj()
 
@@ -145,12 +212,12 @@ def _draw_modifier_group(modifiers: list[Any]) -> Any:
 def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
     """地中梁を可視の 3D ソリッドとして描く(削り取りモディファイアとは別の 2 つ目の実体)。
 
-    削り取りで底盤から除去した位置を、同じ台形プリズムのソリッドで埋める。底盤と同じ
+    削り取りで底盤から除去した位置を、同じパス押し出しソリッドで埋める。底盤と同じ
     基礎スラブクラス(``class_name``)を付け、同一コンクリートとして一体に見せる。
     """
     for modifier in modifiers:
-        solid = _draw_modifier(modifier)
-        vs.SetClass(solid, class_name)
+        for solid in _draw_modifier_solids(modifier):
+            vs.SetClass(solid, class_name)
 
 
 def draw_wall(command: WallCommand) -> Any:
@@ -332,14 +399,14 @@ def draw_slab(
     """slab 命令 1 件をスラブオブジェクトとして描画する。
 
     外形ポリゴンを閉じた多角形として作成し、標準の ``CreateSlab`` でスラブにする
-    (底盤の有無に関わらず確実に描画される)。**地中梁を持つ底盤は、地中梁の台形プリズムを
-    2 回作って表す**(VectorScript では地中梁を「足す」形で Slab PIO に噛み合わせられない
-    ため。``_draw_modifier`` 節参照):
+    (底盤の有無に関わらず確実に描画される)。**地中梁を持つ底盤は、地中梁のパス押し出し
+    ソリッドを 2 回作って表す**(VectorScript では地中梁を「足す」形で Slab PIO に噛み合わせ
+    られないため。``_draw_modifier_solids`` 節参照):
 
-    1. **削り取りモディファイア**: 台形プリズム群を ``SetCustomObjectProfileGroup`` で
+    1. **削り取りモディファイア**: パス押し出しソリッド群を ``SetCustomObjectProfileGroup`` で
        ``CreateSlab`` の通常スラブに渡し、底盤を**削り取る(clip)**。地中梁の位置で底盤の
        スラブスタイルの層(躯体・捨てコン・砕石)を除去し、地中梁断面に写り込まないようにする。
-    2. **可視の 3D ソリッド**: 同じ台形プリズムを独立したソリッド(``_draw_beam_solids``)として
+    2. **可視の 3D ソリッド**: 同じソリッドを独立した実体(``_draw_beam_solids``)として
        底盤と同じ ``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った位置を地中梁の
        コンクリートで埋める。
 
