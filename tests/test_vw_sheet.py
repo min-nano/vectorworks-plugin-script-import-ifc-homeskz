@@ -53,6 +53,7 @@ def make_legend(number: str = '1', style: str = '基礎伏図凡例') -> dict[st
     return {
         'number': number,
         'style': style,
+        'class': '01作図-01線-07枠線-02図中枠',
         'position': [0.0, 0.0],
         'items': [
             {'symbol': 'アンカーボルト_M12', 'label': '土台用アンカーボルトM12'},
@@ -384,6 +385,9 @@ class TestExecuteSheetsWithLegends:
         vs_mock.Layer.assert_any_call('1')
         vs_mock.CreateCustomObjectN.assert_called_once_with(
             vw_sheet._GRAPHIC_LEGEND_PLUGIN, (0.0, 0.0), 0, False)
+        # PIO 本体を作図クラス(図中枠)に設定する
+        vs_mock.SetClass.assert_any_call(
+            'LEGEND_HANDLE', '01作図-01線-07枠線-02図中枠')
         # ソース定義(シンボル + 基礎伏図ビューポートフィルタ)を持つプラグイン
         # スタイルを関連付ける
         vs_mock.SetPluginStyle.assert_any_call(

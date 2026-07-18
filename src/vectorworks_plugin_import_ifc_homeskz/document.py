@@ -388,6 +388,7 @@
                 # 関連付けるグラフィック凡例スタイル名。基礎伏図=基礎伏図凡例、
                 # 床伏図・母屋伏図=床伏図凡例。ソース定義・集計基準・行レイアウトを持つ。
                 "style": "基礎伏図凡例",
+                "class": "01作図-01線-07枠線-02図中枠",  # PIO 本体の作図クラス
                 "position": [0.0, 0.0],   # シートレイヤ上の配置点 (mm)
                 "items": [
                     # 凡例に並べるシンボルと表示ラベル(並び順どおりに表示する)。
@@ -877,24 +878,29 @@ class LegendItemCommand(TypedDict):
     label: str
 
 
-class LegendCommand(TypedDict):
-    """シートレイヤ上にグラフィック凡例を配置する命令。
+# 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
+LegendCommand = TypedDict('LegendCommand', {
+    'number': str,
+    'style': str,
+    'class': str,
+    'position': list[float],
+    'items': list[LegendItemCommand],
+})
+"""シートレイヤ上にグラフィック凡例を配置する命令。
 
-    VW 標準の「グラフィック凡例」PIO をシートレイヤ(``number``)上の
-    ``position`` に置き、``style`` のグラフィック凡例スタイルを関連付ける。凡例は
-    対象シートのビューポートに表示されるシンボル(基礎伏図=アンカーボルト、
-    床伏図・母屋伏図=各伏図のシンボル)を表し、載せるシンボルと表示ラベルは
-    ``items`` に並び順どおり持たせる。グラフィック凡例のデータソース・行ラベルの
-    詳細設定は PIO の設定 API が未公開のためユーザーが VW 側で用意した
-    グラフィック凡例スタイル(``style``。基礎伏図=``基礎伏図凡例``、床伏図・
-    母屋伏図=``床伏図凡例``)に焼き込み、描画フェーズは PIO にこのスタイルを
-    関連付けるだけにする(描画フェーズは他要素と同じく VW 上で検証する方針)。
-    """
+VW 標準の「グラフィック凡例」PIO をシートレイヤ(``number``)上の
+``position`` に置き、``style`` のグラフィック凡例スタイルを関連付ける。凡例は
+対象シートのビューポートに表示されるシンボル(基礎伏図=アンカーボルト、
+床伏図・母屋伏図=各伏図のシンボル)を表し、載せるシンボルと表示ラベルは
+``items`` に並び順どおり持たせる。グラフィック凡例のデータソース・行ラベルの
+詳細設定は PIO の設定 API が未公開のためユーザーが VW 側で用意した
+グラフィック凡例スタイル(``style``。基礎伏図=``基礎伏図凡例``、床伏図・
+母屋伏図=``床伏図凡例``)に焼き込み、描画フェーズは PIO にこのスタイルを
+関連付けるだけにする(描画フェーズは他要素と同じく VW 上で検証する方針)。
 
-    number: str
-    style: str
-    position: list[float]
-    items: list[LegendItemCommand]
+``class`` は PIO 本体の作図クラス(``01作図-01線-07枠線-02図中枠``)で、描画フェーズが
+``vs.SetClass`` で設定する(存在しないクラスは VW が自動生成)。
+"""
 
 
 # 'class' キーが Python の予約語のため functional 構文で定義する(GridCommand と同様)
@@ -1319,6 +1325,8 @@ def _validate_legend(index: int, command: Any) -> None:
              f'{where}.number は非空文字列である必要があります')
     _require(isinstance(command.get('style'), str) and command['style'],
              f'{where}.style は非空文字列である必要があります')
+    _require(isinstance(command.get('class'), str) and command['class'],
+             f'{where}.class は非空文字列である必要があります')
     _require(_is_point(command.get('position')),
              f'{where}.position は [x, y] の数値ペアである必要があります')
     items = command.get('items')
