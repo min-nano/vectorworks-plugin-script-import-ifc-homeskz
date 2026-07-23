@@ -315,23 +315,34 @@ class TestExecuteSlabsWithModifiers:
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
     def test_sets_material_on_beam_solids(self) -> None:
-        # 可視の地中梁ソリッドにマテリアル(基礎コンクリートMT)を SetObjMaterialHandle で設定する。
-        # 名前→ハンドルは GetObject で解決する(モックは existing に含む名前へ
-        # 'HANDLE_<name>' を返す)。
-        vs_mock = _make_vs_mock({'F-底盤', '基礎コンクリートMT'})
+        # 可視の地中梁ソリッドにマテリアル(基礎コンクリートMT)を SetObjMaterialHandle で
+        # 設定する。名前→ハンドルは ForEachMaterial 列挙で解決する(GetObject は
+        # マテリアルを確実に返さないため使わない)。
+        vs_mock = _make_vs_mock({'F-底盤'})
+
+        def for_each_material(only_used: bool, callback: Any) -> None:
+            callback('MAT_H')
+
+        vs_mock.ForEachMaterial.side_effect = for_each_material
+        vs_mock.GetName.return_value = '基礎コンクリートMT'
         vw_footing = _load(vs_mock)
 
         vw_footing.execute_slabs([make_slab_with_modifier()])
 
-        vs_mock.GetObject.assert_any_call('基礎コンクリートMT')
         mat_calls = [c.args for c in vs_mock.SetObjMaterialHandle.call_args_list]
         assert any(
-            a[0] is vs_mock.LNewObj.return_value and a[1] == 'HANDLE_基礎コンクリートMT'
+            a[0] is vs_mock.LNewObj.return_value and a[1] == 'MAT_H'
             for a in mat_calls)
 
     def test_skips_material_when_not_registered(self) -> None:
-        # マテリアルが未登録(GetObject=NIL)ならマテリアルを設定しない。
+        # マテリアルが未登録(ForEachMaterial が一致を返さない)ならマテリアルを設定しない。
         vs_mock = _make_vs_mock({'F-底盤'})
+
+        def for_each_material(only_used: bool, callback: Any) -> None:
+            callback('OTHER_MAT')
+
+        vs_mock.ForEachMaterial.side_effect = for_each_material
+        vs_mock.GetName.return_value = '別のマテリアル'
         vw_footing = _load(vs_mock)
 
         vw_footing.execute_slabs([make_slab_with_modifier()])

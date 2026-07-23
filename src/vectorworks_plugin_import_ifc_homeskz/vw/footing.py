@@ -17,7 +17,8 @@
 以前から安定して動く挙動)。(2) 同じ台形プリズムを**独立した可視 3D ソリッド**
 (``_draw_beam_solids``)として同じ ``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った
 位置を地中梁のコンクリートで埋める。ブール結合はしないが同一クラス・同一位置で一体に見える。
-可視ソリッドには地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する。
+可視ソリッドには地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する
+(名前→ハンドルは ``ForEachMaterial`` 列挙で解決する。``GetObject`` はマテリアルを確実に返さない)。
 モディファイアの無い底盤は削り取りをせず ``CreateSlab`` のみ。
 
 底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
@@ -104,11 +105,32 @@ _MODIFIER_PLANE_VALUE = False
 _MARK_STRUCTURAL_VAR = 702
 _MARK_STRUCTURAL_VALUE = True
 # 地中梁の可視ソリッドに設定するマテリアル名。VW 側で登録したマテリアル資源名と
-# 一致させる。名前→ハンドルは ``GetObject`` で引き、``SetObjMaterialHandle`` で
-# ソリッドへ設定する(マテリアルはハンドルで割り当てる)。ハンドルが得られない
-# (未登録=NIL)場合はマテリアルを設定しない。マテリアル名・割り当ての最終挙動は
-# 他要素と同じく VectorWorks 上で確認する方針。
+# 一致させる。**マテリアルはリソースマネージャのリソースで ``GetObject`` では確実に
+# 取得できない**(スラブスタイルと同じ。空ハンドルが返ると ``SetObjMaterialHandle``
+# が呼ばれずオブジェクトの「マテリアルを使用」も無効のまま=適用されない)。そこで
+# ``ForEachMaterial`` でドキュメントの全マテリアルを列挙し ``GetName`` が一致する
+# ハンドルを引き(``_find_material_handle``)、``SetObjMaterialHandle`` で割り当てる
+# (有効なハンドルを渡すとオブジェクトの「マテリアルを使用」が有効になる)。ハンドルが
+# 得られない(未登録=NIL)場合はマテリアルを設定しない。マテリアル名・割り当ての
+# 最終挙動は他要素と同じく VectorWorks 上で確認する方針。
 _GROUND_BEAM_MATERIAL = '基礎コンクリートMT'
+
+
+def _find_material_handle(name: str) -> Any:
+    """マテリアル名 ``name`` のハンドルを返す。無ければ空ハンドル(``Handle(0)``)。
+
+    マテリアルはリソースマネージャのリソースで ``GetObject`` では確実に取得できない
+    (スラブスタイルと同じ)。``ForEachMaterial``(ドキュメントの全マテリアルを列挙)で
+    各マテリアルを走査し、``GetName`` が ``name`` に一致する最初のハンドルを返す。
+    """
+    matches: list[Any] = []
+
+    def _capture(material: Any) -> None:
+        if not matches and vs.GetName(material) == name:
+            matches.append(material)
+
+    vs.ForEachMaterial(False, _capture)
+    return matches[0] if matches else vs.Handle(0)
 
 
 def _draw_modifier(modifier: Any) -> Any:
@@ -165,9 +187,11 @@ def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
     Structural=selector 702)を立て、断面ビューポートで底盤など他の構造用図形と一体に
     マージ表示させる(削り取りモディファイアには不要で可視ソリッドにのみ立てる)。
     さらに地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する
-    (名前→ハンドルは ``GetObject`` で解決。未登録=NIL のときは設定しない)。
+    (名前→ハンドルは ``ForEachMaterial`` 列挙で解決=``_find_material_handle``。有効な
+    ハンドルを渡すとオブジェクトの「マテリアルを使用」が有効になる。未登録=NIL のときは
+    設定しない)。
     """
-    material_handle = vs.GetObject(_GROUND_BEAM_MATERIAL)
+    material_handle = _find_material_handle(_GROUND_BEAM_MATERIAL)
     for modifier in modifiers:
         solid = _draw_modifier(modifier)
         vs.SetClass(solid, class_name)
