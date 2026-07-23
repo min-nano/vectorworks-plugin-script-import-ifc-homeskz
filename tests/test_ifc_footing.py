@@ -140,6 +140,24 @@ class TestBuildFromFixture:
             assert wall['top_bound']['level'] == '横架材天端'
             assert wall['top_bound']['story_offset'] == 1
 
+    def test_wall_bottom_bites_into_slab(self) -> None:
+        # 立上りの下端は底盤の底面(底盤天端 − 底盤厚)より _SLAB_BITE だけ下げて
+        # 底盤に呑み込ませる(面ちょうど接する coplanar による断面ビューポートの
+        # 境界線を防ぐため)。伏図次郎は底盤天端=50・底盤厚=150 → 底面=-100 なので
+        # 立上り下端は -110 になる。
+        ifc = _open(self.FILENAME)
+        slab_top = footing.resolve_slab_top_elevation(ifc)
+        slabs = footing.build_slab_commands(ifc)
+        slab_thickness = slabs[0]['thickness']
+        assert slab_top is not None and slab_thickness is not None
+        slab_bottom = slab_top - slab_thickness
+        walls = footing.build_wall_commands(ifc)
+        assert walls
+        for wall in walls:
+            assert math.isclose(
+                wall['bottom_bound']['offset'],
+                slab_bottom - footing._SLAB_BITE)
+
     def test_walls_are_merged(self) -> None:
         # 同一直線・同一断面の立上りが統合され、残った壁同士に統合可能ペアが無い
         ifc = _open(self.FILENAME)
