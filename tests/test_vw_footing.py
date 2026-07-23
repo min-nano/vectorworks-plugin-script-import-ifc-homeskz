@@ -310,12 +310,17 @@ class TestExecuteSlabsWithModifiers:
         move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
         assert (760.0, 5520.0, -240.0) in move_calls
         # 削り取りモディファイアは実形状のまま(天端 v=140)、可視ソリッドは天端を
-        # _GROUND_BEAM_SLAB_BITE(10mm)だけ底盤へ呑み込ませる(v=150)。
+        # _GROUND_BEAM_SLAB_BITE(10mm)だけ底盤へ呑み込ませる(v=150)。台形の斜辺に
+        # 沿って延長するため、天端の x(u)座標も勾配ぶんずらす。
         line_calls = [c.args for c in vs_mock.LineTo.call_args_list]
         assert (-290.0, 140.0) in line_calls   # 削り取り(clip)= 実形状
-        assert (-290.0, 150.0) in line_calls   # 可視ソリッド = 呑み込み後
-        assert (0.0, 150.0) in line_calls      # 天端のもう一方の頂点も持ち上げ
-        # 下端(v=0)は動かさない
+        # 左上頂点は斜辺 (-150,0)→(-290,140)(勾配 du/dv=-1)に沿って延長 →
+        # v を +10 上げると u も -10 され (-300, 150) になる。
+        assert (-300.0, 150.0) in line_calls
+        # 右上頂点は側辺 (0,0)→(0,140) が鉛直なので u は変わらず (0, 150)。
+        assert (0.0, 150.0) in line_calls
+        # 斜辺の勾配が実形状と一致(削り取りの (-290,140) と可視の (-300,150) が
+        # ともに下端 (-150,0) と同一直線上)。
         assert (-150.0, 0.0) in line_calls
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)

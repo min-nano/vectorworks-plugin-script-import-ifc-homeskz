@@ -131,14 +131,40 @@ def _bite_modifier(modifier: Any) -> Any:
     """可視ソリッド用に、地中梁の天端(profile の最大 v)を呑み込みぶん上げたコピーを返す。
 
     地中梁は下り梁で、profile の v=0 が下端・最大 v が天端(底盤側)。天端の辺の頂点
-    (最大 v から ``_BITE_VERTEX_TOL`` 以内)を ``_GROUND_BEAM_SLAB_BITE`` だけ持ち上げ、
-    可視ソリッドを底盤へ呑み込ませる。**削り取りモディファイア(clip)には使わず**、
-    元の ``modifier`` は変更しない(浅いコピー + 新しい profile を返す)。
+    (最大 v から ``_BITE_VERTEX_TOL`` 以内)を ``_GROUND_BEAM_SLAB_BITE`` だけ上げて
+    可視ソリッドを底盤へ呑み込ませる。**地中梁は台形断面で側辺が斜め**のため、天端を
+    真上へ上げると側辺の勾配が変わり、可視ソリッドの斜面が実形状(削り取り)の斜面と
+    ずれてしまう。そこで各天端頂点を**隣接する側辺(下端側の頂点へ向かう斜辺)に沿って**
+    延長する=v を呑み込みぶん上げるのに合わせて u(断面の水平座標)も勾配ぶんずらし、
+    側面が実形状の斜面の直線延長になるようにする(鉛直な側辺は u が変わらない)。
+    **削り取りモディファイア(clip)には使わず**、元の ``modifier`` は変更しない
+    (浅いコピー + 新しい profile を返す)。
     """
     profile = modifier['profile']
+    n = len(profile)
     v_max = max(v for _u, v in profile)
-    raised = [[u, v + _GROUND_BEAM_SLAB_BITE if v >= v_max - _BITE_VERTEX_TOL else v]
-              for u, v in profile]
+
+    def is_top(i: int) -> bool:
+        return profile[i][1] >= v_max - _BITE_VERTEX_TOL
+
+    raised: list[list[float]] = []
+    for i in range(n):
+        u, v = profile[i]
+        if not is_top(i):
+            raised.append([u, v])
+            continue
+        # 天端頂点。隣接する 2 辺のうち下端側の頂点(側辺)を探し、その斜辺方向へ
+        # v を呑み込みぶん上げるのに必要なだけ u もずらして延長する。側辺が見つから
+        # ない(天端が水平に分割された中間頂点等)・側辺がほぼ水平なら真上へ上げる。
+        bottom = next((profile[j] for j in ((i - 1) % n, (i + 1) % n)
+                       if not is_top(j)), None)
+        du_dv = None
+        if bottom is not None:
+            dv = v - bottom[1]
+            if abs(dv) > _BITE_VERTEX_TOL:
+                du_dv = (u - bottom[0]) / dv
+        du = du_dv * _GROUND_BEAM_SLAB_BITE if du_dv is not None else 0.0
+        raised.append([u + du, v + _GROUND_BEAM_SLAB_BITE])
     result = dict(modifier)
     result['profile'] = raised
     return result
