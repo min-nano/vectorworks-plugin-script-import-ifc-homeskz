@@ -315,7 +315,7 @@ class TestExecuteSlabsWithModifiers:
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
     def test_sets_material_on_beam_solids(self) -> None:
-        # 可視の地中梁ソリッドにマテリアル(基礎コンクリートMT)を SetObjMaterialHandle で
+        # 可視の地中梁ソリッドにマテリアル(基礎コンクリート MT)を SetObjMaterialHandle で
         # 設定する。名前→ハンドルは ForEachMaterial 列挙で解決する(GetObject は
         # マテリアルを確実に返さないため使わない)。
         vs_mock = _make_vs_mock({'F-底盤'})
@@ -324,7 +324,7 @@ class TestExecuteSlabsWithModifiers:
             callback('MAT_H')
 
         vs_mock.ForEachMaterial.side_effect = for_each_material
-        vs_mock.GetName.return_value = '基礎コンクリートMT'
+        vs_mock.GetName.return_value = '基礎コンクリート MT'
         vw_footing = _load(vs_mock)
 
         vw_footing.execute_slabs([make_slab_with_modifier()])

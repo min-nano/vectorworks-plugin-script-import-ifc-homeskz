@@ -17,7 +17,7 @@
 以前から安定して動く挙動)。(2) 同じ台形プリズムを**独立した可視 3D ソリッド**
 (``_draw_beam_solids``)として同じ ``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った
 位置を地中梁のコンクリートで埋める。ブール結合はしないが同一クラス・同一位置で一体に見える。
-可視ソリッドには地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する
+可視ソリッドには地中梁のマテリアル(``基礎コンクリート MT``)を ``SetObjMaterialHandle`` で設定する
 (名前→ハンドルは ``ForEachMaterial`` 列挙で解決する。``GetObject`` はマテリアルを確実に返さない)。
 モディファイアの無い底盤は削り取りをせず ``CreateSlab`` のみ。
 
@@ -113,7 +113,7 @@ _MARK_STRUCTURAL_VALUE = True
 # (有効なハンドルを渡すとオブジェクトの「マテリアルを使用」が有効になる)。ハンドルが
 # 得られない(未登録=NIL)場合はマテリアルを設定しない。マテリアル名・割り当ての
 # 最終挙動は他要素と同じく VectorWorks 上で確認する方針。
-_GROUND_BEAM_MATERIAL = '基礎コンクリートMT'
+_GROUND_BEAM_MATERIAL = '基礎コンクリート MT'
 
 
 def _find_material_handle(name: str) -> Any:
@@ -186,7 +186,7 @@ def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
     可視ソリッドには「断面ビューポートで構造用図形として扱う」(Mark Object as
     Structural=selector 702)を立て、断面ビューポートで底盤など他の構造用図形と一体に
     マージ表示させる(削り取りモディファイアには不要で可視ソリッドにのみ立てる)。
-    さらに地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する
+    さらに地中梁のマテリアル(``基礎コンクリート MT``)を ``SetObjMaterialHandle`` で設定する
     (名前→ハンドルは ``ForEachMaterial`` 列挙で解決=``_find_material_handle``。有効な
     ハンドルを渡すとオブジェクトの「マテリアルを使用」が有効になる。未登録=NIL のときは
     設定しない)。
