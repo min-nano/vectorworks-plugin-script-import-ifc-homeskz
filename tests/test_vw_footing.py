@@ -306,11 +306,17 @@ class TestExecuteSlabsWithModifiers:
         # 可視の地中梁ソリッドに「断面ビューポートで構造用図形として扱う」
         # (Mark Object as Structural=selector 702)を立てる
         assert any(a[1] == 702 and a[2] is True for a in bool_calls)
-        # Z は絶対値(梁下端のワールド Z)そのまま。断面天端は実形状のまま(v=140)。
+        # Z は絶対値(梁下端のワールド Z)そのまま。
         move_calls = [c.args for c in vs_mock.Move3D.call_args_list]
         assert (760.0, 5520.0, -240.0) in move_calls
+        # 削り取りモディファイアは実形状のまま(天端 v=140)、可視ソリッドは天端を
+        # _GROUND_BEAM_SLAB_BITE(10mm)だけ底盤へ呑み込ませる(v=150)。
         line_calls = [c.args for c in vs_mock.LineTo.call_args_list]
-        assert (-290.0, 140.0) in line_calls
+        assert (-290.0, 140.0) in line_calls   # 削り取り(clip)= 実形状
+        assert (-290.0, 150.0) in line_calls   # 可視ソリッド = 呑み込み後
+        assert (0.0, 150.0) in line_calls      # 天端のもう一方の頂点も持ち上げ
+        # 下端(v=0)は動かさない
+        assert (-150.0, 0.0) in line_calls
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 

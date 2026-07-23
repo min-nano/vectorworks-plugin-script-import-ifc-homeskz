@@ -124,6 +124,13 @@ _FREE_END_COLUMN_PERP_TOL = 20.0
 _OPENING_MATCH_TOL = 2.0
 _OPENING_MIN_SEGMENT = 1.0
 
+# 底盤への呑み込み量 (mm)。基礎の立上り(基礎梁)は底盤の上に載り、下端が底盤の
+# 底面(底盤天端 − 底盤厚)にちょうど一致するため、境界面が coplanar(面ちょうど接する)
+# になり断面ビューポートで境界線が不安定に表示される。立上りの下端をこの量だけ底盤側
+# (下方)へ延ばして底盤に少し呑み込ませ、面を重ねて境界線が出ないようにする(地中梁の
+# 天端も同様に底盤へ呑み込ませる。``vw/footing.py`` の ``_GROUND_BEAM_SLAB_BITE`` と同値)。
+_SLAB_BITE = 10.0
+
 
 class _WallOpening(NamedTuple):
     """立上りに設定された人通口の削り取り区間(センタリング済みの壁芯上の線分)。
@@ -602,7 +609,9 @@ def build_wall_commands(
 
     壁芯は配置原点からプロファイル中心線(押し出し方向)に沿った線。壁厚は矩形断面
     の幅(XDim)、上下端は実形状の絶対 Z。下端は基礎の GL、上端は 1 階の横架材天端に
-    バインドし、offset はそれぞれの実 Z とバインド先レベルの絶対 Z の差。
+    バインドし、offset はそれぞれの実 Z とバインド先レベルの絶対 Z の差。**下端は
+    ``_SLAB_BITE`` だけ下げて底盤に呑み込ませる**(立上り下端と底盤底面が面ちょうど
+    接する coplanar による断面ビューポートの境界線を防ぐため。地中梁も同様)。
 
     ``merge_wall_commands`` で、同一直線上にあり同一断面形状(壁厚・高さ基準)の
     立上りを 1 本の壁に統合する(ホームズ君 IFC では通り芯の交点等で立上りが細かく
@@ -648,8 +657,10 @@ def build_wall_commands(
         top_abs, _thickness = _z_top_and_thickness(solid)
         bottom_abs = top_abs - height
 
+        # 下端を _SLAB_BITE だけ下げて底盤に呑み込ませ、立上り下端と底盤底面が
+        # 面ちょうど接する(coplanar)ことによる断面ビューポートの境界線を防ぐ。
         bottom_bound: StoryBoundCommand = {
-            'story_offset': 0, 'level': LEVEL_GL, 'offset': bottom_abs}
+            'story_offset': 0, 'level': LEVEL_GL, 'offset': bottom_abs - _SLAB_BITE}
         top_bound: StoryBoundCommand = {
             'story_offset': 1, 'level': LEVEL_BEAM_TOP,
             'offset': top_abs - beam_top_abs}

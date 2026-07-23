@@ -114,6 +114,34 @@ _MARK_STRUCTURAL_VALUE = True
 # 得られない(未登録=NIL)場合はマテリアルを設定しない。マテリアル名・割り当ての
 # 最終挙動は他要素と同じく VectorWorks 上で確認する方針。
 _GROUND_BEAM_MATERIAL = '基礎コンクリート MT'
+# 地中梁の可視ソリッドを底盤へ呑み込ませる量 (mm)。地中梁は下り梁で天端(profile の
+# 最大 v)が底盤の底面にちょうど接するため、境界面が coplanar になり断面ビューポートで
+# 境界線が不安定に表示される。**可視ソリッド**の天端だけをこの量だけ上げて底盤に呑み込ませ、
+# 面を重ねて境界線が出ないようにする。**削り取りモディファイア(clip)は実形状のまま**に
+# する(削り取りも一緒に上げると底盤に生じるノッチと可視ソリッドが再び面ちょうど接して
+# 境界線が残るため、可視ソリッドだけを大きくして底盤本体と重ねる)。立上りの下端も同様に
+# 底盤へ呑み込ませる(``ifc/footing.py`` の ``_SLAB_BITE`` と同値)。
+_GROUND_BEAM_SLAB_BITE = 10.0
+# profile の天端(最大 v)とみなす頂点の許容差 (mm)。最大 v からこの差以内の頂点を
+# 天端の辺とみなして呑み込みぶん持ち上げる。
+_BITE_VERTEX_TOL = 0.5
+
+
+def _bite_modifier(modifier: Any) -> Any:
+    """可視ソリッド用に、地中梁の天端(profile の最大 v)を呑み込みぶん上げたコピーを返す。
+
+    地中梁は下り梁で、profile の v=0 が下端・最大 v が天端(底盤側)。天端の辺の頂点
+    (最大 v から ``_BITE_VERTEX_TOL`` 以内)を ``_GROUND_BEAM_SLAB_BITE`` だけ持ち上げ、
+    可視ソリッドを底盤へ呑み込ませる。**削り取りモディファイア(clip)には使わず**、
+    元の ``modifier`` は変更しない(浅いコピー + 新しい profile を返す)。
+    """
+    profile = modifier['profile']
+    v_max = max(v for _u, v in profile)
+    raised = [[u, v + _GROUND_BEAM_SLAB_BITE if v >= v_max - _BITE_VERTEX_TOL else v]
+              for u, v in profile]
+    result = dict(modifier)
+    result['profile'] = raised
+    return result
 
 
 def _find_material_handle(name: str) -> Any:
@@ -183,6 +211,9 @@ def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
 
     削り取りで底盤から除去した位置を、同じ台形プリズムのソリッドで埋める。底盤と同じ
     基礎スラブクラス(``class_name``)を付け、同一コンクリートとして一体に見せる。
+    可視ソリッドは ``_bite_modifier`` で天端を底盤へ ``_GROUND_BEAM_SLAB_BITE`` だけ
+    呑み込ませる(削り取りモディファイアは実形状のまま)。地中梁天端と底盤底面が面ちょうど
+    接する(coplanar)ことによる断面ビューポートの境界線を防ぐため。
     可視ソリッドには「断面ビューポートで構造用図形として扱う」(Mark Object as
     Structural=selector 702)を立て、断面ビューポートで底盤など他の構造用図形と一体に
     マージ表示させる(削り取りモディファイアには不要で可視ソリッドにのみ立てる)。
@@ -193,7 +224,8 @@ def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
     """
     material_handle = _find_material_handle(_GROUND_BEAM_MATERIAL)
     for modifier in modifiers:
-        solid = _draw_modifier(modifier)
+        # 可視ソリッドは天端を底盤へ呑み込ませる(削り取りモディファイアは実形状のまま)。
+        solid = _draw_modifier(_bite_modifier(modifier))
         vs.SetClass(solid, class_name)
         vs.SetObjectVariableBoolean(
             solid, _MARK_STRUCTURAL_VAR, _MARK_STRUCTURAL_VALUE)
