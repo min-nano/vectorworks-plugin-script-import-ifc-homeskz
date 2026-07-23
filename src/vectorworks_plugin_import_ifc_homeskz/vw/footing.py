@@ -17,6 +17,7 @@
 以前から安定して動く挙動)。(2) 同じ台形プリズムを**独立した可視 3D ソリッド**
 (``_draw_beam_solids``)として同じ ``F-底盤`` レイヤ・同じ基礎スラブクラスで置き、削り取った
 位置を地中梁のコンクリートで埋める。ブール結合はしないが同一クラス・同一位置で一体に見える。
+可視ソリッドには地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する。
 モディファイアの無い底盤は削り取りをせず ``CreateSlab`` のみ。
 
 底盤(基礎底盤系)にはスラブスタイル(``基礎スラブ - コンクリート {厚}mm /
@@ -102,6 +103,12 @@ _MODIFIER_PLANE_VALUE = False
 # 変数一覧(Function Reference の Object Selectors)より。
 _MARK_STRUCTURAL_VAR = 702
 _MARK_STRUCTURAL_VALUE = True
+# 地中梁の可視ソリッドに設定するマテリアル名。VW 側で登録したマテリアル資源名と
+# 一致させる。名前→ハンドルは ``GetObject`` で引き、``SetObjMaterialHandle`` で
+# ソリッドへ設定する(マテリアルはハンドルで割り当てる)。ハンドルが得られない
+# (未登録=NIL)場合はマテリアルを設定しない。マテリアル名・割り当ての最終挙動は
+# 他要素と同じく VectorWorks 上で確認する方針。
+_GROUND_BEAM_MATERIAL = '基礎コンクリートMT'
 
 
 def _draw_modifier(modifier: Any) -> Any:
@@ -157,12 +164,17 @@ def _draw_beam_solids(modifiers: list[Any], class_name: str) -> None:
     可視ソリッドには「断面ビューポートで構造用図形として扱う」(Mark Object as
     Structural=selector 702)を立て、断面ビューポートで底盤など他の構造用図形と一体に
     マージ表示させる(削り取りモディファイアには不要で可視ソリッドにのみ立てる)。
+    さらに地中梁のマテリアル(``基礎コンクリートMT``)を ``SetObjMaterialHandle`` で設定する
+    (名前→ハンドルは ``GetObject`` で解決。未登録=NIL のときは設定しない)。
     """
+    material_handle = vs.GetObject(_GROUND_BEAM_MATERIAL)
     for modifier in modifiers:
         solid = _draw_modifier(modifier)
         vs.SetClass(solid, class_name)
         vs.SetObjectVariableBoolean(
             solid, _MARK_STRUCTURAL_VAR, _MARK_STRUCTURAL_VALUE)
+        if material_handle != vs.Handle(0):
+            vs.SetObjMaterialHandle(solid, material_handle)
 
 
 def draw_wall(command: WallCommand) -> Any:

@@ -314,6 +314,30 @@ class TestExecuteSlabsWithModifiers:
         # スラブとして天端・バインド・スタイル対象は従来どおり
         vs_mock.SetSlabHeight.assert_called_once_with(slab, 50.0)
 
+    def test_sets_material_on_beam_solids(self) -> None:
+        # 可視の地中梁ソリッドにマテリアル(基礎コンクリートMT)を SetObjMaterialHandle で設定する。
+        # 名前→ハンドルは GetObject で解決する(モックは existing に含む名前へ
+        # 'HANDLE_<name>' を返す)。
+        vs_mock = _make_vs_mock({'F-底盤', '基礎コンクリートMT'})
+        vw_footing = _load(vs_mock)
+
+        vw_footing.execute_slabs([make_slab_with_modifier()])
+
+        vs_mock.GetObject.assert_any_call('基礎コンクリートMT')
+        mat_calls = [c.args for c in vs_mock.SetObjMaterialHandle.call_args_list]
+        assert any(
+            a[0] is vs_mock.LNewObj.return_value and a[1] == 'HANDLE_基礎コンクリートMT'
+            for a in mat_calls)
+
+    def test_skips_material_when_not_registered(self) -> None:
+        # マテリアルが未登録(GetObject=NIL)ならマテリアルを設定しない。
+        vs_mock = _make_vs_mock({'F-底盤'})
+        vw_footing = _load(vs_mock)
+
+        vw_footing.execute_slabs([make_slab_with_modifier()])
+
+        vs_mock.SetObjMaterialHandle.assert_not_called()
+
     def test_draws_beam_solid_even_when_slab_not_created(self) -> None:
         # スラブが作れなくても(フォールバック)、地中梁の可視ソリッドは描く。
         vs_mock = _make_vs_mock({'F-底盤'})
